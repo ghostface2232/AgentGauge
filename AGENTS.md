@@ -12,6 +12,15 @@ Gauge is a Windows system-tray app that monitors Claude Code and Codex usage. Cl
 - MVVM: CommunityToolkit.Mvvm
 - Data: each tool's official OAuth usage API, called over HTTPS with the token the tool's own CLI stores locally (read-only)
 - Single instance only; second launch exits silently
+- Distribution: minimal per-user Inno Setup 6 installer wrapping the self-contained x64 payload
+
+## Packaging
+
+- `build-installer.ps1` is the release command. It publishes the self-contained x64 payload to `dist/app/win-x64`, then compiles `installer/Gauge.iss` into `dist/GaugeSetup-win-x64.exe`.
+- The installer is per-user (`PrivilegesRequired=lowest`) and installs to `%LOCALAPPDATA%\Programs\Gauge`, so it must not require UAC.
+- Keep the wizard minimal: modern style, no welcome, directory, program-group, or ready page. Retain only progress and the finished page with the optional launch checkbox.
+- Do not add desktop shortcuts or an install-time start-on-boot choice. Gauge owns that preference through its tray menu. The uninstaller must delete Gauge's HKCU Run value if present.
+- `Gauge.csproj` is the source of the installer version. Keep its `<Version>` updated for releases.
 
 ## Core architecture rule
 
