@@ -60,7 +60,12 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
 
         if (remaining.TotalHours >= 24)
         {
-            return $"{(int)remaining.TotalDays}일 후({resetAt.ToLocalTime():MM/dd}) 초기화";
+            // Count whole calendar days to the reset date (local), so "N일 후" stays
+            // consistent with the shown date — using elapsed time would round down
+            // (e.g. 3.x days → "3일") and disagree with the actual reset day.
+            var localReset = resetAt.ToLocalTime();
+            var dayDiff = (localReset.Date - DateTime.Now.Date).Days;
+            return $"{dayDiff}일 후 ({localReset:M월 d일}) 초기화";
         }
 
         if (remaining.TotalHours >= 1)
