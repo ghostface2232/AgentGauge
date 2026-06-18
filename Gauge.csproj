@@ -38,6 +38,8 @@
        runtime in the unpackaged app (no ms-appx resource pri to rely on). -->
   <ItemGroup>
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="Gauge.Tests\**\*.cs" />
+    <None Remove="Gauge.Tests\**" />
   </ItemGroup>
 
   <!-- Unpackaged WinUI `dotnet publish` drops the app's merged resources index

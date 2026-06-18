@@ -48,9 +48,12 @@ public sealed partial class PopoverWindow : Window
     // Guards against re-entrancy: MoveAndResize triggers a layout pass that fires
     // SizeChanged synchronously, which would call back into the resize logic.
     private bool _isResizing;
+    private bool _isViewTransitioning;
 
     /// <summary>Raised whenever the popover is actually shown (after the toggle guard).</summary>
     public event EventHandler? Opened;
+
+    public event EventHandler? SettingsOpened;
 
     public PopoverWindow()
     {
@@ -72,6 +75,7 @@ public sealed partial class PopoverWindow : Window
 
         // Resize the window to match content height as it loads/changes (no filler).
         RootBorder.SizeChanged += OnContentSizeChanged;
+        SettingsBorder.SizeChanged += OnContentSizeChanged;
 
         Activated += OnActivated;
 
@@ -131,6 +135,9 @@ public sealed partial class PopoverWindow : Window
     /// <summary>Binds the popover content to a view model for data display.</summary>
     public void BindViewModel(object viewModel) => RootHost.DataContext = viewModel;
 
+    /// <summary>Binds the settings view hosted inside this popover.</summary>
+    public void BindSettingsViewModel(object viewModel) => SettingsBorder.DataContext = viewModel;
+
     public void Hide()
     {
         _isShown = false;
@@ -170,7 +177,7 @@ public sealed partial class PopoverWindow : Window
     private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
     {
         // Keep the window height matched to the content as it loads/changes.
-        if (_isShown)
+        if (_isShown && !_isViewTransitioning)
         {
             ResizeToContent();
         }
@@ -194,8 +201,9 @@ public sealed partial class PopoverWindow : Window
         _isResizing = true;
         try
         {
-            RootBorder.Measure(new Size(PopoverWidthDip, double.PositiveInfinity));
-            PositionAndResize(RootBorder.DesiredSize.Height);
+            var activeView = SettingsBorder.Visibility == Visibility.Visible ? SettingsBorder : RootBorder;
+            activeView.Measure(new Size(PopoverWidthDip, double.PositiveInfinity));
+            PositionAndResize(activeView.DesiredSize.Height);
         }
         finally
         {
@@ -287,6 +295,90 @@ public sealed partial class PopoverWindow : Window
     {
         args.Handled = true;
         Hide();
+    }
+
+    private void OnSettingsClicked(object sender, RoutedEventArgs e)
+    {
+        if (_isViewTransitioning || SettingsBorder.Visibility == Visibility.Visible) return;
+        AnimateViewTransition(
+            RootBorder, SettingsBorder, UsageViewTransform, SettingsViewTransform, direction: 1);
+        SettingsOpened?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void OnSettingsBackClicked(object sender, RoutedEventArgs e)
+    {
+        if (_isViewTransitioning || RootBorder.Visibility == Visibility.Visible) return;
+        AnimateViewTransition(
+            SettingsBorder, RootBorder, SettingsViewTransform, UsageViewTransform, direction: -1);
+    }
+
+    private void AnimateViewTransition(
+        FrameworkElement outgoing,
+        FrameworkElement incoming,
+        TranslateTransform outgoingTransform,
+        TranslateTransform incomingTransform,
+        int direction)
+    {
+        const double travel = 28;
+        const int durationMs = 180;
+
+        _isViewTransitioning = true;
+        incoming.Visibility = Visibility.Visible;
+        incoming.Opacity = 0;
+        incomingTransform.X = travel * direction;
+        outgoing.Opacity = 1;
+        outgoingTransform.X = 0;
+
+        // Hold the larger of both view heights during the overlap so neither sliding
+        // surface is clipped; settle to the destination height after completion.
+        incoming.Measure(new Size(PopoverWidthDip, double.PositiveInfinity));
+        outgoing.Measure(new Size(PopoverWidthDip, double.PositiveInfinity));
+        PositionAndResize(Math.Max(incoming.DesiredSize.Height, outgoing.DesiredSize.Height));
+
+        var duration = new Duration(TimeSpan.FromMilliseconds(durationMs));
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(CreateTransitionAnimation(
+            outgoingTransform, "X", 0, -travel * direction, duration, ease, dependent: true));
+        storyboard.Children.Add(CreateTransitionAnimation(
+            outgoing, "Opacity", 1, 0, duration, ease));
+        storyboard.Children.Add(CreateTransitionAnimation(
+            incomingTransform, "X", travel * direction, 0, duration, ease, dependent: true));
+        storyboard.Children.Add(CreateTransitionAnimation(
+            incoming, "Opacity", 0, 1, duration, ease));
+        storyboard.Completed += (_, _) =>
+        {
+            outgoing.Visibility = Visibility.Collapsed;
+            outgoing.Opacity = 1;
+            outgoingTransform.X = 0;
+            incoming.Opacity = 1;
+            incomingTransform.X = 0;
+            _isViewTransitioning = false;
+            ResizeToContent();
+        };
+        storyboard.Begin();
+    }
+
+    private static DoubleAnimation CreateTransitionAnimation(
+        DependencyObject target,
+        string property,
+        double from,
+        double to,
+        Duration duration,
+        EasingFunctionBase easing,
+        bool dependent = false)
+    {
+        var animation = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = duration,
+            EasingFunction = easing,
+            EnableDependentAnimation = dependent,
+        };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, property);
+        return animation;
     }
 
     private static class NativeMethods

@@ -2,8 +2,11 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using Gauge.Models;
 using Gauge.Providers.Internal;
+using Gauge.Services;
 
 namespace Gauge.Providers;
 
@@ -50,6 +53,7 @@ public sealed class ClaudeProvider : IUsageProvider
     private static readonly TimeSpan MaxCooldown = TimeSpan.FromMinutes(30);
 
     private readonly HttpClient _http;
+    private readonly ICredentialSource _credentials;
 
     // Only ever accessed from the coordinator's serialized refresh (one call at a
     // time), so no locking is needed.
@@ -57,15 +61,42 @@ public sealed class ClaudeProvider : IUsageProvider
     private long _lastSuccessTick;
     private long _cooldownUntilTick;
     private int _consecutive429;
+    private string? _credentialFingerprint;
+    private bool _credentialFingerprintInitialized;
 
-    public ClaudeProvider(HttpClient http) => _http = http;
+    public ClaudeProvider(HttpClient http, ICredentialSource credentials)
+    {
+        _http = http;
+        _credentials = credentials;
+    }
 
     public string ToolName => "Claude Code";
 
     public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
     {
-        var credentials = ClaudeCredentials.Read();
+        var credentialResult = await _credentials.ReadAsync(ToolKind.ClaudeCode, cancellationToken);
+        var credentials = credentialResult.Credential;
         var now = Environment.TickCount64;
+
+        // A CLI re-login/account switch must not serve the prior account's 5-minute
+        // cache. Keep only a one-way fingerprint, never the token itself.
+        var fingerprint = credentials?.AccessToken is { Length: > 0 } accessToken
+            ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(accessToken)))
+            : null;
+        if (_credentialFingerprintInitialized && !StringComparer.Ordinal.Equals(_credentialFingerprint, fingerprint))
+        {
+            _lastSnapshot = null;
+            _lastSuccessTick = 0;
+            _cooldownUntilTick = 0;
+            _consecutive429 = 0;
+        }
+        _credentialFingerprint = fingerprint;
+        _credentialFingerprintInitialized = true;
+
+        if (credentialResult.Status == CredentialReadStatus.Invalid)
+        {
+            throw new AuthenticationRequiredException(ToolKind.ClaudeCode, HttpStatusCode.Unauthorized);
+        }
 
         // Serve the cached snapshot without a network call when we fetched recently or
         // are in a 429 cooldown. Refresh the (cheap, file-based) plan label so a plan
@@ -119,6 +150,10 @@ public sealed class ClaudeProvider : IUsageProvider
                 return _lastSnapshot with { Plan = credentials.Plan ?? _lastSnapshot.Plan };
             }
             throw;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new AuthenticationRequiredException(ToolKind.ClaudeCode, ex.StatusCode!.Value);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

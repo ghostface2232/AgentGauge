@@ -85,10 +85,10 @@ public sealed partial class UsageViewModel : ObservableObject
             return "사용량을 불러오는 중…";
         }
 
-        // All providers errored with no cached value → ccusage likely unavailable.
+        // All providers errored with no cached value (network or expired login).
         if (state.Tools.All(t => t.LastRefreshFailed && t.Snapshot is null))
         {
-            return "사용량 정보를 찾을 수 없습니다.\nccusage가 설치되어 있는지 확인하세요.";
+            return "사용량 정보를 불러올 수 없습니다.\n설정에서 로그인 상태를 확인하세요.";
         }
 
         // Providers ran but returned nothing (e.g. tools not used yet).

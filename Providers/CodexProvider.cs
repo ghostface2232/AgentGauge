@@ -3,6 +3,8 @@ using System.Net.Http;
 using System.Text.Json;
 using Gauge.Models;
 using Gauge.Providers.Internal;
+using Gauge.Services;
+using System.Net;
 
 namespace Gauge.Providers;
 
@@ -22,14 +24,25 @@ public sealed class CodexProvider : IUsageProvider
     private const string UsageUrl = "https://chatgpt.com/backend-api/wham/usage";
 
     private readonly HttpClient _http;
+    private readonly ICredentialSource _credentials;
 
-    public CodexProvider(HttpClient http) => _http = http;
+    public CodexProvider(HttpClient http, ICredentialSource credentials)
+    {
+        _http = http;
+        _credentials = credentials;
+    }
 
     public string ToolName => "Codex";
 
     public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
     {
-        var credentials = CodexCredentials.Read();
+        var credentialResult = await _credentials.ReadAsync(ToolKind.Codex, cancellationToken);
+        var credentials = credentialResult.Credential;
+
+        if (credentialResult.Status == CredentialReadStatus.Invalid)
+        {
+            throw new AuthenticationRequiredException(ToolKind.Codex, HttpStatusCode.Unauthorized);
+        }
 
         // No token (not logged in): a legitimate "no data yet" state, not a failure.
         if (credentials?.AccessToken is not { Length: > 0 } token)
@@ -60,6 +73,10 @@ public sealed class CodexProvider : IUsageProvider
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            if (ex is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } httpError)
+            {
+                throw new AuthenticationRequiredException(ToolKind.Codex, httpError.StatusCode!.Value);
+            }
             Debug.WriteLine($"[Gauge] CodexProvider usage fetch failed: {ex.Message}");
             throw;
         }

@@ -2,7 +2,7 @@ namespace Gauge.Models;
 
 /// <summary>
 /// One tool's usage at one point in time. This is the single shared model the UI
-/// and view models depend on — never on a provider's implementation or on ccusage
+/// and view models depend on — never on a provider's implementation or source
 /// specifics — so the data source can be swapped without touching the UI.
 /// </summary>
 public sealed record UsageSnapshot

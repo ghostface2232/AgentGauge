@@ -17,11 +17,12 @@ namespace Gauge;
 public partial class App : Application
 {
     // Held so they are not garbage-collected while the app runs.
-    private MainWindow? _mainWindow;
     private PopoverWindow? _popover;
     private TrayIconService? _trayIcon;
     private UsageCoordinator? _coordinator;
     private UsageViewModel? _viewModel;
+    private SettingsViewModel? _settingsViewModel;
+    private IReadOnlyDictionary<ToolKind, IAuthenticationProvider>? _authentication;
     private StartupService? _startupService;
     private HttpClient? _httpClient;
 
@@ -35,8 +36,8 @@ public partial class App : Application
         // Create the window but deliberately do NOT call Activate(): a WinUI
         // window stays hidden until activated, which is exactly the tray-only
         // background behavior we want at startup.
-        _mainWindow = new MainWindow();
         _popover = new PopoverWindow();
+        _popover.SettingsOpened += OnSettingsOpened;
 
         _trayIcon = new TrayIconService();
         _trayIcon.LeftClicked += OnTrayLeftClicked;
@@ -52,11 +53,27 @@ public partial class App : Application
         // Providers read each tool's real usage from its official OAuth usage API,
         // using the token the CLI already stores locally (read-only).
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        var cliCredentials = new CliCredentialSource();
+        var credentials = new CredentialSourceChain(new[] { cliCredentials });
+        var locator = new CliLocator();
+        var processRunner = new CliProcessRunner();
+        var authentication = new IAuthenticationProvider[]
+        {
+            new CliAuthenticationProvider(ToolKind.ClaudeCode, cliCredentials, locator, processRunner),
+            new CliAuthenticationProvider(ToolKind.Codex, cliCredentials, locator, processRunner),
+        };
+        _authentication = authentication.ToDictionary(provider => provider.Tool);
+
         var usageService = new UsageService(new IUsageProvider[]
         {
-            new ClaudeProvider(_httpClient),
-            new CodexProvider(_httpClient),
+            new ClaudeProvider(_httpClient, credentials),
+            new CodexProvider(_httpClient, credentials),
         });
+
+        _settingsViewModel = new SettingsViewModel(authentication);
+        _settingsViewModel.AuthenticationSucceeded += OnAuthenticationSucceeded;
+        _popover.BindSettingsViewModel(_settingsViewModel);
+        _ = _settingsViewModel.RefreshAsync();
 
         _viewModel = new UsageViewModel();
         _viewModel.RefreshRequested += OnManualRefreshRequested;
@@ -64,6 +81,7 @@ public partial class App : Application
 
         _coordinator = new UsageCoordinator(usageService, DispatcherQueue.GetForCurrentThread());
         _coordinator.Updated += OnUsageUpdated;
+        _coordinator.AuthenticationRequired += OnAuthenticationRequired;
 
         // A confirmed popover open triggers a (debounced) forced refresh. Routing it
         // through Opened — not the click — keeps the toggle guard and the refresh
@@ -89,7 +107,7 @@ public partial class App : Application
     {
         if (_coordinator is not null)
         {
-            await _coordinator.ForceRefreshAsync();
+            await _coordinator.RefreshAsync(RefreshReason.PopoverOpened);
         }
     }
 
@@ -99,7 +117,28 @@ public partial class App : Application
         // within 10s of a refresh it just re-shows the cached value.
         if (_coordinator is not null)
         {
-            await _coordinator.ForceRefreshAsync();
+            await _coordinator.RefreshAsync(RefreshReason.Manual);
+        }
+    }
+
+    private async void OnAuthenticationSucceeded(object? sender, EventArgs e)
+    {
+        if (_coordinator is not null)
+        {
+            await _coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        }
+    }
+
+    private void OnSettingsOpened(object? sender, EventArgs e)
+    {
+        if (_settingsViewModel is not null) _ = _settingsViewModel.RefreshAsync();
+    }
+
+    private void OnAuthenticationRequired(object? sender, ToolKind tool)
+    {
+        if (_authentication?.TryGetValue(tool, out var provider) == true)
+        {
+            provider.ReportInvalidCredentials();
         }
     }
 
@@ -119,7 +158,7 @@ public partial class App : Application
 
     private void OnTrayExitRequested(object? sender, EventArgs e)
     {
-        // Stop the timer and cancel any in-flight ccusage process calls first, then
+        // Stop the timer and cancel any in-flight usage calls first, then
         // remove the tray icon (which also restores the foreground-lock setting and
         // unsubscribes the theme listener), then quit.
         _coordinator?.Dispose();

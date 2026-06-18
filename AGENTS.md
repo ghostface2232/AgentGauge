@@ -38,6 +38,13 @@ Providers read each tool's **real** rate-limit usage from its official OAuth usa
 - Why not ccusage: ccusage only counts tokens from local logs — it has no access to actual quotas or reset schedules. Its activity-based blocks, calendar-Monday weeks, and historical-max normalization do not match the real rate-limit windows, so the percentages and resets were wrong. It was removed.
 - No token refresh is implemented. On an expired token, the provider keeps showing the last good snapshot; the token stays fresh because the tool's own CLI rotates it on use.
 
+### Authentication ownership
+
+- Initial OAuth login is delegated to each official CLI from the Gauge settings window: `claude /login` and `codex login` run as visible processes.
+- CLI-owned credentials remain read-only. Gauge never writes, refreshes, deletes, or logs these credentials or CLI login output.
+- Credential lookup is behind `ICredentialSource`; the fixed future priority is `GaugeManaged` then `CliLocal`. Only `CliLocal` is implemented in this version.
+- Any future Gauge-owned PKCE flow must use an app-owned secure store and take explicit ownership of token refresh. It must not write to or refresh CLI-owned credential files.
+
 ### Claude endpoint rate limiting (important)
 
 `/api/oauth/usage` is throttled hard: ~3 reads in a short window, then 429 with a penalty cooldown and NO Retry-After header, on a bucket shared per account/IP — so over-polling here also starves the real CLI. Naively calling it every 60s would keep the Claude card stuck at "no data". ClaudeProvider therefore:

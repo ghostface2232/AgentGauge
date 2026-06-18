@@ -15,7 +15,7 @@ public interface IUsageProvider
     /// <summary>
     /// Collects a current snapshot. Implementations should degrade gracefully
     /// (omit windows that cannot be obtained) rather than throwing for ordinary
-    /// conditions like "ccusage missing" or "tool never used".
+    /// conditions like a missing credential or a tool that has no usage windows.
     /// </summary>
     Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken);
 }
