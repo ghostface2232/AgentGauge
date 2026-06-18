@@ -1,9 +1,12 @@
+<img width="128" alt="gauge_icon" src="https://github.com/user-attachments/assets/ab882100-f767-4ed1-91d2-91c7c04492d5" />
+
 # Gauge
 
-<img width="587" height="717" alt="스크린샷 2026-06-18 204719" src="https://github.com/user-attachments/assets/5efd1b32-6350-4fa3-bf64-68b8db39bb80" />
-
-
 Gauge는 Claude Code와 Codex의 실제 사용량 한도를 손쉽게 확인하는 Windows 시스템 트레이 앱입니다.
+
+
+## 스크린샷
+<img width="587" height="717" alt="스크린샷 2026-06-18 204719" src="https://github.com/user-attachments/assets/5efd1b32-6350-4fa3-bf64-68b8db39bb80" />
 
 
 ## 주요 기능
