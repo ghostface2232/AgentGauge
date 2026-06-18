@@ -6,6 +6,8 @@ using CommunityToolkit.Mvvm.Input;
 using H.NotifyIcon;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.Win32;
+using Windows.UI.ViewManagement;
 
 namespace Gauge.Services;
 
@@ -34,6 +36,11 @@ public sealed class TrayIconService : IDisposable
     // Keeps the left edge of every item clean (no reserved check/icon column).
     private const string CheckedGlyph = "✓";
 
+    // Tray icon assets. The default has dark lines (for a light taskbar); the dark
+    // variant has white lines (for a dark taskbar).
+    private const string LightThemeIconFile = "gauge_icon.ico";
+    private const string DarkThemeIconFile = "gauge_icon_dark.ico";
+
     // Minimum width applied to each menu item. The item's text column then
     // stretches to fill it, pushing the right-aligned indicator to the far edge
     // so it sits in its own space instead of crowding the label. Applied per item
@@ -49,6 +56,8 @@ public sealed class TrayIconService : IDisposable
     private readonly TaskbarIcon _trayIcon;
     private readonly MenuFlyoutItem _startOnBootItem;
     private readonly DispatcherQueue? _dispatcher = DispatcherQueue.GetForCurrentThread();
+    // Held to keep the ColorValuesChanged subscription alive for live theme switches.
+    private readonly UISettings _uiSettings = new();
 
     // Held so we can dispose the previous GDI icon handle when swapping icons.
     private Icon? _currentIcon;
@@ -104,6 +113,9 @@ public sealed class TrayIconService : IDisposable
 
         // Create the Shell_NotifyIcon entry now; the icon is not in a visual tree.
         _trayIcon.ForceCreate(enablesEfficiencyMode: false);
+
+        // Swap the icon live when the system (taskbar) theme changes.
+        _uiSettings.ColorValuesChanged += OnColorValuesChanged;
     }
 
     /// <summary>
@@ -212,16 +224,67 @@ public sealed class TrayIconService : IDisposable
 
     private void LoadInitialIcon()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "gauge_icon.ico");
+        if (LoadThemedIcon() is { } icon)
+        {
+            _currentIcon = icon;
+            _trayIcon.Icon = icon; // set before ForceCreate; runtime swaps use UpdateIcon
+        }
+    }
+
+    private void OnColorValuesChanged(UISettings sender, object args)
+    {
+        // ColorValuesChanged fires off the UI thread; marshal back before touching
+        // the tray icon. Re-read the theme and swap to the matching asset.
+        _dispatcher?.TryEnqueue(() =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (LoadThemedIcon() is { } icon)
+            {
+                UpdateIcon(icon);
+            }
+        });
+    }
+
+    private Icon? LoadThemedIcon()
+    {
+        var fileName = IsTaskbarDarkTheme() ? DarkThemeIconFile : LightThemeIconFile;
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", fileName);
         if (File.Exists(path))
         {
-            _currentIcon = new Icon(path);
-            _trayIcon.Icon = _currentIcon;
+            return new Icon(path);
         }
-        else
+
+        // Fall back to the default icon if the themed variant is missing.
+        var fallback = Path.Combine(AppContext.BaseDirectory, "Assets", LightThemeIconFile);
+        if (File.Exists(fallback))
         {
-            // Not fatal: the icon can still be set later via UpdateIcon.
-            Debug.WriteLine($"[Gauge] Tray icon asset not found at {path}");
+            return new Icon(fallback);
+        }
+
+        Debug.WriteLine($"[Gauge] Tray icon asset not found: {path}");
+        return null;
+    }
+
+    /// <summary>
+    /// True when the taskbar uses the dark theme. The tray icon lives on the taskbar,
+    /// so we read SystemUsesLightTheme (the system/taskbar mode), not the app mode.
+    /// </summary>
+    private static bool IsTaskbarDarkTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            // Value missing → Windows treats it as light.
+            return key?.GetValue("SystemUsesLightTheme") is int value && value == 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -267,6 +330,7 @@ public sealed class TrayIconService : IDisposable
         }
         _disposed = true;
 
+        _uiSettings.ColorValuesChanged -= OnColorValuesChanged;
         RestoreForegroundLock();
         _trayIcon.Dispose();
         _currentIcon?.Dispose();
