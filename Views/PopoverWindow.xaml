@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:conv="using:Gauge.Converters"
     mc:Ignorable="d">
 
     <!-- RootHost is transparent so the DesktopAcrylic backdrop shows through, and
@@ -12,6 +13,10 @@
          we slide + fade on show. RootBorder is where we round corners if we ever
          switch from DWM rounding to the transparent-window + inner-border approach. -->
     <Grid x:Name="RootHost" Background="Transparent" IsTabStop="True">
+        <Grid.Resources>
+            <conv:UsageLevelToBrushConverter x:Key="LevelToBrush" />
+            <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        </Grid.Resources>
         <Grid.RenderTransform>
             <TranslateTransform x:Name="SlideTransform" />
         </Grid.RenderTransform>
@@ -19,12 +24,117 @@
             <KeyboardAccelerator Key="Escape" Invoked="OnEscapeInvoked" />
         </Grid.KeyboardAccelerators>
 
-        <Border x:Name="RootBorder" Padding="20">
-            <TextBlock
-                Text="Gauge 팝오버 (자리표시자)"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center"
-                Style="{StaticResource BodyStrongTextBlockStyle}" />
+        <!-- Generous Quick-Settings-like padding/spacing; exact values are easy to tune. -->
+        <Border x:Name="RootBorder" Padding="16">
+            <Grid RowSpacing="14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Body: one card per tool; each card shows all of its windows at once. -->
+                <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled">
+                    <ItemsControl ItemsSource="{Binding Cards}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border
+                                    Margin="0,0,0,8"
+                                    Padding="14"
+                                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="8">
+                                    <StackPanel Spacing="10">
+                                        <TextBlock
+                                            Text="{Binding ToolName}"
+                                            Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                                        <!-- One row per window the tool has (5시간 / 주간). -->
+                                        <ItemsControl
+                                            ItemsSource="{Binding Windows}"
+                                            Visibility="{Binding HasAnyData, Converter={StaticResource BoolToVis}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <StackPanel Spacing="4" Margin="0,0,0,6">
+                                                        <Grid ColumnSpacing="10">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" />
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock
+                                                                Grid.Column="0"
+                                                                MinWidth="44"
+                                                                VerticalAlignment="Center"
+                                                                Opacity="0.8"
+                                                                Text="{Binding Label}"
+                                                                Style="{StaticResource CaptionTextBlockStyle}" />
+                                                            <ProgressBar
+                                                                Grid.Column="1"
+                                                                VerticalAlignment="Center"
+                                                                Minimum="0"
+                                                                Maximum="100"
+                                                                Value="{Binding Percent}"
+                                                                Foreground="{Binding Level, Converter={StaticResource LevelToBrush}}" />
+                                                            <!-- Always show the number, not color alone (accessibility). -->
+                                                            <TextBlock
+                                                                Grid.Column="2"
+                                                                MinWidth="40"
+                                                                TextAlignment="Right"
+                                                                VerticalAlignment="Center"
+                                                                Text="{Binding PercentText}"
+                                                                Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                                        </Grid>
+                                                        <TextBlock
+                                                            Margin="54,0,0,0"
+                                                            Opacity="0.7"
+                                                            Text="{Binding ResetText}"
+                                                            Style="{StaticResource CaptionTextBlockStyle}" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+
+                                        <!-- No windows for this tool at all. -->
+                                        <TextBlock
+                                            Text="{Binding StatusText}"
+                                            Opacity="0.6"
+                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                            Visibility="{Binding HasAnyData, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <!-- Footer: last-updated, manual refresh, settings gear placeholder. -->
+                <Grid Grid.Row="1" ColumnSpacing="6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        Grid.Column="0"
+                        VerticalAlignment="Center"
+                        Opacity="0.7"
+                        Text="{Binding LastUpdatedText}"
+                        Style="{StaticResource CaptionTextBlockStyle}" />
+                    <Button
+                        Grid.Column="1"
+                        Command="{Binding RefreshCommand}"
+                        ToolTipService.ToolTip="새로고침">
+                        <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                    </Button>
+                    <!-- Settings placeholder; wired in a later step. -->
+                    <Button
+                        Grid.Column="2"
+                        ToolTipService.ToolTip="설정 (예정)">
+                        <FontIcon Glyph="&#xE713;" FontSize="14" />
+                    </Button>
+                </Grid>
+            </Grid>
         </Border>
     </Grid>
 </Window>

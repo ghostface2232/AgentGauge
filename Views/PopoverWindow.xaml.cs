@@ -36,6 +36,9 @@ public sealed partial class PopoverWindow : Window
     private bool _isShown;
     private long _lastHiddenAtTick;
 
+    /// <summary>Raised whenever the popover is actually shown (after the toggle guard).</summary>
+    public event EventHandler? Opened;
+
     public PopoverWindow()
     {
         InitializeComponent();
@@ -93,7 +96,14 @@ public sealed partial class PopoverWindow : Window
         _ = NativeMethods.SetForegroundWindow(_hwnd);
         RootHost.Focus(FocusState.Programmatic); // so ESC and light dismiss work
         PlayShowAnimation();
+
+        // Confirmed open (passed the toggle guard) — let listeners (e.g. the
+        // coordinator's debounced forced refresh) react.
+        Opened?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>Binds the popover content to a view model for data display.</summary>
+    public void BindViewModel(object viewModel) => RootHost.DataContext = viewModel;
 
     public void Hide()
     {
