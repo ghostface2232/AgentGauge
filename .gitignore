@@ -1,0 +1,19 @@
+## .NET / WinUI build output
+bin/
+obj/
+[Bb]uild/
+[Pp]ublish/
+
+## Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+## NuGet
+*.nupkg
+packages/
+
+## OS
+Thumbs.db
+desktop.ini
