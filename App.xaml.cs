@@ -14,6 +14,7 @@ public partial class App : Application
 {
     // Held so they are not garbage-collected while the app runs.
     private MainWindow? _mainWindow;
+    private PopoverWindow? _popover;
     private TrayIconService? _trayIcon;
 
     public App()
@@ -27,6 +28,7 @@ public partial class App : Application
         // window stays hidden until activated, which is exactly the tray-only
         // background behavior we want at startup.
         _mainWindow = new MainWindow();
+        _popover = new PopoverWindow();
 
         _trayIcon = new TrayIconService();
         _trayIcon.LeftClicked += OnTrayLeftClicked;
@@ -36,8 +38,8 @@ public partial class App : Application
 
     private void OnTrayLeftClicked(object? sender, EventArgs e)
     {
-        // TODO(next step): toggle the popover window here.
-        Debug.WriteLine("[Gauge] Tray left-click → toggle popover (not wired yet)");
+        // The toggle guard inside PopoverWindow turns a click-while-open into a close.
+        _popover?.Toggle();
     }
 
     private void OnTrayStartOnBootToggled(object? sender, bool enabled)
