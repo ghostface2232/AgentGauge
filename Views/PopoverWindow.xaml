@@ -234,5 +234,13 @@
                 </ItemsControl>
             </StackPanel>
         </Border>
+
+        <!-- Covers the light inner seam DWM can leave around a dark acrylic client
+             area. It is visual-only and does not affect hit testing or layout. -->
+        <Border
+            IsHitTestVisible="False"
+            BorderThickness="1"
+            BorderBrush="{ThemeResource PopoverEdgeMaskBrush}"
+            CornerRadius="8" />
     </Grid>
 </Window>

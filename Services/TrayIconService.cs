@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using CommunityToolkit.Mvvm.Input;
 using H.NotifyIcon;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Win32;
 using Windows.UI.ViewManagement;
@@ -55,10 +56,7 @@ public sealed class TrayIconService : IDisposable
     // because SecondWindow mode does not reliably honor MenuFlyoutPresenter.MinWidth.
     private const double ItemMinWidth = 220;
 
-    // Gap (physical px) kept between the menu's bottom edge and the taskbar when we
-    // reposition it above the tray icon. Larger = menu sits higher. Tune to taste.
     private const int MenuBottomMargin = 16;
-    // Side margin so the menu never touches the screen edge after clamping.
     private const int MenuSideMargin = 8;
 
     private readonly TaskbarIcon _trayIcon;
@@ -93,7 +91,15 @@ public sealed class TrayIconService : IDisposable
         // Make SetForegroundWindow succeed so the SecondWindow menu stays active.
         DisableForegroundLock();
 
-        _startOnBootItem = new MenuFlyoutItem { Text = "시작프로그램 등록", MinWidth = ItemMinWidth };
+        _startOnBootItem = new MenuFlyoutItem
+        {
+            Text = "시작프로그램 등록",
+            MinWidth = ItemMinWidth,
+            // WinUI's default 9/10 vertical padding overflows H.NotifyIcon's
+            // fractional-DPI SecondWindow viewport by a few pixels. Preserve the
+            // native visual while reclaiming 3 DIP per item.
+            Padding = new Thickness(11, 8, 11, 8),
+        };
         _startOnBootItem.Click += (_, _) =>
         {
             _startOnBoot = !_startOnBoot;
@@ -109,14 +115,8 @@ public sealed class TrayIconService : IDisposable
             // Fire left-click immediately instead of waiting out the double-click
             // interval — a single click should toggle the popover with no lag.
             NoLeftClickDelay = true,
-            // SecondWindow renders the WinUI MenuFlyout (clean look) rather than a
-            // native menu. The foreground-lock workaround above keeps it from
-            // auto-dismissing. (Fallback if it ever misbehaves: ContextMenuMode.PopupMenu.)
             ContextMenuMode = ContextMenuMode.SecondWindow,
             LeftClickCommand = new RelayCommand(() => LeftClicked?.Invoke(this, EventArgs.Empty)),
-            // The library positions the SecondWindow menu from the cursor (it ends up
-            // up-and-right of the icon). We nudge it after show to sit above the icon
-            // and just above the taskbar — see RepositionContextMenuAboveTray.
             RightClickCommand = new RelayCommand(ScheduleContextMenuReposition),
             ContextFlyout = BuildContextMenu(),
         };
@@ -210,59 +210,33 @@ public sealed class TrayIconService : IDisposable
 
     private void ScheduleContextMenuReposition()
     {
-        // The menu window is created, positioned, and shown by the library during
-        // this same right-click. Run our adjustment afterwards on the UI queue so the
-        // window already exists and is foreground (best-effort; SecondWindow exposes
-        // no placement API, so we move the window directly via Win32).
         _dispatcher?.TryEnqueue(DispatcherQueuePriority.Low, RepositionContextMenuAboveTray);
     }
 
     private static void RepositionContextMenuAboveTray()
     {
-        // After the foreground-lock workaround, the library's SetForegroundWindow
-        // makes the menu window the foreground window, so this is it.
         var hwnd = NativeMethods.GetForegroundWindow();
-        if (hwnd == IntPtr.Zero)
-        {
-            return;
-        }
+        if (hwnd == IntPtr.Zero) return;
 
-        // Only ever move a window owned by our own process.
         _ = NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
-        if (pid != NativeMethods.GetCurrentProcessId())
-        {
-            return;
-        }
+        if (pid != NativeMethods.GetCurrentProcessId()) return;
 
         if (!NativeMethods.GetWindowRect(hwnd, out var rect) ||
-            !NativeMethods.GetCursorPos(out var cursor))
-        {
-            return;
-        }
+            !NativeMethods.GetCursorPos(out var cursor)) return;
 
         var monitor = NativeMethods.MonitorFromPoint(cursor, NativeMethods.MONITOR_DEFAULTTONEAREST);
         var info = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
-        if (!NativeMethods.GetMonitorInfo(monitor, ref info))
-        {
-            return;
-        }
+        if (!NativeMethods.GetMonitorInfo(monitor, ref info)) return;
 
-        var work = info.rcWork; // excludes the taskbar
+        var work = info.rcWork;
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;
-
-        // Bottom edge just above the taskbar (lifted by MenuBottomMargin), centered
-        // horizontally over the icon and clamped inside the work area.
         var top = work.bottom - MenuBottomMargin - height;
         var left = cursor.X - (width / 2);
         if (left + width > work.right - MenuSideMargin)
-        {
             left = work.right - MenuSideMargin - width;
-        }
         if (left < work.left + MenuSideMargin)
-        {
             left = work.left + MenuSideMargin;
-        }
 
         _ = NativeMethods.SetWindowPos(
             hwnd, IntPtr.Zero, left, top, 0, 0,
@@ -337,10 +311,23 @@ public sealed class TrayIconService : IDisposable
 
     private MenuFlyout BuildContextMenu()
     {
-        var exit = new MenuFlyoutItem { Text = "종료", MinWidth = ItemMinWidth };
+        var exit = new MenuFlyoutItem
+        {
+            Text = "종료",
+            MinWidth = ItemMinWidth,
+            Padding = new Thickness(11, 8, 11, 8),
+        };
         exit.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
 
         var menu = new MenuFlyout();
+        // Disable the presenter's internal scrolling so the SecondWindow host never
+        // shows a scrollbar / allows a few-px scroll when its window lands a couple
+        // physical pixels short of the content at fractional DPI.
+        if (Application.Current.Resources.TryGetValue("GaugeMenuFlyoutPresenterStyle", out var presenterStyle)
+            && presenterStyle is Style style)
+        {
+            menu.MenuFlyoutPresenterStyle = style;
+        }
         menu.Items.Add(_startOnBootItem);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(exit);

@@ -52,6 +52,7 @@ public sealed partial class PopoverWindow : Window
     // SizeChanged synchronously, which would call back into the resize logic.
     private bool _isResizing;
     private bool _isViewTransitioning;
+    private bool _isSettingsView;
     private double _usageViewHeightDip;
     private bool _usageLayoutRefreshPending;
     private Storyboard? _viewTransitionStoryboard;
@@ -69,15 +70,17 @@ public sealed partial class PopoverWindow : Window
 
         ConfigurePresenter();
         HideFromTaskbar();
+        RemoveCaptionFrame();
 
         // Frosted Quick-Settings look.
         SystemBackdrop = new DesktopAcrylicBackdrop();
+        RootHost.ActualThemeChanged += (_, _) => UpdateDwmTheme();
 
         // Start with DWM rounded corners. To switch to a larger radius later, make the
         // window background transparent and round RootBorder instead (its CornerRadius
         // is already set below); keep ApplyDwmRoundedCorners off in that mode.
         ApplyDwmRoundedCorners();
-        RemoveDwmWindowBorder();
+        UpdateDwmTheme();
         RootBorder.CornerRadius = new CornerRadius(CornerRadiusDip);
 
         // Resize the window to match content height as it loads/changes (no filler).
@@ -124,6 +127,13 @@ public sealed partial class PopoverWindow : Window
         ResizeToContent();
 
         AppWindow.Show(activateWindow: true);
+        // Apply after showing as well: DWM can recreate non-client attributes when
+        // an AppWindow transitions from hidden to visible. This includes the corner
+        // preference — if it is not re-applied, the window reverts to a square (the
+        // borderless tool-window default) and its 1px client edge shows as a square
+        // light seam that ignores the XAML border's rounded corners.
+        ApplyDwmRoundedCorners();
+        UpdateDwmTheme();
         Activate();
         // As a tray/background app, Activate() alone often does not make the window the
         // real foreground window, so DesktopAcrylic renders its inactive fallback (a
@@ -131,6 +141,15 @@ public sealed partial class PopoverWindow : Window
         // acrylic engages immediately. Succeeds because the foreground-lock timeout was
         // zeroed at startup (see TrayIconService.DisableForegroundLock).
         _ = NativeMethods.SetForegroundWindow(_hwnd);
+        UpdateDwmTheme();
+        // Re-apply once more after the show settles: some DWM attribute recreation
+        // lands slightly after AppWindow.Show returns.
+        RootHost.DispatcherQueue.TryEnqueue(() =>
+        {
+            RemoveCaptionFrame();
+            ApplyDwmRoundedCorners();
+            UpdateDwmTheme();
+        });
         RootHost.Focus(FocusState.Programmatic); // so ESC and light dismiss work
         PlayShowAnimation();
 
@@ -190,6 +209,32 @@ public sealed partial class PopoverWindow : Window
         _ = NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE, updated);
     }
 
+    /// <summary>
+    /// Strips the residual WS_CAPTION (= WS_BORDER | WS_DLGFRAME) from the window.
+    /// OverlappedPresenter.SetBorderAndTitleBar(false, false) does not reliably remove
+    /// it at the Win32 level for a non-resizable borderless window (microsoft-ui-xaml
+    /// #7629). The leftover frame's INNER edge is rectangular, so it shows as a thin
+    /// light line with square corners sitting inside the DWM-rounded outer edge — the
+    /// "two different corner radii" seam. DWMWCP_ROUND keeps the outer corners rounded
+    /// without the caption frame.
+    /// </summary>
+    private void RemoveCaptionFrame()
+    {
+        var style = (long)NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_STYLE);
+        var updated = style & ~NativeMethods.WS_CAPTION;
+        if (updated == style)
+        {
+            return;
+        }
+
+        _ = NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GWL_STYLE, (nint)updated);
+        // The frame size is cached until SWP_FRAMECHANGED forces a non-client recompute.
+        _ = NativeMethods.SetWindowPos(
+            _hwnd, nint.Zero, 0, 0, 0, 0,
+            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER
+                | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
+    }
+
     private void ApplyDwmRoundedCorners()
     {
         var preference = NativeMethods.DWMWCP_ROUND;
@@ -197,14 +242,23 @@ public sealed partial class PopoverWindow : Window
             _hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
     }
 
-    private void RemoveDwmWindowBorder()
+    private void UpdateDwmTheme()
     {
-        // Windows 11 can draw a contrasting one-pixel DWM border even when the
-        // presenter has no Win32 border/title bar. DWMWA_COLOR_NONE suppresses only
-        // that outline; acrylic and rounded corners remain active.
-        var color = NativeMethods.DWMWA_COLOR_NONE;
+        // Borderless windows can retain a light non-client frame/shadow even while
+        // their XAML content is dark. Tell DWM the actual XAML theme so edge pixels
+        // and the shadow use the matching dark/light treatment.
+        var useDarkMode = RootHost.ActualTheme == ElementTheme.Dark ? 1 : 0;
         _ = NativeMethods.DwmSetWindowAttribute(
-            _hwnd, NativeMethods.DWMWA_BORDER_COLOR, ref color, sizeof(int));
+            _hwnd, NativeMethods.DWMWA_USE_IMMERSIVE_DARK_MODE, ref useDarkMode, sizeof(int));
+
+        // Immersive dark mode does not always recolor the active-window outline for
+        // a borderless acrylic AppWindow. Use a dark surface-adjacent COLORREF in
+        // dark mode; return to the system default in light mode.
+        var borderColor = useDarkMode != 0
+            ? NativeMethods.DARK_WINDOW_BORDER_COLOR
+            : NativeMethods.DWMWA_COLOR_DEFAULT;
+        _ = NativeMethods.DwmSetWindowAttribute(
+            _hwnd, NativeMethods.DWMWA_BORDER_COLOR, ref borderColor, sizeof(int));
     }
 
     private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
@@ -340,7 +394,8 @@ public sealed partial class PopoverWindow : Window
 
     private void OnSettingsClicked(object sender, RoutedEventArgs e)
     {
-        if (_isViewTransitioning || SettingsBorder.Visibility == Visibility.Visible) return;
+        if (_isViewTransitioning || _isSettingsView) return;
+        _isSettingsView = true;
         AnimateViewTransition(
             RootBorder, SettingsBorder, UsageViewTransform, SettingsViewTransform, direction: 1);
         SettingsOpened?.Invoke(this, EventArgs.Empty);
@@ -348,7 +403,8 @@ public sealed partial class PopoverWindow : Window
 
     private void OnSettingsBackClicked(object sender, RoutedEventArgs e)
     {
-        if (_isViewTransitioning || RootBorder.Visibility == Visibility.Visible) return;
+        if (_isViewTransitioning || !_isSettingsView) return;
+        _isSettingsView = false;
         AnimateViewTransition(
             SettingsBorder, RootBorder, SettingsViewTransform, UsageViewTransform, direction: -1);
     }
@@ -406,6 +462,7 @@ public sealed partial class PopoverWindow : Window
         _viewTransitionStoryboard?.Stop();
         _viewTransitionStoryboard = null;
         _isViewTransitioning = false;
+        _isSettingsView = false;
 
         RootBorder.Visibility = Visibility.Visible;
         RootBorder.Opacity = 1;
@@ -447,11 +504,23 @@ public sealed partial class PopoverWindow : Window
     private static class NativeMethods
     {
         public const int GWL_EXSTYLE = -20;
+        public const int GWL_STYLE = -16;
         public const long WS_EX_TOOLWINDOW = 0x00000080;
+        // WS_CAPTION = WS_BORDER | WS_DLGFRAME — the non-client frame whose square
+        // inner edge shows as the thin light seam on a borderless acrylic window.
+        public const long WS_CAPTION = 0x00C00000;
+        public const uint SWP_NOSIZE = 0x0001;
+        public const uint SWP_NOMOVE = 0x0002;
+        public const uint SWP_NOZORDER = 0x0004;
+        public const uint SWP_NOACTIVATE = 0x0010;
+        public const uint SWP_FRAMECHANGED = 0x0020;
         public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
-        public const int DWMWA_BORDER_COLOR = 34;
+        public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
         public const int DWMWCP_ROUND = 2;
-        public const int DWMWA_COLOR_NONE = unchecked((int)0xFFFFFFFE);
+        public const int DWMWA_BORDER_COLOR = 34;
+        public const int DWMWA_COLOR_DEFAULT = unchecked((int)0xFFFFFFFF);
+        // COLORREF for RGB #1B3A50 (stored as 0x00BBGGRR).
+        public const int DARK_WINDOW_BORDER_COLOR = 0x00503A1B;
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
         public static extern nint GetWindowLongPtr(nint hWnd, int nIndex);
@@ -461,6 +530,11 @@ public sealed partial class PopoverWindow : Window
 
         [DllImport("user32.dll")]
         public static extern uint GetDpiForWindow(nint hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetWindowPos(
+            nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

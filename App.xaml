@@ -5,9 +5,33 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
         <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="PopoverEdgeMaskBrush" Color="#1B3A50" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="PopoverEdgeMaskBrush" Color="Transparent" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="PopoverEdgeMaskBrush" Color="Transparent" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- Tray context menu (SecondWindow host) sizes its window from content and,
+                 at fractional DPI, lands a couple physical pixels short of the presenter.
+                 That makes the presenter's internal ScrollViewer show a scrollbar and
+                 allow a few px of scroll. Disable scrolling outright — the menu is short
+                 and fixed, so there is nothing to scroll — while keeping the native look. -->
+            <Style x:Key="GaugeMenuFlyoutPresenterStyle" TargetType="MenuFlyoutPresenter"
+                   BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}">
+                <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled" />
+                <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+                <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled" />
+                <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            </Style>
 
             <!-- Usage-level colors as named resources (never hardcoded inline at the
                  use site). Chosen to read on both light/dark acrylic; if per-theme
