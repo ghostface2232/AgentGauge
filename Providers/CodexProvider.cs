@@ -30,28 +30,39 @@ public sealed class CodexProvider : IUsageProvider
     public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
     {
         var credentials = CodexCredentials.Read();
-        var windows = new List<UsageWindow>();
-        string? plan = null;
 
-        if (credentials?.AccessToken is { Length: > 0 } token)
+        // No token (not logged in): a legitimate "no data yet" state, not a failure.
+        if (credentials?.AccessToken is not { Length: > 0 } token)
         {
-            try
+            return new UsageSnapshot
             {
-                (plan, windows) = await FetchUsageAsync(token, credentials.AccountId, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Debug.WriteLine($"[Gauge] CodexProvider usage fetch failed: {ex.Message}");
-            }
+                ToolName = ToolName,
+                Plan = null,
+                Windows = Array.Empty<UsageWindow>(),
+                CapturedAt = DateTimeOffset.Now,
+            };
         }
 
-        return new UsageSnapshot
+        // wham/usage is the same endpoint the Codex CLI itself polls every 60s, so our
+        // 60s cadence needs no extra throttling. Let fetch failures (network/429)
+        // propagate rather than swallowing them into an empty success — that way the
+        // coordinator keeps the last good snapshot instead of clearing the card.
+        try
         {
-            ToolName = ToolName,
-            Plan = plan,
-            Windows = windows,
-            CapturedAt = DateTimeOffset.Now,
-        };
+            var (plan, windows) = await FetchUsageAsync(token, credentials.AccountId, cancellationToken);
+            return new UsageSnapshot
+            {
+                ToolName = ToolName,
+                Plan = plan,
+                Windows = windows,
+                CapturedAt = DateTimeOffset.Now,
+            };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Debug.WriteLine($"[Gauge] CodexProvider usage fetch failed: {ex.Message}");
+            throw;
+        }
     }
 
     private async Task<(string? Plan, List<UsageWindow> Windows)> FetchUsageAsync(

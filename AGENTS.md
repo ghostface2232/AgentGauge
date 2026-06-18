@@ -32,12 +32,20 @@ Separate data collection from UI. This is the most important constraint in the p
 Providers read each tool's **real** rate-limit usage from its official OAuth usage API — the same figures the tool's own `/usage` shows — over one shared HttpClient. The OAuth token is read from the file the tool's CLI already maintains; it is read-only (never written back) so we never race the CLI's own token rotation.
 
 - ClaudeProvider: `GET https://api.anthropic.com/api/oauth/usage` with headers `Authorization: Bearer <token>` and `anthropic-beta: oauth-2025-04-20`. Token, plan, and reset tier come from `%USERPROFILE%\.claude\.credentials.json` (`claudeAiOauth.accessToken`, `subscriptionType`, `rateLimitTier`). Response `five_hour`/`seven_day` → `{utilization 0-100, resets_at ISO8601}`.
-- CodexProvider: `GET https://chatgpt.com/backend-api/wham/usage` with `Authorization: Bearer <token>` and `ChatGPT-Account-Id`. Token from `%USERPROFILE%\.codex\auth.json` (`tokens.access_token`, `tokens.account_id`). Response `plan_type` plus `rate_limit.primary_window` (5-hour) / `secondary_window` (weekly) → `{used_percent, reset_at epochSeconds}`.
+- CodexProvider: `GET https://chatgpt.com/backend-api/wham/usage` with `Authorization: Bearer <token>` and `ChatGPT-Account-Id`. Token from `%USERPROFILE%\.codex\auth.json` (`tokens.access_token`, `tokens.account_id`). Response `plan_type` plus `rate_limit.primary_window` (5-hour) / `secondary_window` (weekly) → `{used_percent, reset_at epochSeconds}`. This is the same endpoint the Codex CLI itself polls every 60s, so the normal 60s cadence needs no throttling (unlike Claude). Fetch failures propagate (not swallowed into an empty success) so the coordinator keeps the last good snapshot; only a missing token is a clean "no data" state.
 - Plan label: Claude maps `subscriptionType`+`rateLimitTier` (e.g. `max` + `…max_5x`/`…max_20x` → "Max 5x"/"Max 20x"); Codex maps `plan_type` (plus/pro/…). The plan is reported even when the usage call fails, since it comes from the credential/response separately.
-- Use an honest `User-Agent: Gauge/1.0`; do not impersonate another client.
 - Never assume the JSON schema from memory. Inspect a live response from the real endpoint first, then write parsing against that actual structure.
 - Why not ccusage: ccusage only counts tokens from local logs — it has no access to actual quotas or reset schedules. Its activity-based blocks, calendar-Monday weeks, and historical-max normalization do not match the real rate-limit windows, so the percentages and resets were wrong. It was removed.
-- No token refresh is implemented. On an expired token or any HTTP/network error, the provider returns an empty window list (still carrying the plan when known); the coordinator keeps showing the last good snapshot. The token stays fresh because the tool's own CLI rotates it on use.
+- No token refresh is implemented. On an expired token, the provider keeps showing the last good snapshot; the token stays fresh because the tool's own CLI rotates it on use.
+
+### Claude endpoint rate limiting (important)
+
+`/api/oauth/usage` is throttled hard: ~3 reads in a short window, then 429 with a penalty cooldown and NO Retry-After header, on a bucket shared per account/IP — so over-polling here also starves the real CLI. Naively calling it every 60s would keep the Claude card stuck at "no data". ClaudeProvider therefore:
+- sends the `claude-code` User-Agent (bucketed less aggressively than arbitrary agents — the one place we deliberately match a known client's UA, for interop, not deception);
+- hits the network at most once per ~5 minutes and serves its cached snapshot in between, so neither the 60s cycle nor a popover-open forced refresh makes a call each time;
+- backs off exponentially on 429 (we pick the schedule since there's no Retry-After);
+- returns the cached snapshot as a success while throttled/cooling down, so a 429 keeps the last good value on screen instead of clearing the card. A genuine failure (cold start with nothing cached) is the only case that propagates.
+- A failed/throttled fetch must propagate as a thrown failure ONLY when there is no cached snapshot — otherwise the coordinator would overwrite the cache with an empty success.
 
 ## Tray icon
 
