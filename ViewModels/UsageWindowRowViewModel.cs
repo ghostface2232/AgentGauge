@@ -58,6 +58,11 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
             return "초기화됨";
         }
 
+        if (remaining.TotalHours >= 24)
+        {
+            return $"{(int)remaining.TotalDays}일 후({resetAt.ToLocalTime():MM/dd}) 초기화";
+        }
+
         if (remaining.TotalHours >= 1)
         {
             return $"{(int)remaining.TotalHours}시간 {remaining.Minutes}분 후 초기화";

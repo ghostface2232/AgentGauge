@@ -16,6 +16,7 @@
         <Grid.Resources>
             <conv:UsageLevelToBrushConverter x:Key="LevelToBrush" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+            <conv:PercentToGridLengthConverter x:Key="PercentToGridLength" />
         </Grid.Resources>
         <Grid.RenderTransform>
             <TranslateTransform x:Name="SlideTransform" />
@@ -46,6 +47,7 @@
                                     CornerRadius="8">
                                     <StackPanel Spacing="10">
                                         <TextBlock
+                                            Margin="0,0,0,4"
                                             Text="{Binding ToolName}"
                                             Style="{StaticResource BodyStrongTextBlockStyle}" />
 
@@ -55,7 +57,7 @@
                                             Visibility="{Binding HasAnyData, Converter={StaticResource BoolToVis}}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <StackPanel Spacing="4" Margin="0,0,0,6">
+                                                    <StackPanel Spacing="2" Margin="0,0,0,10">
                                                         <Grid ColumnSpacing="10">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto" />
@@ -69,13 +71,26 @@
                                                                 Opacity="0.8"
                                                                 Text="{Binding Label}"
                                                                 Style="{StaticResource CaptionTextBlockStyle}" />
-                                                            <ProgressBar
+                                                            <!-- Custom progress bar: rounded track with a rounded fill sized by
+                                                                 percent. Thicker and clearly a progress bar (not the thin,
+                                                                 slider-like default). Height/CornerRadius easy to tune. -->
+                                                            <Border
                                                                 Grid.Column="1"
+                                                                Height="8"
                                                                 VerticalAlignment="Center"
-                                                                Minimum="0"
-                                                                Maximum="100"
-                                                                Value="{Binding Percent}"
-                                                                Foreground="{Binding Level, Converter={StaticResource LevelToBrush}}" />
+                                                                CornerRadius="4"
+                                                                Background="{ThemeResource ControlAltFillColorTertiaryBrush}">
+                                                                <Grid>
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="{Binding Percent, Converter={StaticResource PercentToGridLength}}" />
+                                                                        <ColumnDefinition Width="{Binding Percent, Converter={StaticResource PercentToGridLength}, ConverterParameter=rest}" />
+                                                                    </Grid.ColumnDefinitions>
+                                                                    <Border
+                                                                        Grid.Column="0"
+                                                                        CornerRadius="4"
+                                                                        Background="{Binding Level, Converter={StaticResource LevelToBrush}}" />
+                                                                </Grid>
+                                                            </Border>
                                                             <!-- Always show the number, not color alone (accessibility). -->
                                                             <TextBlock
                                                                 Grid.Column="2"
