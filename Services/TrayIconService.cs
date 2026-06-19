@@ -29,7 +29,9 @@ namespace Gauge.Services;
 /// window reports <c>Deactivated</c>; for a tray-only app that never owns the
 /// foreground, Windows' foreground-lock throttles the library's SetForegroundWindow
 /// call, so the menu auto-dismissed while hovering. We work around it by zeroing the
-/// per-user foreground-lock timeout at startup (restored on dispose).
+/// per-user foreground-lock timeout at startup. It is restored on dispose, with an
+/// <see cref="AppDomain.ProcessExit"/> safety net so a crash that bypasses dispose
+/// does not leave the global setting pinned at 0 for the rest of the login session.
 /// </summary>
 public sealed class TrayIconService : IDisposable
 {
@@ -73,8 +75,12 @@ public sealed class TrayIconService : IDisposable
     private Icon? _currentIcon;
     // We own the start-on-boot state and reflect it via right-aligned text.
     private bool _startOnBoot;
-    // Saved so we can restore the user's foreground-lock setting on exit.
+    // Saved so we can restore the user's foreground-lock setting on exit. Guarded by
+    // _foregroundLockGate because Dispose and the ProcessExit handler can race.
+    private readonly object _foregroundLockGate = new();
     private uint? _previousForegroundLockTimeout;
+    // Held so we can unsubscribe the ProcessExit safety net on dispose.
+    private readonly EventHandler _processExitHandler;
     private bool _disposed;
 
     /// <summary>Raised on left-click. Next step wires this to the popover toggle.</summary>
@@ -90,6 +96,16 @@ public sealed class TrayIconService : IDisposable
     {
         // Make SetForegroundWindow succeed so the SecondWindow menu stays active.
         DisableForegroundLock();
+
+        // Normal exits (tray "종료", update restart) restore the lock through Dispose.
+        // A crash never reaches Dispose, so without this the global timeout would stay
+        // at 0 — altering focus behavior for every other app — until the next sign-in.
+        // ProcessExit runs on CLR shutdown, including the unhandled-exception path, and
+        // only fires as the process is ending, so it cannot affect Gauge's own behavior.
+        // RestoreForegroundLock is idempotent, so the Dispose + ProcessExit overlap on a
+        // normal exit is harmless.
+        _processExitHandler = (_, _) => RestoreForegroundLock();
+        AppDomain.CurrentDomain.ProcessExit += _processExitHandler;
 
         _startOnBootItem = new MenuFlyoutItem
         {
@@ -349,11 +365,22 @@ public sealed class TrayIconService : IDisposable
 
     private void RestoreForegroundLock()
     {
-        if (_previousForegroundLockTimeout is uint previous)
+        // Dispose (UI thread) and the ProcessExit safety net (CLR shutdown thread) can
+        // both reach here. Take the saved value once under the lock and clear it so the
+        // restore runs exactly once.
+        uint previous;
+        lock (_foregroundLockGate)
         {
-            _ = NativeMethods.SystemParametersInfoSet(
-                NativeMethods.SPI_SETFOREGROUNDLOCKTIMEOUT, 0, (IntPtr)previous, NativeMethods.SPIF_SENDCHANGE);
+            if (_previousForegroundLockTimeout is not uint saved)
+            {
+                return;
+            }
+            previous = saved;
+            _previousForegroundLockTimeout = null;
         }
+
+        _ = NativeMethods.SystemParametersInfoSet(
+            NativeMethods.SPI_SETFOREGROUNDLOCKTIMEOUT, 0, (IntPtr)previous, NativeMethods.SPIF_SENDCHANGE);
     }
 
     public void Dispose()
@@ -365,6 +392,7 @@ public sealed class TrayIconService : IDisposable
         _disposed = true;
 
         _uiSettings.ColorValuesChanged -= OnColorValuesChanged;
+        AppDomain.CurrentDomain.ProcessExit -= _processExitHandler;
         RestoreForegroundLock();
         _trayIcon.Dispose();
         _currentIcon?.Dispose();
