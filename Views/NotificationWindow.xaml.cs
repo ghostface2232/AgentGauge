@@ -6,6 +6,8 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
+using Windows.Graphics.Imaging;
+using Windows.Storage;
 using WinRT.Interop;
 
 namespace Gauge.Views;
@@ -13,20 +15,33 @@ namespace Gauge.Views;
 /// <summary>A non-activating, auto-dismiss usage notification above the work area.</summary>
 public sealed partial class NotificationWindow : Window, IDisposable
 {
-    private const double WidthDip = 360;
-    private const double HeightDip = 112;
+    private const double WidthDip = 320;
+    private const double HeightDip = 76;
     private const double EdgeMarginDip = 12;
     private const double StackGapDip = 8;
     private const double SlideOffsetDip = 20;
     private const int ShowDurationMs = 180;
     private const int VisibleDurationMs = 4500;
-    private const int FadeDurationMs = 260;
+    // Exit slides the whole window (acrylic backdrop included) down off the work
+    // area while fading the content. The backdrop lives at the window/compositor
+    // level, not in the XAML tree, so a content-only opacity fade cannot dissolve
+    // it — moving the window is what makes the frosted panel actually disappear.
+    // Exit fades the whole window — content and acrylic backdrop together — via a
+    // layered-window alpha ramp. Moving the window instead made the DWM backdrop
+    // trail the content by a frame (text appeared to lead the frosted panel);
+    // fading the window as one surface keeps them locked together.
+    private const int DismissFadeDurationMs = 320;
 
     private readonly nint _hwnd;
     private readonly NativeMethods.SUBCLASSPROC _subclassProc;
     private readonly DispatcherTimer _dismissTimer = new() { Interval = TimeSpan.FromMilliseconds(VisibleDurationMs) };
+    private readonly AlwaysActiveAcrylicBackdrop _backdrop = new();
     private Storyboard? _storyboard;
     private UsageNotification? _notification;
+    private int _iconLoadId;
+    private TimeSpan _dismissStartTime;
+    private bool _dismissClockStarted;
+    private bool _isDismissing;
     private bool _isVisible;
     private bool _disposed;
 
@@ -53,9 +68,10 @@ public sealed partial class NotificationWindow : Window, IDisposable
             _hwnd, NativeMethods.GWL_EXSTYLE, (nint)((long)exStyle | NativeMethods.WS_EX_TOOLWINDOW));
         RemoveCaptionFrame();
 
-        SystemBackdrop = new DesktopAcrylicBackdrop();
+        SystemBackdrop = _backdrop;
         RootHost.ActualThemeChanged += (_, _) =>
         {
+            _backdrop.SetTheme(RootHost.ActualTheme);
             UpdateDwmTheme();
             if (_isVisible) UpdateIcon();
         };
@@ -72,8 +88,15 @@ public sealed partial class NotificationWindow : Window, IDisposable
     {
         _dismissTimer.Stop();
         _storyboard?.Stop();
+        if (_isDismissing)
+        {
+            CompositionTarget.Rendering -= OnDismissRendering;
+            ClearLayered();
+            _isDismissing = false;
+        }
 
         RootHost.RequestedTheme = themeOverride ?? ElementTheme.Default;
+        _backdrop.SetTheme(RootHost.ActualTheme);
         _dismissTimer.Interval = visibleDuration ?? TimeSpan.FromMilliseconds(VisibleDurationMs);
         _notification = notification;
         TitleText.Text = notification.Title;
@@ -84,12 +107,6 @@ public sealed partial class NotificationWindow : Window, IDisposable
         SuppressedCountText.Visibility = suppressedCount > 1
             ? Visibility.Visible
             : Visibility.Collapsed;
-        AccentBar.Background = (Brush)Application.Current.Resources[notification.Level switch
-        {
-            UsageLevel.Danger => "UsageDangerBrush",
-            UsageLevel.Caution => "UsageCautionBrush",
-            _ => "UsageOkBrush",
-        }];
         UpdateIcon();
         PositionAboveWorkArea(suppressedCount > 1 ? HeightDip + 16 : HeightDip);
 
@@ -128,25 +145,67 @@ public sealed partial class NotificationWindow : Window, IDisposable
 
     private void BeginDismiss()
     {
-        if (!_isVisible) return;
+        if (!_isVisible || _isDismissing) return;
+        _isDismissing = true;
         _dismissTimer.Stop();
         _storyboard?.Stop();
-        var duration = new Duration(TimeSpan.FromMilliseconds(FadeDurationMs));
-        var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
-        var storyboard = new Storyboard();
-        storyboard.Children.Add(CreateAnimation(RootHost, "Opacity", RootHost.Opacity, 0, duration, ease));
-        storyboard.Completed += (_, _) =>
-        {
-            if (!ReferenceEquals(_storyboard, storyboard)) return;
-            AppWindow.Hide();
-            _isVisible = false;
-            Dismissed?.Invoke(this, EventArgs.Empty);
-        };
-        _storyboard = storyboard;
-        storyboard.Begin();
+        _storyboard = null;
+        _dismissClockStarted = false;
+        // Turn the window layered (starting fully opaque) so the whole surface —
+        // XAML content and acrylic backdrop alike — can fade as a single unit.
+        SetLayeredAlpha(255);
+        CompositionTarget.Rendering += OnDismissRendering;
     }
 
-    private void UpdateIcon()
+    private void OnDismissRendering(object? sender, object args)
+    {
+        var time = ((RenderingEventArgs)args).RenderingTime;
+        if (!_dismissClockStarted)
+        {
+            _dismissClockStarted = true;
+            _dismissStartTime = time;
+        }
+
+        var duration = TimeSpan.FromMilliseconds(DismissFadeDurationMs);
+        var progress = Math.Clamp((time - _dismissStartTime) / duration, 0, 1);
+        var fade = progress * progress * (3 - 2 * progress); // smoothstep ease in-out
+        SetLayeredAlpha((byte)Math.Clamp((int)Math.Round(255 * (1 - fade)), 0, 255));
+
+        if (progress < 1) return;
+
+        CompositionTarget.Rendering -= OnDismissRendering;
+        AppWindow.Hide();
+        // Drop the layered style so the next Show() renders the acrylic at full
+        // fidelity, and reset the content opacity the entrance animates from.
+        ClearLayered();
+        RootHost.Opacity = 0;
+        _isDismissing = false;
+        _isVisible = false;
+        Dismissed?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void SetLayeredAlpha(byte alpha)
+    {
+        var exStyle = (long)NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE);
+        if ((exStyle & NativeMethods.WS_EX_LAYERED) == 0)
+        {
+            _ = NativeMethods.SetWindowLongPtr(
+                _hwnd, NativeMethods.GWL_EXSTYLE, (nint)(exStyle | NativeMethods.WS_EX_LAYERED));
+        }
+        _ = NativeMethods.SetLayeredWindowAttributes(_hwnd, 0, alpha, NativeMethods.LWA_ALPHA);
+    }
+
+    private void ClearLayered()
+    {
+        var exStyle = (long)NativeMethods.GetWindowLongPtr(_hwnd, NativeMethods.GWL_EXSTYLE);
+        if ((exStyle & NativeMethods.WS_EX_LAYERED) != 0)
+        {
+            _ = NativeMethods.SetWindowLongPtr(
+                _hwnd, NativeMethods.GWL_EXSTYLE, (nint)(exStyle & ~NativeMethods.WS_EX_LAYERED));
+        }
+    }
+
+    private async void UpdateIcon()
     {
         if (_notification is not { } notification) return;
         var stem = RootHost.ActualTheme == ElementTheme.Dark ? "gauge_icon_dark" : "gauge_icon";
@@ -159,7 +218,40 @@ public sealed partial class NotificationWindow : Window, IDisposable
             _ => string.Empty,
         };
         var path = Path.Combine(AppContext.BaseDirectory, "Assets", $"{stem}{suffix}.ico");
-        NotificationIcon.Source = new BitmapImage(new Uri(path));
+
+        // BitmapImage decodes an .ico's first directory entry (16px here) and upscales
+        // it — blurry. Decode the largest embedded frame explicitly so the small icon
+        // downsamples from a sharp 256/128 source instead. _iconLoadId discards a load
+        // that a newer Show()/theme change has superseded mid-await.
+        var loadId = ++_iconLoadId;
+        try
+        {
+            var file = await StorageFile.GetFileFromPathAsync(path);
+            using var stream = await file.OpenReadAsync();
+            var decoder = await BitmapDecoder.CreateAsync(stream);
+            uint bestIndex = 0, bestWidth = 0;
+            for (uint i = 0; i < decoder.FrameCount; i++)
+            {
+                var frame = await decoder.GetFrameAsync(i);
+                if (frame.PixelWidth > bestWidth)
+                {
+                    bestWidth = frame.PixelWidth;
+                    bestIndex = i;
+                }
+            }
+            var best = await decoder.GetFrameAsync(bestIndex);
+            var softwareBitmap = await best.GetSoftwareBitmapAsync(
+                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+            if (loadId != _iconLoadId) return;
+            var source = new SoftwareBitmapSource();
+            await source.SetBitmapAsync(softwareBitmap);
+            if (loadId != _iconLoadId) return;
+            NotificationIcon.Source = source;
+        }
+        catch
+        {
+            // Leave the previously shown icon in place on any IO/decode failure.
+        }
     }
 
     private void RemoveCaptionFrame()
@@ -211,6 +303,7 @@ public sealed partial class NotificationWindow : Window, IDisposable
         _disposed = true;
         _dismissTimer.Stop();
         _storyboard?.Stop();
+        if (_isDismissing) CompositionTarget.Rendering -= OnDismissRendering;
         _ = NativeMethods.RemoveWindowSubclass(_hwnd, _subclassProc, 2);
         Close();
     }
@@ -218,7 +311,8 @@ public sealed partial class NotificationWindow : Window, IDisposable
     private static class NativeMethods
     {
         public const int GWL_EXSTYLE = -20, GWL_STYLE = -16;
-        public const long WS_EX_TOOLWINDOW = 0x80, WS_CAPTION = 0x00C00000;
+        public const long WS_EX_TOOLWINDOW = 0x80, WS_EX_LAYERED = 0x00080000, WS_CAPTION = 0x00C00000;
+        public const uint LWA_ALPHA = 0x2;
         public const uint WM_NCCALCSIZE = 0x0083;
         public const uint SWP_NOSIZE = 1, SWP_NOMOVE = 2, SWP_NOZORDER = 4, SWP_NOACTIVATE = 0x10, SWP_FRAMECHANGED = 0x20;
         public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20, DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWA_BORDER_COLOR = 34;
@@ -230,6 +324,7 @@ public sealed partial class NotificationWindow : Window, IDisposable
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] public static extern nint SetWindowLongPtr(nint hwnd, int index, nint value);
         [DllImport("user32.dll")] public static extern uint GetDpiForWindow(nint hwnd);
         [DllImport("user32.dll")] public static extern bool SetWindowPos(nint hwnd, nint after, int x, int y, int cx, int cy, uint flags);
+        [DllImport("user32.dll")] public static extern bool SetLayeredWindowAttributes(nint hwnd, uint crKey, byte alpha, uint flags);
         [DllImport("comctl32.dll")] public static extern bool SetWindowSubclass(nint hwnd, SUBCLASSPROC proc, nuint id, nuint data);
         [DllImport("comctl32.dll")] public static extern bool RemoveWindowSubclass(nint hwnd, SUBCLASSPROC proc, nuint id);
         [DllImport("comctl32.dll")] public static extern nint DefSubclassProc(nint hwnd, uint message, nint wParam, nint lParam);
