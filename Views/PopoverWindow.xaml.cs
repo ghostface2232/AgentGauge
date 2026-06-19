@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Gauge.Localization;
 using Gauge.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -456,7 +457,7 @@ public sealed partial class PopoverWindow : Window
         var addable = settings.AddableTools;
         if (addable.Count == 0)
         {
-            flyout.Items.Add(new MenuFlyoutItem { Text = "추가할 서비스가 없습니다", IsEnabled = false });
+            flyout.Items.Add(new MenuFlyoutItem { Text = Loc.Get("NoServicesToAdd"), IsEnabled = false });
         }
         else
         {

@@ -37,8 +37,10 @@ public sealed record ToolDescriptor
     public LoginKind LoginKind { get; init; } = LoginKind.CliCommand;
 
     /// <summary>
-    /// Short instruction shown on the card when <see cref="LoginKind"/> is
-    /// <see cref="LoginKind.GuidanceOnly"/> (the tool is signed in elsewhere). Null otherwise.
+    /// Localization key for the short instruction shown on the card when
+    /// <see cref="LoginKind"/> is <see cref="LoginKind.GuidanceOnly"/> (the tool is signed
+    /// in elsewhere). Null otherwise. Resolve via <c>Loc.Get</c> at display time — it is a
+    /// key, not display text, because this catalog is built before the language is set.
     /// </summary>
     public string? LoginGuidance { get; init; }
 }
@@ -70,7 +72,7 @@ public static class ToolCatalog
         LoginCommand = "",
         LoginArguments = "",
         LoginKind = LoginKind.GuidanceOnly,
-        LoginGuidance = "Cursor 앱에서 로그인하세요.",
+        LoginGuidance = "Guidance_Cursor", // localization key; resolve via Loc.Get at display time
     };
 
     /// <summary>Declaration order is the order tools are shown in the UI.</summary>

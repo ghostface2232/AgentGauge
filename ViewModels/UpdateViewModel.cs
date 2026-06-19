@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Gauge.Localization;
 using Gauge.Services;
 
 namespace Gauge.ViewModels;
@@ -34,7 +35,7 @@ public sealed partial class UpdateViewModel : ObservableObject
     [ObservableProperty] public partial bool IsBusy { get; set; }
     [ObservableProperty] public partial bool IsUpdateAvailable { get; set; }
 
-    public string ActionButtonText => IsUpdateAvailable ? "업데이트" : "업데이트 확인";
+    public string ActionButtonText => IsUpdateAvailable ? Loc.Get("Update_Apply") : Loc.Get("Update_Check");
 
     partial void OnIsBusyChanged(bool value) => ActionCommand.NotifyCanExecuteChanged();
 
@@ -52,7 +53,7 @@ public sealed partial class UpdateViewModel : ObservableObject
     private async Task CheckAsync()
     {
         IsBusy = true;
-        StatusText = "업데이트 확인 중…";
+        StatusText = Loc.Get("Update_Checking");
         try
         {
             ApplyResult(await _service.CheckAsync(), quiet: false);
@@ -70,15 +71,15 @@ public sealed partial class UpdateViewModel : ObservableObject
             case UpdateStatus.UpdateAvailable:
                 _available = result.Release;
                 IsUpdateAvailable = true;
-                StatusText = "업데이트 가능";
+                StatusText = Loc.Get("Update_Available");
                 break;
             case UpdateStatus.UpToDate:
                 IsUpdateAvailable = false;
-                StatusText = "최신 버전입니다";
+                StatusText = Loc.Get("Update_UpToDate");
                 break;
             default:
                 IsUpdateAvailable = false;
-                if (!quiet) StatusText = "업데이트를 확인하지 못했습니다.";
+                if (!quiet) StatusText = Loc.Get("Update_CheckFailed");
                 break;
         }
     }
@@ -88,15 +89,15 @@ public sealed partial class UpdateViewModel : ObservableObject
         if (_available is null) return;
 
         IsBusy = true;
-        StatusText = "업데이트 다운로드 중…";
+        StatusText = Loc.Get("Update_Downloading");
         if (await _service.DownloadAndLaunchAsync(_available))
         {
-            StatusText = "업데이트를 설치하고 다시 시작합니다…";
+            StatusText = Loc.Get("Update_Installing");
             ExitRequested?.Invoke(this, EventArgs.Empty);
         }
         else
         {
-            StatusText = "업데이트 설치를 시작하지 못했습니다.";
+            StatusText = Loc.Get("Update_InstallFailed");
             IsBusy = false;
         }
     }

@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Services;
 
@@ -42,7 +43,7 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     public event EventHandler? AuthenticationSucceeded;
 
     [ObservableProperty] public partial string StatusText { get; set; } = "";
-    [ObservableProperty] public partial string LoginButtonText { get; set; } = "로그인";
+    [ObservableProperty] public partial string LoginButtonText { get; set; } = Loc.Get("Login");
     [ObservableProperty] public partial bool IsLoginRunning { get; set; }
 
     private async Task LoginAsync()
@@ -62,9 +63,9 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
         IsLoginRunning = state.IsLoginRunning;
         LoginButtonText = state.Status switch
         {
-            AuthenticationStatus.LoginRunning => "로그인 중…",
-            AuthenticationStatus.Available or AuthenticationStatus.Invalid => "계정 전환",
-            _ => "로그인",
+            AuthenticationStatus.LoginRunning => Loc.Get("Login_Running"),
+            AuthenticationStatus.Available or AuthenticationStatus.Invalid => Loc.Get("Login_Switch"),
+            _ => Loc.Get("Login"),
         };
         LoginCommand.NotifyCanExecuteChanged();
     }

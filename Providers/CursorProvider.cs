@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers.Internal;
 using Gauge.Services;
@@ -95,7 +96,7 @@ public sealed class CursorProvider : IUsageProvider
         {
             Type = UsageWindowType.BillingCycle,
             UsedRatio = Math.Clamp(percentUsed / 100.0, 0.0, 1.0),
-            Label = "사용량",
+            Label = WindowLabels.For(UsageWindowType.BillingCycle),
             ResetTime = resetTime,
         };
         return (plan, window);

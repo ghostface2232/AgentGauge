@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Gauge.Localization;
 using Gauge.Models;
 
 namespace Gauge.ViewModels;
@@ -15,9 +16,9 @@ public sealed partial class UsageViewModel : ObservableObject
 {
     public UsageViewModel()
     {
-        LastUpdatedText = "갱신 전";
+        LastUpdatedText = Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = "Gauge";
-        EmptyMessage = "사용량을 불러오는 중…";
+        EmptyMessage = Loc.Get("Loading");
         IsEmpty = true;
         RefreshCommand = new RelayCommand(() => RefreshRequested?.Invoke(this, EventArgs.Empty));
     }
@@ -65,8 +66,8 @@ public sealed partial class UsageViewModel : ObservableObject
 
         LastUpdatedAt = state.LastUpdatedAt;
         LastUpdatedText = state.LastUpdatedAt is { } updated
-            ? $"{updated.ToLocalTime():HH:mm} 갱신"
-            : "갱신 전";
+            ? Loc.Format("LastUpdated_At", updated.ToLocalTime().ToString("HH:mm"))
+            : Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = BuildTrayTooltipSummary(state);
         RefreshCards(state);
 
@@ -82,17 +83,17 @@ public sealed partial class UsageViewModel : ObservableObject
     {
         if (state.Tools.Count == 0)
         {
-            return "사용량을 불러오는 중…";
+            return Loc.Get("Loading");
         }
 
         // All providers errored with no cached value (network or expired login).
         if (state.Tools.All(t => t.LastRefreshFailed && t.Snapshot is null))
         {
-            return "사용량 정보를 불러올 수 없습니다.\n설정에서 로그인 상태를 확인하세요.";
+            return Loc.Get("Empty_FetchFailed");
         }
 
         // Providers ran but returned nothing (e.g. tools not used yet).
-        return "사용 기록이 아직 없습니다.";
+        return Loc.Get("Empty_NoHistory");
     }
 
     private void RefreshCards(UsageState state)
@@ -143,7 +144,7 @@ public sealed partial class UsageViewModel : ObservableObject
             }
             else
             {
-                parts.Add($"{tool.ToolName} 데이터 없음");
+                parts.Add(Loc.Format("Tray_NoData", tool.ToolName));
             }
         }
 

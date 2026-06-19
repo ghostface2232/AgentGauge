@@ -1,3 +1,4 @@
+using Gauge.Localization;
 using Gauge.Models;
 using System.Security.Cryptography;
 using System.Text;
@@ -50,11 +51,11 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
             var executable = _locator.Find(_command);
             if (executable is null)
             {
-                return SetState(Failed($"{_command} CLI를 찾을 수 없습니다. CLI를 설치한 뒤 `{_command} {_arguments}`를 실행하세요."));
+                return SetState(Failed(Loc.Format("Auth_CliNotFound", _command, $"{_command} {_arguments}")));
             }
 
             SetState(NewState(AuthenticationStatus.LoginRunning, CredentialSource.None,
-                "브라우저 또는 CLI 창에서 로그인을 완료하세요."));
+                Loc.Get("Auth_LoginInBrowser")));
             CliProcessResult result;
             try
             {
@@ -62,20 +63,20 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
             }
             catch (OperationCanceledException)
             {
-                return SetState(Failed("로그인이 취소되었습니다."));
+                return SetState(Failed(Loc.Get("Auth_LoginCancelled")));
             }
             catch (Exception)
             {
-                return SetState(Failed("CLI 로그인 프로세스를 실행하지 못했습니다."));
+                return SetState(Failed(Loc.Get("Auth_LoginProcessFailed")));
             }
 
-            if (result.TimedOut) return SetState(Failed("로그인 제한 시간(10분)이 지났습니다. 다시 시도하세요."));
-            if (result.ExitCode != 0) return SetState(Failed($"CLI 로그인이 완료되지 않았습니다. 종료 코드: {result.ExitCode}"));
+            if (result.TimedOut) return SetState(Failed(Loc.Get("Auth_LoginTimeout")));
+            if (result.ExitCode != 0) return SetState(Failed(Loc.Format("Auth_LoginBadExit", result.ExitCode)));
 
             var credential = await _credentials.ReadAsync(Tool, cancellationToken);
             if (credential.Status != CredentialReadStatus.Available)
             {
-                return SetState(Failed("CLI가 정상 종료됐지만 로그인 정보를 찾지 못했습니다. CLI에서 로그인을 확인하세요."));
+                return SetState(Failed(Loc.Get("Auth_CredentialNotFound")));
             }
             // A completed official CLI login gets one fresh API attempt even if the
             // CLI retained the same token. A subsequent 401/403 marks it invalid again.
@@ -96,7 +97,7 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
             _credentialsRejected = true;
             _rejectedCredentialFingerprint = _lastCredentialFingerprint;
             SetState(NewState(AuthenticationStatus.Invalid, _credentials.Source,
-                "로그인이 만료되었거나 거부되었습니다. 다시 로그인하세요."));
+                Loc.Get("Auth_Expired")));
         }
     }
 
@@ -110,7 +111,7 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
             {
                 _lastCredentialFingerprint = fingerprint;
                 return NewState(AuthenticationStatus.Invalid, credential.Source,
-                    "로그인이 만료되었거나 거부되었습니다. 다시 로그인하세요.");
+                    Loc.Get("Auth_Expired"));
             }
 
             _credentialsRejected = false;
@@ -118,19 +119,19 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
             _lastCredentialFingerprint = fingerprint;
             return NewState(AuthenticationStatus.Available, credential.Source,
                 credential.Plan is { Length: > 0 } plan
-                    ? $"로그인됨 · {plan}"
-                    : "로그인됨");
+                    ? Loc.Format("Auth_SignedInWithPlan", plan)
+                    : Loc.Get("Auth_SignedIn"));
         }
 
         _lastCredentialFingerprint = null;
         return result.Status == CredentialReadStatus.Invalid
             ? NewState(AuthenticationStatus.Invalid, _credentials.Source,
-                result.Message ?? "로그인 정보가 올바르지 않습니다.")
+                result.Message ?? Loc.Get("Auth_InvalidCredential"))
             : MissingState();
     }
 
     private AuthenticationState MissingState() => NewState(AuthenticationStatus.Missing, CredentialSource.None,
-        "더 정확한 사용량 정보를 보려면 로그인해주세요.");
+        Loc.Get("Auth_Missing"));
 
     private AuthenticationState Failed(string message) => NewState(AuthenticationStatus.LoginFailed, CredentialSource.None, message);
 

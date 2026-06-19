@@ -1,3 +1,4 @@
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.ViewModels;
 
@@ -157,8 +158,8 @@ public sealed class UsageNotificationEvaluator
                 : UsageLevel.Caution,
             ToolName = toolName,
             WindowType = window.Type,
-            Title = $"{toolName} · {window.Label} 한도 {percent}% 도달",
-            Message = FormatResetTime(window.ResetTime, window.Type, now),
+            Title = NotificationText.ThresholdTitle(toolName, window.Type, percent),
+            Message = ResetTimeFormatter.ForNotification(window.ResetTime, now),
             CreatedAt = now,
         };
     }
@@ -173,32 +174,10 @@ public sealed class UsageNotificationEvaluator
             Level = UsageLevel.Ok,
             ToolName = toolName,
             WindowType = window.Type,
-            Title = $"{toolName} · {window.Label} 한도 초기화",
-            Message = $"현재 {availablePercent:0}%로 한도 초기화됨",
+            Title = NotificationText.ResetTitle(toolName, window.Type),
+            Message = NotificationText.ResetMessage(availablePercent),
             CreatedAt = now,
         };
-    }
-
-    private static string FormatResetTime(
-        DateTimeOffset? resetTime, UsageWindowType type, DateTimeOffset now)
-    {
-        if (resetTime is null) return "초기화 시각을 확인할 수 없습니다";
-
-        var localReset = resetTime.Value.ToLocalTime();
-        var remaining = resetTime.Value - now;
-        if (remaining <= TimeSpan.Zero) return "곧 초기화";
-
-        if (remaining.TotalDays >= 1)
-        {
-            var days = Math.Max(1, (int)Math.Ceiling(remaining.TotalDays));
-            return $"{days}일 후 ({localReset:M월 d일}) 초기화";
-        }
-
-        var hours = (int)remaining.TotalHours;
-        var minutes = remaining.Minutes;
-        if (hours > 0 && minutes > 0) return $"{hours}시간 {minutes}분 후 초기화";
-        if (hours > 0) return $"{hours}시간 후 초기화";
-        return $"{Math.Max(1, minutes)}분 후 초기화";
     }
 
     private readonly record struct WindowKey(string ToolName, UsageWindowType Type);

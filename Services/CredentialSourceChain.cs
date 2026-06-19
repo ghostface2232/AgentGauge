@@ -1,3 +1,4 @@
+using Gauge.Localization;
 using Gauge.Models;
 
 namespace Gauge.Services;
@@ -36,7 +37,7 @@ public sealed class CredentialSourceChain : ICredentialSource
         {
             Tool = tool,
             Status = CredentialReadStatus.Missing,
-            Message = "로그인 정보가 없습니다.",
+            Message = Loc.Get("Cred_Missing"),
         };
     }
 }

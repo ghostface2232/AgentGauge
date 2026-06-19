@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Gauge.Localization;
 using Gauge.Models;
 using Microsoft.Data.Sqlite;
 
@@ -36,7 +37,7 @@ public sealed class CursorCredentialSource : ICredentialSource
             // Not this source's tool; let the chain fall through.
             return Task.FromResult(new CredentialReadResult
             {
-                Tool = tool, Status = CredentialReadStatus.Missing, Message = "로그인 정보가 없습니다.",
+                Tool = tool, Status = CredentialReadStatus.Missing, Message = Loc.Get("Cred_Missing"),
             });
         }
 
@@ -48,7 +49,7 @@ public sealed class CursorCredentialSource : ICredentialSource
         var path = _databasePath();
         if (!File.Exists(path))
         {
-            return Missing("로그인 정보가 없습니다.");
+            return Missing(Loc.Get("Cred_Missing"));
         }
 
         string? accessToken;
@@ -60,29 +61,29 @@ public sealed class CursorCredentialSource : ICredentialSource
         {
             // Never log the DB contents/token. The type name is enough to diagnose.
             Debug.WriteLine($"[Gauge] Cursor state.vscdb read failed: {ex.GetType().Name}");
-            return Invalid("Cursor 로그인 정보를 읽을 수 없습니다. Cursor 앱에서 다시 로그인하세요.");
+            return Invalid(Loc.Get("Cred_CursorReadFailed"));
         }
 
         if (string.IsNullOrWhiteSpace(accessToken))
         {
-            return Missing("Cursor 로그인 정보가 없습니다.");
+            return Missing(Loc.Get("Cred_CursorMissing"));
         }
 
         if (!TryReadClaims(accessToken, out var userId, out var expiresAt))
         {
-            return Invalid("Cursor 로그인 토큰을 해석할 수 없습니다. Cursor 앱에서 다시 로그인하세요.");
+            return Invalid(Loc.Get("Cred_CursorParseFailed"));
         }
 
         if (expiresAt is { } expiry && expiry <= DateTimeOffset.UtcNow)
         {
-            return Invalid("Cursor 로그인이 만료되었습니다. Cursor 앱에서 다시 로그인하세요.");
+            return Invalid(Loc.Get("Cred_CursorExpired"));
         }
 
         return new CredentialReadResult
         {
             Tool = ToolKind.Cursor,
             Status = CredentialReadStatus.Available,
-            Message = "Cursor 앱 로그인 정보를 사용 중입니다.",
+            Message = Loc.Get("Cred_CursorInUse"),
             Credential = new ToolCredential
             {
                 Tool = ToolKind.Cursor,

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Gauge.Localization;
 using Gauge.Models;
 
 namespace Gauge.ViewModels;
@@ -54,7 +55,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
         if (windows.Count == 0)
         {
             HasAnyData = false;
-            StatusText = "데이터 없음";
+            StatusText = Loc.Get("NoData");
             Windows.Clear();
             return;
         }

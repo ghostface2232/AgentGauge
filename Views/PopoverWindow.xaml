@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:conv="using:Gauge.Converters"
+    xmlns:loc="using:Gauge.Localization"
     mc:Ignorable="d">
 
     <!-- RootHost is transparent so the DesktopAcrylic backdrop shows through. Its
@@ -46,7 +47,7 @@
                                        Style="{StaticResource BodyStrongTextBlockStyle}" />
                             <Button Grid.Column="1" Style="{StaticResource BorderlessIconButtonStyle}"
                                     MinWidth="28" MinHeight="28" Padding="6"
-                                    Command="{Binding RemoveCommand}" ToolTipService.ToolTip="연결 해제">
+                                    Command="{Binding RemoveCommand}" ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Disconnect}">
                                 <FontIcon Glyph="&#xE711;" FontSize="12" />
                             </Button>
                         </Grid>
@@ -237,7 +238,7 @@
                             Style="{StaticResource BorderlessIconButtonStyle}"
                             Padding="8,9"
                             Command="{Binding RefreshCommand}"
-                            ToolTipService.ToolTip="새로고침">
+                            ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Refresh}">
                             <FontIcon Glyph="&#xE72C;" FontSize="14" />
                         </Button>
                         <Button
@@ -245,7 +246,7 @@
                             Style="{StaticResource BorderlessIconButtonStyle}"
                             Padding="8,9"
                             Click="OnSettingsClicked"
-                            ToolTipService.ToolTip="설정">
+                            ToolTipService.ToolTip="{loc:Localize Key=Settings}">
                             <FontIcon Glyph="&#xE713;" FontSize="14" />
                         </Button>
                     </Grid>
@@ -275,10 +276,10 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Button Grid.Column="0" Style="{StaticResource BorderlessIconButtonStyle}"
-                                Click="OnSettingsBackClicked" ToolTipService.ToolTip="뒤로">
+                                Click="OnSettingsBackClicked" ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Back}">
                             <FontIcon Glyph="&#xE72B;" FontSize="14" />
                         </Button>
-                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="설정"
+                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{loc:Localize Key=Settings}"
                                    Style="{StaticResource SubtitleTextBlockStyle}" />
                     </Grid>
                 </Border>
@@ -308,7 +309,7 @@
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                             <FontIcon Glyph="&#xE710;" FontSize="14" />
-                            <TextBlock Text="서비스 추가" />
+                            <TextBlock Text="{loc:Localize Key=AddService}" />
                         </StackPanel>
                     </Button>
                 </StackPanel>

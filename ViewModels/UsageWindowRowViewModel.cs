@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Gauge.Localization;
 using Gauge.Models;
 
 namespace Gauge.ViewModels;
@@ -42,37 +43,6 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
         Percent = Math.Clamp(window.UsedRatio, 0.0, 1.0) * 100.0;
         PercentText = $"{window.UsedRatio * 100:0}%";
         Level = UsageLevelClassifier.Classify(window.UsedRatio);
-        ResetText = FormatReset(window.ResetTime);
-    }
-
-    private static string FormatReset(DateTimeOffset? reset)
-    {
-        if (reset is not { } resetAt)
-        {
-            return string.Empty;
-        }
-
-        var remaining = resetAt - DateTimeOffset.Now;
-        if (remaining <= TimeSpan.Zero)
-        {
-            return "초기화됨";
-        }
-
-        if (remaining.TotalHours >= 24)
-        {
-            // Count whole calendar days to the reset date (local), so "N일 후" stays
-            // consistent with the shown date — using elapsed time would round down
-            // (e.g. 3.x days → "3일") and disagree with the actual reset day.
-            var localReset = resetAt.ToLocalTime();
-            var dayDiff = (localReset.Date - DateTime.Now.Date).Days;
-            return $"{dayDiff}일 후 ({localReset:M월 d일}) 초기화";
-        }
-
-        if (remaining.TotalHours >= 1)
-        {
-            return $"{(int)remaining.TotalHours}시간 {remaining.Minutes}분 후 초기화";
-        }
-
-        return $"{remaining.Minutes}분 후 초기화";
+        ResetText = ResetTimeFormatter.ForRow(window.ResetTime);
     }
 }

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http;
 using System.Text.Json;
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers.Internal;
 using Gauge.Services;
@@ -107,11 +108,11 @@ public sealed class CodexProvider : IUsageProvider
         var windows = new List<UsageWindow>();
         if (root.GetObjectOrNull("rate_limit") is { } rateLimit)
         {
-            if (ParseWindow(rateLimit, "primary_window", UsageWindowType.FiveHour, "5시간") is { } fiveHour)
+            if (ParseWindow(rateLimit, "primary_window", UsageWindowType.FiveHour) is { } fiveHour)
             {
                 windows.Add(fiveHour);
             }
-            if (ParseWindow(rateLimit, "secondary_window", UsageWindowType.Weekly, "주간") is { } weekly)
+            if (ParseWindow(rateLimit, "secondary_window", UsageWindowType.Weekly) is { } weekly)
             {
                 windows.Add(weekly);
             }
@@ -123,7 +124,7 @@ public sealed class CodexProvider : IUsageProvider
     /// <summary>
     /// Parses one rate-limit window: <c>{ "used_percent": 0–100, "reset_at": epochSeconds }</c>.
     /// </summary>
-    private static UsageWindow? ParseWindow(JsonElement rateLimit, string property, UsageWindowType type, string label)
+    private static UsageWindow? ParseWindow(JsonElement rateLimit, string property, UsageWindowType type)
     {
         if (rateLimit.GetObjectOrNull(property) is not { } window
             || window.GetDoubleOrNull("used_percent") is not { } usedPercent)
@@ -139,7 +140,7 @@ public sealed class CodexProvider : IUsageProvider
         {
             Type = type,
             UsedRatio = Math.Clamp(usedPercent / 100.0, 0.0, 1.0),
-            Label = label,
+            Label = WindowLabels.For(type),
             ResetTime = resetTime,
         };
     }

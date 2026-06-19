@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers.Internal;
 using Gauge.Services;
@@ -190,11 +191,11 @@ public sealed class ClaudeProvider : IUsageProvider
         var root = document.RootElement;
 
         var windows = new List<UsageWindow>();
-        if (ParseWindow(root, "five_hour", UsageWindowType.FiveHour, "5시간") is { } fiveHour)
+        if (ParseWindow(root, "five_hour", UsageWindowType.FiveHour) is { } fiveHour)
         {
             windows.Add(fiveHour);
         }
-        if (ParseWindow(root, "seven_day", UsageWindowType.Weekly, "주간") is { } weekly)
+        if (ParseWindow(root, "seven_day", UsageWindowType.Weekly) is { } weekly)
         {
             windows.Add(weekly);
         }
@@ -206,7 +207,7 @@ public sealed class ClaudeProvider : IUsageProvider
     /// Parses one window object: <c>{ "utilization": 0–100, "resets_at": ISO8601 }</c>.
     /// A null/absent object (or null utilization) means the window has no data and is omitted.
     /// </summary>
-    private static UsageWindow? ParseWindow(JsonElement root, string property, UsageWindowType type, string label)
+    private static UsageWindow? ParseWindow(JsonElement root, string property, UsageWindowType type)
     {
         if (root.GetObjectOrNull(property) is not { } window
             || window.GetDoubleOrNull("utilization") is not { } utilization)
@@ -218,7 +219,7 @@ public sealed class ClaudeProvider : IUsageProvider
         {
             Type = type,
             UsedRatio = Math.Clamp(utilization / 100.0, 0.0, 1.0),
-            Label = label,
+            Label = WindowLabels.For(type),
             ResetTime = window.GetDateTimeOffsetOrNull("resets_at"),
         };
     }

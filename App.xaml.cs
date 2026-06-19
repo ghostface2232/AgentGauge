@@ -1,4 +1,5 @@
 using System.Net.Http;
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers;
 using Gauge.Services;
@@ -36,6 +37,11 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Resolve the UI language before any window or the tray menu is built, so every
+        // surface is created in the right language. First run detects it from the OS
+        // display language and persists the choice to settings.json.
+        Loc.Initialize(LanguageService.InitializeFromSettings());
+
         // Create the window but deliberately do NOT call Activate(): a WinUI
         // window stays hidden until activated, which is exactly the tray-only
         // background behavior we want at startup.

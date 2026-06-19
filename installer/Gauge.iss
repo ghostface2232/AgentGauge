@@ -31,15 +31,22 @@ DisableDirPage=yes
 DisableProgramGroupPage=yes
 DisableReadyPage=yes
 DisableFinishedPage=no
+; Auto-pick the wizard language from the system UI language, with no Select Language
+; dialog. An unmatched system language falls back to the first [Languages] entry
+; (English) — mirroring the app's own ko/ja/→en resolution.
 ShowLanguageDialog=no
+LanguageDetectionMethod=uilanguage
 CloseApplications=yes
 RestartApplications=no
 UsePreviousAppDir=yes
 UsePreviousGroup=yes
 
-; Korean-only for now; add languages here when the app gains i18n.
+; English is listed first so it is the default fallback for any system language that
+; is neither Korean nor Japanese. All three .isl files ship with Inno Setup 6.
 [Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

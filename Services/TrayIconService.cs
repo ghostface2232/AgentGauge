@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using CommunityToolkit.Mvvm.Input;
+using Gauge.Localization;
 using H.NotifyIcon;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -109,7 +110,7 @@ public sealed class TrayIconService : IDisposable
 
         _startOnBootItem = new MenuFlyoutItem
         {
-            Text = "시작프로그램 등록",
+            Text = Loc.Get("Tray_StartOnBoot"),
             MinWidth = ItemMinWidth,
             // WinUI's default 9/10 vertical padding overflows H.NotifyIcon's
             // fractional-DPI SecondWindow viewport by a few pixels. Preserve the
@@ -162,7 +163,7 @@ public sealed class TrayIconService : IDisposable
     /// </summary>
     public void UpdateToolTip(string summary, DateTimeOffset lastUpdated)
     {
-        var text = $"Gauge — {summary}\n갱신: {lastUpdated.ToLocalTime():yyyy-MM-dd HH:mm}";
+        var text = Loc.Format("Tray_Tooltip", summary, lastUpdated.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
         _trayIcon.ToolTipText = text.Length > 127 ? text[..127] : text;
     }
 
@@ -329,7 +330,7 @@ public sealed class TrayIconService : IDisposable
     {
         var exit = new MenuFlyoutItem
         {
-            Text = "종료",
+            Text = Loc.Get("Tray_Exit"),
             MinWidth = ItemMinWidth,
             Padding = new Thickness(11, 8, 11, 8),
         };

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Views;
 using Microsoft.UI.Dispatching;
@@ -50,16 +51,11 @@ public sealed class UsageNotificationService : IDisposable
         var now = DateTimeOffset.Now;
         var samples = new[]
         {
-            Demo(UsageNotificationKind.Threshold, UsageLevel.Danger, UsageWindowType.FiveHour,
-                "Claude Code · 5시간 한도 90% 도달", "2시간 40분 후 초기화", now),
-            Demo(UsageNotificationKind.Threshold, UsageLevel.Caution, UsageWindowType.Weekly,
-                "Codex · 주간 한도 70% 도달", "4일 후 (6월 23일) 초기화", now),
-            Demo(UsageNotificationKind.Threshold, UsageLevel.Danger, UsageWindowType.Weekly,
-                "Codex · 주간 한도 90% 도달", "1일 후 (6월 20일) 초기화", now),
-            Demo(UsageNotificationKind.Reset, UsageLevel.Ok, UsageWindowType.FiveHour,
-                "Claude Code · 5시간 한도 초기화", "현재 100%로 한도 초기화됨", now),
-            Demo(UsageNotificationKind.Reset, UsageLevel.Ok, UsageWindowType.Weekly,
-                "Codex · 주간 한도 초기화", "현재 100%로 한도 초기화됨", now),
+            DemoThreshold(UsageWindowType.FiveHour, UsageLevel.Danger, "Claude Code", 90, now.AddHours(2).AddMinutes(40), now),
+            DemoThreshold(UsageWindowType.Weekly, UsageLevel.Caution, "Codex", 70, now.AddDays(4), now),
+            DemoThreshold(UsageWindowType.Weekly, UsageLevel.Danger, "Codex", 90, now.AddDays(1), now),
+            DemoReset(UsageWindowType.FiveHour, "Claude Code", 100, now),
+            DemoReset(UsageWindowType.Weekly, "Codex", 100, now),
         };
 
         foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
@@ -137,20 +133,28 @@ public sealed class UsageNotificationService : IDisposable
         _window.Dispose();
     }
 
-    private static UsageNotification Demo(
-        UsageNotificationKind kind,
-        UsageLevel level,
-        UsageWindowType windowType,
-        string title,
-        string message,
-        DateTimeOffset now) => new()
+    private static UsageNotification DemoThreshold(
+        UsageWindowType windowType, UsageLevel level, string toolName, int percent,
+        DateTimeOffset reset, DateTimeOffset now) => new()
     {
-        Kind = kind,
+        Kind = UsageNotificationKind.Threshold,
         Level = level,
-        ToolName = title.Split('·')[0].Trim(),
+        ToolName = toolName,
         WindowType = windowType,
-        Title = title,
-        Message = message,
+        Title = NotificationText.ThresholdTitle(toolName, windowType, percent),
+        Message = ResetTimeFormatter.ForNotification(reset, now),
+        CreatedAt = now,
+    };
+
+    private static UsageNotification DemoReset(
+        UsageWindowType windowType, string toolName, double availablePercent, DateTimeOffset now) => new()
+    {
+        Kind = UsageNotificationKind.Reset,
+        Level = UsageLevel.Ok,
+        ToolName = toolName,
+        WindowType = windowType,
+        Title = NotificationText.ResetTitle(toolName, windowType),
+        Message = NotificationText.ResetMessage(availablePercent),
         CreatedAt = now,
     };
 

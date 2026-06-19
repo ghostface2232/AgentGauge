@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Gauge.Localization;
 using Gauge.Models;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -102,7 +103,7 @@ public sealed partial class NotificationWindow : Window, IDisposable
         TitleText.Text = notification.Title;
         MessageText.Text = notification.Message;
         SuppressedCountText.Text = suppressedCount > 1
-            ? $"방해 금지 중 발생한 {suppressedCount}건 중 최근 알림"
+            ? Loc.Format("Notif_Suppressed", suppressedCount)
             : string.Empty;
         SuppressedCountText.Visibility = suppressedCount > 1
             ? Visibility.Visible

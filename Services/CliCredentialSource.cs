@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers.Internal;
 
@@ -29,7 +30,7 @@ public sealed class CliCredentialSource : ICredentialSource
             ToolKind.Codex => ReadCodex(),
             // Tools this source does not own (e.g. Antigravity, Cursor) are handled by
             // their dedicated sources in the chain. Report Missing so we don't shadow them.
-            _ => new CredentialReadResult { Tool = tool, Status = CredentialReadStatus.Missing, Message = "로그인 정보가 없습니다." },
+            _ => new CredentialReadResult { Tool = tool, Status = CredentialReadStatus.Missing, Message = Loc.Get("Cred_Missing") },
         });
     }
 
@@ -41,7 +42,7 @@ public sealed class CliCredentialSource : ICredentialSource
             if (root.GetObjectOrNull("claudeAiOauth") is not { } oauth
                 || oauth.GetStringOrNull("accessToken") is not { Length: > 0 } token)
             {
-                return Invalid(ToolKind.ClaudeCode, "Claude Code 자격증명에 OAuth 토큰이 없습니다.");
+                return Invalid(ToolKind.ClaudeCode, Loc.Get("Cred_ClaudeNoToken"));
             }
 
             var expiresAt = oauth.GetInt64OrNull("expiresAt") is { } ms
@@ -49,7 +50,7 @@ public sealed class CliCredentialSource : ICredentialSource
                 : (DateTimeOffset?)null;
             if (expiresAt is { } expiry && expiry <= DateTimeOffset.UtcNow)
             {
-                return Invalid(ToolKind.ClaudeCode, "Claude Code 로그인이 만료되었습니다. 다시 로그인하세요.");
+                return Invalid(ToolKind.ClaudeCode, Loc.Get("Cred_ClaudeExpired"));
             }
 
             return Available(ToolKind.ClaudeCode, new ToolCredential
@@ -77,7 +78,7 @@ public sealed class CliCredentialSource : ICredentialSource
             if (root.GetObjectOrNull("tokens") is not { } tokens
                 || tokens.GetStringOrNull("access_token") is not { Length: > 0 } token)
             {
-                return Invalid(ToolKind.Codex, "Codex 자격증명에 OAuth 토큰이 없습니다.");
+                return Invalid(ToolKind.Codex, Loc.Get("Cred_CodexNoToken"));
             }
             return Available(ToolKind.Codex, new ToolCredential
             {
@@ -95,7 +96,7 @@ public sealed class CliCredentialSource : ICredentialSource
     {
         if (!File.Exists(path))
         {
-            return new CredentialReadResult { Tool = tool, Status = CredentialReadStatus.Missing, Message = "로그인 정보가 없습니다." };
+            return new CredentialReadResult { Tool = tool, Status = CredentialReadStatus.Missing, Message = Loc.Get("Cred_Missing") };
         }
         try
         {
@@ -107,14 +108,14 @@ public sealed class CliCredentialSource : ICredentialSource
         {
             // Never include file contents or token values in diagnostics.
             Debug.WriteLine($"[Gauge] Credential read failed for {tool}: {ex.GetType().Name}");
-            return Invalid(tool, "자격증명 파일을 읽을 수 없습니다. CLI에서 다시 로그인하세요.");
+            return Invalid(tool, Loc.Get("Cred_ReadFailed"));
         }
     }
 
     private CredentialReadResult Available(ToolKind tool, ToolCredential credential) => new()
     {
         Tool = tool, Status = CredentialReadStatus.Available, Credential = credential,
-        Message = "공식 CLI 로그인 정보를 사용 중입니다.",
+        Message = Loc.Get("Cred_CliInUse"),
     };
 
     private static CredentialReadResult Invalid(ToolKind tool, string message) => new()
