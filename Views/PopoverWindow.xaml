@@ -130,6 +130,7 @@
                                             <TextBlock
                                                 VerticalAlignment="Center"
                                                 Opacity="0.5"
+                                                FontSize="14"
                                                 Text="{Binding Plan}"
                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                 Visibility="{Binding HasPlan, Converter={StaticResource BoolToVis}}" />
