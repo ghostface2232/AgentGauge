@@ -20,6 +20,7 @@ public partial class App : Application
     private PopoverWindow? _popover;
     private TrayIconService? _trayIcon;
     private UsageCoordinator? _coordinator;
+    private UsageNotificationService? _notificationService;
     private UsageViewModel? _viewModel;
     private SettingsViewModel? _settingsViewModel;
     private IReadOnlyDictionary<ToolKind, IAuthenticationProvider>? _authentication;
@@ -96,6 +97,7 @@ public partial class App : Application
         _popover.BindViewModel(_viewModel);
 
         _coordinator = new UsageCoordinator(usageService, DispatcherQueue.GetForCurrentThread());
+        _notificationService = new UsageNotificationService(DispatcherQueue.GetForCurrentThread());
         _coordinator.Updated += OnUsageUpdated;
         _coordinator.AuthenticationRequired += OnAuthenticationRequired;
         // Adding/removing a service re-fetches immediately so its card appears/disappears.
@@ -107,11 +109,20 @@ public partial class App : Application
         _popover.Opened += OnPopoverOpened;
 
         _coordinator.Start();
+        // Unpackaged WinUI launches do not reliably copy ordinary EXE arguments into
+        // LaunchActivatedEventArgs.Arguments. Read the actual process command line so
+        // the developer visual-QA switch works when launched from PowerShell/Explorer.
+        if (Environment.GetCommandLineArgs()
+            .Contains("--notification-demo", StringComparer.OrdinalIgnoreCase))
+        {
+            _notificationService.ShowDemoSequence();
+        }
     }
 
     private void OnUsageUpdated(object? sender, UsageState state)
     {
         // Coordinator marshals this to the UI thread.
+        _notificationService?.Process(state);
         _viewModel?.Apply(state);
         _popover?.RefreshUsageLayout();
         if (_viewModel is not null)
@@ -196,6 +207,8 @@ public partial class App : Application
         // unsubscribes the theme listener), then quit.
         _coordinator?.Dispose();
         _coordinator = null;
+        _notificationService?.Dispose();
+        _notificationService = null;
         _trayIcon?.Dispose();
         _trayIcon = null;
         _httpClient?.Dispose();

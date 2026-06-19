@@ -18,7 +18,7 @@ public static class Program
     {
         WinRT.ComWrappersSupport.InitializeComWrappers();
 
-        if (IsSecondaryInstance())
+        if (IsSecondaryInstance(args))
         {
             // Tray-only background app: there is no window to surface, so the
             // second instance just exits quietly. Activation redirection can be
@@ -37,9 +37,13 @@ public static class Program
         return 0;
     }
 
-    private static bool IsSecondaryInstance()
+    private static bool IsSecondaryInstance(string[] args)
     {
-        var keyInstance = AppInstance.FindOrRegisterForKey(AppKey);
+        // Visual notification QA may run beside the normal tray instance without
+        // redirecting or disturbing it.
+        var isNotificationDemo = args.Contains("--notification-demo", StringComparer.OrdinalIgnoreCase);
+        var keyInstance = AppInstance.FindOrRegisterForKey(
+            isNotificationDemo ? $"{AppKey}.NotificationDemo" : AppKey);
         return !keyInstance.IsCurrent;
     }
 }
