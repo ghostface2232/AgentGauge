@@ -17,7 +17,8 @@ namespace Gauge.Views;
 /// Borderless, always-on-top popover modeled on the Windows 11 Quick Settings panel.
 /// It is a separate <see cref="AppWindow"/> (not a WinUI Flyout): we drive show/hide,
 /// positioning, light dismiss, the toggle-flicker guard, and the slide-in ourselves.
-/// Content is a placeholder for now.
+/// It hosts two views — the usage cards and the settings panel — with an animated
+/// transition between them.
 /// </summary>
 public sealed partial class PopoverWindow : Window
 {

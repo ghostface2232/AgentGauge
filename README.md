@@ -2,7 +2,7 @@
 
 # Gauge
 
-Gauge는 Claude Code와 Codex의 실제 사용량 한도를 손쉽게 확인하는 Windows 시스템 트레이 앱입니다.
+Gauge는 Claude Code, Codex, Cursor의 실제 사용량 한도를 손쉽게 확인하는 Windows 시스템 트레이 앱입니다.
 
 
 ## 스크린샷
