@@ -27,6 +27,7 @@ public partial class App : Application
     private IReadOnlyDictionary<ToolKind, IAuthenticationProvider>? _authentication;
     private ToolRegistry? _toolRegistry;
     private StartupService? _startupService;
+    private NotificationSettingsStore? _notificationSettingsStore;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
 
@@ -51,6 +52,7 @@ public partial class App : Application
         _trayIcon = new TrayIconService();
         _trayIcon.LeftClicked += OnTrayLeftClicked;
         _trayIcon.StartOnBootToggled += OnTrayStartOnBootToggled;
+        _trayIcon.NotificationsToggled += OnTrayNotificationsToggled;
         _trayIcon.ExitRequested += OnTrayExitRequested;
 
         // Reflect the real run-on-startup state in the tray menu checkmark.
@@ -88,8 +90,19 @@ public partial class App : Application
             },
             _toolRegistry.IsEnabled);
 
+        // Global settings toggles (notifications, run-on-startup) shown at the top of the
+        // settings panel. The view model only emits intent; App owns the services and
+        // applies/reconciles the change (see OnGlobal* handlers below). The initial state
+        // comes from the persisted notifications flag and the real Run-key startup state.
+        _notificationSettingsStore = new NotificationSettingsStore();
+        var notificationsEnabled = _notificationSettingsStore.Load();
+        _trayIcon.SetNotificationsChecked(notificationsEnabled);
+        var globalSettings = new GlobalSettingsViewModel(notificationsEnabled, _startupService.IsEnabled());
+        globalSettings.NotificationsToggleRequested += OnGlobalNotificationsToggled;
+        globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
+
         _updateService = new UpdateService();
-        _settingsViewModel = new SettingsViewModel(_toolRegistry, _authentication, _updateService);
+        _settingsViewModel = new SettingsViewModel(_toolRegistry, _authentication, _updateService, globalSettings);
         _settingsViewModel.AuthenticationSucceeded += OnAuthenticationSucceeded;
         _settingsViewModel.Update.ExitRequested += OnUpdateExitRequested;
         _popover.BindSettingsViewModel(_settingsViewModel);
@@ -104,6 +117,7 @@ public partial class App : Application
 
         _coordinator = new UsageCoordinator(usageService, DispatcherQueue.GetForCurrentThread());
         _notificationService = new UsageNotificationService(DispatcherQueue.GetForCurrentThread());
+        _notificationService.SetEnabled(notificationsEnabled);
         _coordinator.Updated += OnUsageUpdated;
         _coordinator.AuthenticationRequired += OnAuthenticationRequired;
         // Adding/removing a service re-fetches immediately so its card appears/disappears.
@@ -175,7 +189,43 @@ public partial class App : Application
 
     private void OnSettingsOpened(object? sender, EventArgs e)
     {
-        if (_settingsViewModel is not null) _ = _settingsViewModel.RefreshAsync();
+        if (_settingsViewModel is null) return;
+
+        // Reflect any state changed while the panel was closed — notably start-on-boot,
+        // which the tray menu can also flip — before showing the toggles.
+        _settingsViewModel.Global.SyncFromSystem(
+            _notificationSettingsStore?.Load() ?? true,
+            _startupService?.IsEnabled() ?? false);
+        _ = _settingsViewModel.RefreshAsync();
+    }
+
+    // The settings-panel toggle and the tray-menu item are two views of one flag. Each
+    // toggle path applies the change and then reflects it on the *other* surface, so
+    // flipping notifications in one place updates the other immediately.
+    private void OnGlobalNotificationsToggled(object? sender, bool enabled)
+    {
+        ApplyNotificationsEnabled(enabled);
+        _trayIcon?.SetNotificationsChecked(enabled);
+    }
+
+    private void OnTrayNotificationsToggled(object? sender, bool enabled)
+    {
+        ApplyNotificationsEnabled(enabled);
+        _settingsViewModel?.Global.SetNotificationsEnabled(enabled);
+    }
+
+    private void ApplyNotificationsEnabled(bool enabled)
+    {
+        _notificationSettingsStore?.Save(enabled);
+        _notificationService?.SetEnabled(enabled);
+    }
+
+    private void OnGlobalStartOnBootToggled(object? sender, bool enabled)
+    {
+        // Apply, sync the tray checkmark, and reconcile the toggle if the write failed.
+        var actual = _startupService?.SetEnabled(enabled) ?? false;
+        _trayIcon?.SetStartOnBootChecked(actual);
+        if (actual != enabled) _settingsViewModel?.Global.SetStartOnBoot(actual);
     }
 
     private void OnAuthenticationRequired(object? sender, ToolKind tool)
@@ -195,9 +245,11 @@ public partial class App : Application
     private void OnTrayStartOnBootToggled(object? sender, bool enabled)
     {
         // Apply, then sync the menu checkmark to the actual registry state (so a
-        // failed write reverts the check instead of lying).
+        // failed write reverts the check instead of lying), and keep the settings
+        // toggle in step with the change made from the tray.
         var actual = _startupService?.SetEnabled(enabled) ?? false;
         _trayIcon?.SetStartOnBootChecked(actual);
+        _settingsViewModel?.Global.SetStartOnBoot(actual);
     }
 
     private void OnTrayExitRequested(object? sender, EventArgs e) => ShutdownAndExit();

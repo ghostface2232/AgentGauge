@@ -21,15 +21,19 @@ public sealed class SettingsViewModel
     public SettingsViewModel(
         ToolRegistry registry,
         IReadOnlyDictionary<ToolKind, IAuthenticationProvider> providers,
-        UpdateService updateService)
+        UpdateService updateService,
+        GlobalSettingsViewModel global)
     {
         _registry = registry;
         _providers = providers;
+        Global = global;
         Authentication = new ObservableCollection<AuthenticationCardViewModel>();
         Update = new UpdateViewModel(updateService);
         RebuildCards();
     }
 
+    /// <summary>App-wide toggles (notifications, run-on-startup) shown above the service list.</summary>
+    public GlobalSettingsViewModel Global { get; }
     public ObservableCollection<AuthenticationCardViewModel> Authentication { get; }
     public UpdateViewModel Update { get; }
     public event EventHandler? AuthenticationSucceeded;

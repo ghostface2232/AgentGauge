@@ -27,7 +27,7 @@ Gauge is a Windows system-tray app that monitors Claude Code, Codex, and Cursor 
 
 - Releases live on GitHub Releases, tagged `v<Version>` (matching `Gauge.csproj`), with `GaugeSetup-win-x64.exe` as the asset. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds the installer and creates a **draft** release (asset + auto-generated notes); writing the final notes and publishing the release are done manually. `release.ps1 -Draft` is the local equivalent. The in-app updater only sees a release once it is published.
 - `UpdateService` checks `releases/latest` against the running assembly version, downloads the installer asset, and launches it with `/SILENT`; the app then exits (`UpdateViewModel.ExitRequested` → `App.ShutdownAndExit`) so the installer can replace files and relaunch.
-- Update checks are automatic-on-launch (quiet) plus on-demand from the settings footer's single action button ("업데이트 확인" → "업데이트" once a newer release is found). Applying an update is always a deliberate click — never auto-installed.
+- Update checks are automatic-on-launch (quiet) plus on-demand from the settings footer's single action button (localized "Check for updates" → "Update" once a newer release is found; see Localization). Applying an update is always a deliberate click — never auto-installed.
 - The asset name `GaugeSetup-win-x64.exe` is contract: it is hard-coded in `UpdateService` and produced by `installer/Gauge.iss` (`OutputBaseFilename`). Keep them in sync.
 
 ## Core architecture rule
@@ -77,7 +77,8 @@ Providers read each tool's **real** rate-limit usage from its official OAuth usa
 - Current implementation: H.NotifyIcon.WinUI 2.4.1. It builds successfully with Windows App SDK 2.1.x and is the selected path.
 - If a future SDK update breaks H.NotifyIcon.WinUI, remove it and implement the tray icon with Win32 Shell_NotifyIcon via CsWin32, using a hidden message window to receive click events. This fallback has no SDK-version dependency; record the change here if it is taken.
 - The icon is redrawable at runtime and swaps among themed variants by the highest usage level (normal / ≥70% / ≥90%), for both light and dark taskbars.
-- Left-click toggles the popover. Right-click opens a context menu: start-on-boot toggle, exit.
+- Left-click toggles the popover. Right-click opens a context menu: a notifications toggle, a start-on-boot toggle, and exit. Both toggles show their on-state as a right-aligned ✓ (via `KeyboardAcceleratorTextOverride`), not a left check column.
+- The two menu toggles are mirrors of the same global settings exposed in the settings panel, so each must stay in sync with the other surface — App applies the change and reflects it back on the opposite surface (see Settings panel). The tray service only owns the menu's visual indicator and raises an event with the new desired state; it never writes the setting itself.
 
 ## Popover window
 
@@ -93,6 +94,17 @@ This is a separate borderless AppWindow, not a WinUI Flyout.
 - Toggle guard: when the popover is focused and the tray icon is clicked again, the click first deactivates and hides the window, then the handler reopens it, causing flicker. Record the last-hidden timestamp and ignore any open request within ~200ms of a hide, treating it as a toggle-close. Tray left-click must pass through this guard.
 - Slide-in: on show, translate the root element up from a small offset while fading in, ~150-200ms ease-out. Keep the duration and offset easy to tune.
 
+## Settings panel
+
+The settings screen is a second view hosted **inside** the same popover window (not a separate window), with an animated slide/fade transition to and from the usage view. It keeps the usage view's measured height while shown, so the two views share one window size and one bottom bar.
+
+- Layout is three rows: a fixed header (back button + title), a scrollable body, and a full-bleed bottom bar (version + update action) identical in height/padding to the usage footer.
+- Body order (all inside the scroll): the **global settings** card first, then the per-tool authentication cards, then the "+" add-service button. The scroll turns on only when content exceeds the window height (`VerticalScrollBarVisibility=Auto`).
+- Bottom padding parity: the scroll's inner panel carries a 12dip bottom margin so the gap above the bottom bar at full scroll matches the usage view's (its last card's 8dip + the list's 4dip). Keep these in step if either view's spacing changes.
+- Global settings card: two app-wide toggles — **notifications** and **run-on-startup** — grouped in one card directly under the title, each a label + caption with a compact `ToggleSwitch` (empty On/Off content so it stays language-neutral).
+- Ownership and sync: `GlobalSettingsViewModel` only holds the toggle state and raises an intent event; `App` owns the services, applies the change, and reflects the real result back. The two settings are each surfaced in **two** places (this card and the tray menu), so every apply path updates the *other* surface: a settings toggle updates the tray ✓, a tray toggle updates this card. The view model's reflect-back setters suspend their change events so an external update never loops as a new request. On panel open, the toggles are re-synced from the real state (start-on-boot from the registry, notifications from settings.json) to catch changes made via the tray while it was closed.
+- Run-on-startup is the registry Run key via `StartupService` (no settings.json entry); the apply reads back the *actual* registry state so a failed write reverts the toggle instead of lying. Notifications enabled-state persists to settings.json and gates the live notification service (see Notifications).
+
 ## Polling and refresh
 
 - A PeriodicTimer drives a 60s refresh of all providers.
@@ -107,16 +119,41 @@ This is a separate borderless AppWindow, not a WinUI Flyout.
 - A failed provider shows an empty state or its last successful value.
 - A credential file may be missing, a token expired, or the network unreachable. Treat these as normal flows with a clear in-app message, not as crashes.
 
+## Notifications
+
+Gauge raises a toast when a usage window crosses a threshold or resets. The toast is a **custom acrylic window** (`NotificationWindow` + `AlwaysActiveAcrylicBackdrop`), not a Windows Shell/UWP toast — an unpackaged win32 app has no reliable AppUserModelID for the Action Center, and an in-app window gives full control over look and fade.
+
+- Detection (`UsageNotificationEvaluator`) is purely a function of consecutive normalized snapshots — it takes a `UsageState` and `now`, returns the notifications to show, and is fully unit-tested. Keep it free of UI and timing side effects.
+  - The first observation of a window establishes a baseline, so launching Gauge already above a threshold never replays an old alert.
+  - Thresholds reuse the shared usage levels (caution 70%, danger 90%): the 5-hour window alerts at danger only; the weekly window alerts at caution and danger. A crossing fires once per cycle (a per-threshold mask), and is re-armed by a reset.
+  - Reset detection is reset-time advance + a usage drop; a fallback covers providers that omit reset times but requires a strong high-to-low drop. A cached/re-emitted snapshot (same or older `CapturedAt`) is never treated as a transition. A polling gap that spans a reset into an already-high new cycle is marked consumed, not replayed.
+  - Only `FiveHour`/`Weekly` windows are evaluated (Cursor's billing-cycle window is not). A failed refresh keeps the window's key alive but is not evaluated as a transition. Removing a tool drops its alert history.
+- Presentation (`UsageNotificationService`) is the stateful/threaded half: it queues toasts and shows them one at a time. It respects Do Not Disturb / full-screen via `SHQueryUserNotificationState` — while suppressed it holds the latest alert and a suppressed count, then surfaces a single coalesced toast ("latest of N during Do Not Disturb") when the user is available again. A query failure is treated as "present anyway", never as permanent silence.
+- The global notifications toggle gates `Process` (a no-op while off) and, when turned off, clears anything queued or held so flipping back on never replays a backlog. The enabled state is read at startup from `NotificationSettingsStore` (default on) and applied to the service; it persists to settings.json.
+- `--notification-demo` (read from the real process command line, since unpackaged WinUI drops EXE args) runs a developer visual-QA sequence of every alert kind in light and dark.
+
 ## UI rules
 
 - One card per tool shows all of that tool's windows (5-hour and weekly) together — there is no view switch.
 - Card header: tool name with the plan label beside it in a lighter font (e.g. "Claude Code  Max 5x").
 - Each window renders a row: a label, a progress bar, a percent number, and time until reset.
 - If a tool has no windows at all, show a no-data state for that card without breaking.
-- Progress bar color steps by usage level (ok / caution / danger). Define colors as theme resources, never hardcoded. The current named thresholds are 70% and 90%, shared with the tray-icon variants.
+- Progress bar color steps by usage level (ok / caution / danger). Define colors as theme resources, never hardcoded. The current named thresholds are 70% and 90%, shared with the tray-icon variants and the notification thresholds.
 - Always show the percent number, not color alone, for accessibility.
 - Update the tray icon to reflect the highest usage level so state is glanceable without opening the popover.
 - Follow the Quick Settings panel's generous spacing and low information density. Exact spacing and typography are left for manual tuning; do not over-fix them.
+
+## Localization
+
+Gauge ships Korean, English, and Japanese. The UI language is fixed once at startup; there is no in-app language switch.
+
+- Translations live **in code** (`Localization/Strings.cs`), a `key → string?[]` table, not `.resw`/`.resx`. This is deliberate: an unpackaged WinUI app's MRT/PRI resource path is fragile, the string count is small, and the language is fixed at startup, so a plain dictionary read needs no satellite-assembly build step. Add a key by adding one row with all three columns.
+- The array order is the `AppLanguage` enum's integer value — `{ Korean=0, English=1, Japanese=2 }`. **Do not reorder the enum**; the integers index the table columns. A null cell falls back to English, then to the key, so a missing translation is visible rather than blank.
+- `Loc` is the facade: `Loc.Initialize(language)` is called once in `App.OnLaunched` before any window or the tray menu is built. `Loc.Get`/`Loc.Format` look up the key; `Format` uses `Loc.Culture` (derived from the language), not the ambient thread culture, for deterministic output. Korean is the default before `Initialize` runs — unit tests rely on this and assert Korean output.
+- XAML resolves strings via the `{loc:Localize Key=...}` markup extension, evaluated at parse time. Because the language is fixed before any XAML loads, resolving once is sufficient — there is nothing to re-localize on a switch.
+- `LanguageService` resolves the language: a valid persisted code in settings.json wins; otherwise it maps the OS UI culture (`ko`/`ja` → those, everything else → English) and persists the detected choice on first run. Resolution is pure and unit-tested.
+- **Invariant-culture rule (important):** `Loc.Initialize` sets `CurrentCulture`/`CurrentUICulture` process-wide to match the language. So anything parsing or formatting **machine-facing** data — provider API timestamps and numbers, JSON, version strings — must pass `CultureInfo.InvariantCulture` explicitly rather than rely on the ambient culture. A naive `double.Parse`/`DateTime.Parse` will silently break under Korean/Japanese culture.
+- settings.json is a single shared file; `AppSettingsFile` does read-modify-write and preserves unknown keys via `[JsonExtensionData]`, so the language, tool registration, and notifications-enabled stores never clobber each other.
 
 ## Code style
 

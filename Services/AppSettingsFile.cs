@@ -12,6 +12,9 @@ internal sealed class AppSettingsDto
     /// <summary>Two-letter UI language code ("ko" / "en" / "ja"). Null until first resolved.</summary>
     public string? Language { get; set; }
 
+    /// <summary>Whether usage notifications are shown. Null (absent) reads as enabled.</summary>
+    public bool? NotificationsEnabled { get; set; }
+
     /// <summary>
     /// Any properties not modelled above — keys written by a newer build, or settings this
     /// build doesn't know about. Captured on load and written back verbatim so a
@@ -23,8 +26,9 @@ internal sealed class AppSettingsDto
 
 /// <summary>
 /// Shared reader/writer for the single <c>settings.json</c> file. Multiple stores
-/// (<see cref="ToolRegistryStore"/>, <see cref="LanguageService"/>) persist different
-/// keys into the same file, so writes are read-modify-write: load the current document,
+/// (<see cref="ToolRegistryStore"/>, <see cref="LanguageService"/>,
+/// <see cref="NotificationSettingsStore"/>) persist different keys into the same file, so
+/// writes are read-modify-write: load the current document,
 /// mutate one field, write the whole thing back. Unmodelled keys (a newer build's
 /// settings, or this build's own other keys) survive the round-trip via
 /// <see cref="AppSettingsDto.Extra"/>, so no store ever clobbers another's data. Null

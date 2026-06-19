@@ -17,6 +17,7 @@ public sealed class UsageNotificationService : IDisposable
     private UsageNotification? _latestSuppressed;
     private int _suppressedCount;
     private bool _isShowing;
+    private bool _enabled = true;
     private bool _disposed;
 
     public UsageNotificationService(DispatcherQueue dispatcher)
@@ -28,8 +29,26 @@ public sealed class UsageNotificationService : IDisposable
         _suppressionTimer.Tick += OnSuppressionTimerTick;
     }
 
+    /// <summary>
+    /// Turns usage notifications on or off (the global settings toggle). While off,
+    /// <see cref="Process"/> is a no-op and anything queued or held during Do Not Disturb
+    /// is dropped, so flipping back on never replays alerts accumulated while silenced.
+    /// </summary>
+    public void SetEnabled(bool enabled)
+    {
+        _enabled = enabled;
+        if (enabled) return;
+
+        _suppressionTimer.Stop();
+        _displayQueue.Clear();
+        _latestSuppressed = null;
+        _suppressedCount = 0;
+    }
+
     public void Process(UsageState state)
     {
+        if (!_enabled) return;
+
         foreach (var notification in _evaluator.Evaluate(state, DateTimeOffset.Now))
         {
             if (CanPresentNow())

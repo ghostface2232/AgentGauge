@@ -63,6 +63,7 @@ public sealed class TrayIconService : IDisposable
     private const int MenuSideMargin = 8;
 
     private readonly TaskbarIcon _trayIcon;
+    private readonly MenuFlyoutItem _notificationsItem;
     private readonly MenuFlyoutItem _startOnBootItem;
     private readonly DispatcherQueue? _dispatcher = DispatcherQueue.GetForCurrentThread();
     // Held to keep the ColorValuesChanged subscription alive for live theme switches.
@@ -76,6 +77,8 @@ public sealed class TrayIconService : IDisposable
     private Icon? _currentIcon;
     // We own the start-on-boot state and reflect it via right-aligned text.
     private bool _startOnBoot;
+    // Mirror of the notifications-enabled state, reflected the same way.
+    private bool _notificationsEnabled = true;
     // Saved so we can restore the user's foreground-lock setting on exit. Guarded by
     // _foregroundLockGate because Dispose and the ProcessExit handler can race.
     private readonly object _foregroundLockGate = new();
@@ -89,6 +92,9 @@ public sealed class TrayIconService : IDisposable
 
     /// <summary>Context menu: "시작프로그램 등록" toggled. Argument is the new desired state.</summary>
     public event EventHandler<bool>? StartOnBootToggled;
+
+    /// <summary>Context menu: "알림" toggled. Argument is the new desired state.</summary>
+    public event EventHandler<bool>? NotificationsToggled;
 
     /// <summary>Context menu: "종료".</summary>
     public event EventHandler? ExitRequested;
@@ -107,6 +113,19 @@ public sealed class TrayIconService : IDisposable
         // normal exit is harmless.
         _processExitHandler = (_, _) => RestoreForegroundLock();
         AppDomain.CurrentDomain.ProcessExit += _processExitHandler;
+
+        _notificationsItem = new MenuFlyoutItem
+        {
+            Text = Loc.Get("Settings_Notifications"),
+            MinWidth = ItemMinWidth,
+            Padding = new Thickness(11, 8, 11, 8),
+        };
+        _notificationsItem.Click += (_, _) =>
+        {
+            _notificationsEnabled = !_notificationsEnabled;
+            UpdateNotificationsIndicator();
+            NotificationsToggled?.Invoke(this, _notificationsEnabled);
+        };
 
         _startOnBootItem = new MenuFlyoutItem
         {
@@ -155,6 +174,16 @@ public sealed class TrayIconService : IDisposable
     {
         _startOnBoot = isChecked;
         UpdateStartOnBootIndicator();
+    }
+
+    /// <summary>
+    /// Reflects the current notifications-enabled state in the menu indicator. Called at
+    /// startup and whenever the settings panel toggles it, so both surfaces stay in step.
+    /// </summary>
+    public void SetNotificationsChecked(bool isChecked)
+    {
+        _notificationsEnabled = isChecked;
+        UpdateNotificationsIndicator();
     }
 
     /// <summary>
@@ -223,6 +252,11 @@ public sealed class TrayIconService : IDisposable
     {
         // Right-aligned secondary text; empty when off so nothing shows on the left.
         _startOnBootItem.KeyboardAcceleratorTextOverride = _startOnBoot ? CheckedGlyph : string.Empty;
+    }
+
+    private void UpdateNotificationsIndicator()
+    {
+        _notificationsItem.KeyboardAcceleratorTextOverride = _notificationsEnabled ? CheckedGlyph : string.Empty;
     }
 
     private void ScheduleContextMenuReposition()
@@ -345,6 +379,7 @@ public sealed class TrayIconService : IDisposable
         {
             menu.MenuFlyoutPresenterStyle = style;
         }
+        menu.Items.Add(_notificationsItem);
         menu.Items.Add(_startOnBootItem);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(exit);

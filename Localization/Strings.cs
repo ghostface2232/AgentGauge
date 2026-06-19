@@ -22,6 +22,12 @@ internal static class Strings
         ["Tooltip_Back"]      = ["뒤로",             "Back",              "戻る"],
         ["AddService"]        = ["서비스 추가",        "Add service",       "サービスを追加"],
         ["NoServicesToAdd"]   = ["추가할 서비스가 없습니다", "No services to add", "追加できるサービスがありません"],
+
+        // ── Global settings (toggles above the service list) ───────────────
+        ["Settings_Notifications"] = ["알림",          "Notifications",     "通知"],
+        ["Settings_NotificationsDesc"] = ["한도 도달·초기화 시 알림", "Alert on limit reached and reset", "上限到達・リセット時に通知"],
+        ["Settings_StartOnBoot"]   = ["시작프로그램 등록", "Start on boot",   "スタートアップに登録"],
+        ["Settings_StartOnBootDesc"] = ["Windows 시작 시 자동 실행", "Launch automatically when Windows starts", "Windows起動時に自動実行"],
         ["Tray_StartOnBoot"]  = ["시작프로그램 등록",   "Start on boot",     "スタートアップに登録"],
         ["Tray_Exit"]         = ["종료",             "Exit",              "終了"],
 

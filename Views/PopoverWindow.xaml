@@ -284,12 +284,62 @@
                     </Grid>
                 </Border>
 
-                <!-- Scrollable service list. No bottom padding so it clips flush at the
-                     update bar, mirroring the usage view. Grows to a scroll as more
-                     services are registered. -->
+                <!-- Scrollable content: global toggles, then the service list. No
+                     ScrollViewer bottom padding; the inner StackPanel carries a 12dip
+                     bottom margin instead so the gap above the update bar at full scroll
+                     matches the usage view's (its last card's 8dip + list's 4dip). The
+                     list grows to a scroll as more services are registered or on a short
+                     window — VerticalScrollBarVisibility=Auto turns the scrollbar on only
+                     when the content actually exceeds the (usage-matched) panel height. -->
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollMode="Disabled" Padding="16,0,16,0">
-                <StackPanel Spacing="14" VerticalAlignment="Top">
+                <StackPanel Spacing="14" VerticalAlignment="Top" Margin="0,0,0,12">
+                    <!-- App-wide toggles, grouped in one card directly under the title:
+                         usage notifications and run-on-startup. Two-way bound to the
+                         GlobalSettingsViewModel; the empty On/Off content keeps the switch
+                         compact and language-neutral. -->
+                    <Border CornerRadius="8"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                            Padding="14,2">
+                        <StackPanel>
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
+                                    <TextBlock Text="{loc:Localize Key=Settings_Notifications}"
+                                               Style="{StaticResource BodyTextBlockStyle}" />
+                                    <TextBlock Text="{loc:Localize Key=Settings_NotificationsDesc}"
+                                               Opacity="0.6" TextWrapping="Wrap"
+                                               Style="{StaticResource CaptionTextBlockStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                              MinWidth="0" OnContent="" OffContent=""
+                                              IsOn="{Binding Global.NotificationsEnabled, Mode=TwoWay}" />
+                            </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
+                                    <TextBlock Text="{loc:Localize Key=Settings_StartOnBoot}"
+                                               Style="{StaticResource BodyTextBlockStyle}" />
+                                    <TextBlock Text="{loc:Localize Key=Settings_StartOnBootDesc}"
+                                               Opacity="0.6" TextWrapping="Wrap"
+                                               Style="{StaticResource CaptionTextBlockStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                              MinWidth="0" OnContent="" OffContent=""
+                                              IsOn="{Binding Global.StartOnBoot, Mode=TwoWay}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
                     <!-- One card per tool, side by side at equal width and height.
                          Data-bound (not indexed) so adding a tool needs no XAML change. -->
                     <ItemsRepeater ItemsSource="{Binding Authentication}"
