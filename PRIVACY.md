@@ -48,5 +48,5 @@ Gauge is not directed at children and does not knowingly collect children's pers
 ## 7. Changes to This Policy
 Changes will be announced through this document and the repository. The effective date is updated for material changes.
 
-### 8. Contact
+## 8. Contact
 Privacy inquiries: **baemingwan@gmail.com**
