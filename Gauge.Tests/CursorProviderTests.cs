@@ -63,6 +63,54 @@ public sealed class CursorProviderTests
         Assert.Equal(ToolKind.Cursor, error.Tool);
     }
 
+    [Fact]
+    public async Task AveragesAutoAndApiWhenNoTotalPercent()
+    {
+        const string json = """
+        { "individualUsage": { "plan": { "autoPercentUsed": 40, "apiPercentUsed": 60 } } }
+        """;
+        var ratio = await Ratio(json);
+        Assert.Equal(0.50, ratio, 3);
+    }
+
+    [Theory]
+    [InlineData("""{ "individualUsage": { "plan": { "apiPercentUsed": 30 } } }""", 0.30)]
+    [InlineData("""{ "individualUsage": { "plan": { "autoPercentUsed": 25 } } }""", 0.25)]
+    [InlineData("""{ "individualUsage": { "overall": { "used": 3, "limit": 4 } } }""", 0.75)]
+    [InlineData("""{ "teamUsage": { "pooled": { "used": 1, "limit": 5 } } }""", 0.20)]
+    public async Task FallsThroughPrecedenceChain(string json, double expected)
+    {
+        Assert.Equal(expected, await Ratio(json), 3);
+    }
+
+    [Fact]
+    public async Task PercentAboveHundredIsClamped()
+    {
+        var ratio = await Ratio("""{ "individualUsage": { "plan": { "totalPercentUsed": 250 } } }""");
+        Assert.Equal(1.0, ratio, 3);
+    }
+
+    [Theory]
+    [InlineData("pro_plus", "Pro+")]
+    [InlineData("pro-plus", "Pro+")]
+    [InlineData("ultra", "Ultra")]
+    [InlineData("business", "Business")]
+    [InlineData("hobby", "Hobby")]
+    public async Task MapsMembershipType(string membership, string expected)
+    {
+        var json = $$"""{ "membershipType": "{{membership}}", "individualUsage": { "plan": { "totalPercentUsed": 10 } } }""";
+        var provider = new CursorProvider(new HttpClient(new StubHandler(json)), CursorSource("t", "u"));
+        var snapshot = await provider.GetSnapshotAsync(default);
+        Assert.Equal(expected, snapshot.Plan);
+    }
+
+    private static async Task<double> Ratio(string json)
+    {
+        var provider = new CursorProvider(new HttpClient(new StubHandler(json)), CursorSource("t", "u"));
+        var snapshot = await provider.GetSnapshotAsync(default);
+        return Assert.Single(snapshot.Windows).UsedRatio;
+    }
+
     private static ICredentialSource CursorSource(string token, string userId) => new StubSource(
         new CredentialReadResult
         {
