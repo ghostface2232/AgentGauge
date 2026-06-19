@@ -1,4 +1,4 @@
-# Gauge 개인정보 처리방침 / Privacy Policy
+# Gauge: Privacy Policy
 
 **시행일 / Effective date:** 2026-06-19
 **연락처 / Contact:** baemingwan@gmail.com
