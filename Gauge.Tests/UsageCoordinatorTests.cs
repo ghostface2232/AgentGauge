@@ -1,3 +1,4 @@
+using System.Net;
 using Gauge.Models;
 using Gauge.Providers;
 using Gauge.Services;
@@ -33,6 +34,27 @@ public sealed class UsageCoordinatorTests
         var codex = Assert.Single(state!.Tools, tool => tool.ToolName == "Codex");
         Assert.NotNull(codex.Snapshot);
         Assert.True(codex.LastRefreshFailed);
+    }
+
+    [Fact]
+    public async Task RaisesAuthenticationRequiredOnAuthErrorThenRecoveredOnSuccess()
+    {
+        var provider = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }));
+        var required = new List<ToolKind>();
+        var recovered = new List<ToolKind>();
+        coordinator.AuthenticationRequired += (_, tool) => required.Add(tool);
+        coordinator.AuthenticationRecovered += (_, tool) => recovered.Add(tool);
+
+        provider.ThrowAuth = true;
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Equal(new[] { ToolKind.Codex }, required);
+        Assert.Empty(recovered);
+
+        // A later success raises Recovered so a sticky rejection can be cleared.
+        provider.ThrowAuth = false;
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Equal(new[] { ToolKind.Codex }, recovered);
     }
 
     [Fact]
@@ -213,9 +235,11 @@ public sealed class UsageCoordinatorTests
         public string ToolName => name;
         public int CallCount { get; private set; }
         public bool Throw { get; set; }
+        public bool ThrowAuth { get; set; }
         public Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
         {
             CallCount++;
+            if (ThrowAuth) throw new AuthenticationRequiredException(Tool, HttpStatusCode.Unauthorized);
             if (Throw) throw new HttpRequestException("offline");
             return Task.FromResult(new UsageSnapshot { ToolName = ToolName, CapturedAt = DateTimeOffset.Now,
                 Windows = new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5시간", UsedRatio = .2 } } });

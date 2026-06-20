@@ -20,6 +20,12 @@ namespace Gauge.Providers;
 /// A missing credential is a clean empty-data result. Network and API failures
 /// propagate so the coordinator keeps showing its last good snapshot rather than
 /// replacing it with an empty success.
+///
+/// EXPIRED TOKEN: the Codex access token is a ChatGPT-issued JWT that lives ~10 days, so
+/// after a long idle it is already expired at boot. When an <see cref="IDelegatedTokenRefresher"/>
+/// is supplied, an expired/rejected token triggers a delegated refresh (the CLI refreshes
+/// its own token via <c>codex doctor</c>) and a re-read, so usage works without first
+/// opening Codex.
 /// </summary>
 public sealed class CodexProvider : IUsageProvider
 {
@@ -27,11 +33,13 @@ public sealed class CodexProvider : IUsageProvider
 
     private readonly HttpClient _http;
     private readonly ICredentialSource _credentials;
+    private readonly IDelegatedTokenRefresher? _refresher;
 
-    public CodexProvider(HttpClient http, ICredentialSource credentials)
+    public CodexProvider(HttpClient http, ICredentialSource credentials, IDelegatedTokenRefresher? refresher = null)
     {
         _http = http;
         _credentials = credentials;
+        _refresher = refresher;
     }
 
     public ToolKind Tool => ToolKind.Codex;
@@ -40,6 +48,18 @@ public sealed class CodexProvider : IUsageProvider
     public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
     {
         var credentialResult = await _credentials.ReadAsync(ToolKind.Codex, cancellationToken);
+
+        // The Codex access token is a ~10-day ChatGPT JWT, so after a long idle it is
+        // already expired at boot (reported Invalid by the credential source). Rather than
+        // fail until Codex is opened, ask the CLI to refresh its own token (it owns the
+        // refresh-token rotation, so this can't break its login), then re-read. Done before
+        // the no-token check below so a successful refresh is picked up.
+        if (credentialResult.Status == CredentialReadStatus.Invalid && _refresher is not null
+            && await _refresher.TryRefreshAsync(cancellationToken))
+        {
+            credentialResult = await _credentials.ReadAsync(ToolKind.Codex, cancellationToken);
+        }
+
         var credentials = credentialResult.Credential;
 
         if (credentialResult.Status == CredentialReadStatus.Invalid)
@@ -65,25 +85,45 @@ public sealed class CodexProvider : IUsageProvider
         // coordinator keeps the last good snapshot instead of clearing the card.
         try
         {
-            var (plan, windows) = await FetchUsageAsync(token, credentials.AccountId, cancellationToken);
-            return new UsageSnapshot
+            return BuildSnapshot(await FetchUsageAsync(token, credentials.AccountId, cancellationToken));
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            // The server rejected a token that looked valid locally (e.g. revoked, or it
+            // expired between read and call). Try one delegated refresh and, if the CLI
+            // hands us a fresh token, retry the fetch once before giving up.
+            if (_refresher is not null && await _refresher.TryRefreshAsync(cancellationToken))
             {
-                ToolName = ToolName,
-                Plan = plan,
-                Windows = windows,
-                CapturedAt = DateTimeOffset.Now,
-            };
+                var refreshed = await _credentials.ReadAsync(ToolKind.Codex, cancellationToken);
+                if (refreshed.Status == CredentialReadStatus.Available
+                    && refreshed.Credential?.AccessToken is { Length: > 0 } freshToken)
+                {
+                    try
+                    {
+                        return BuildSnapshot(await FetchUsageAsync(freshToken, refreshed.Credential.AccountId, cancellationToken));
+                    }
+                    catch (HttpRequestException retryEx) when (retryEx.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    {
+                        throw new AuthenticationRequiredException(ToolKind.Codex, retryEx.StatusCode!.Value);
+                    }
+                }
+            }
+            throw new AuthenticationRequiredException(ToolKind.Codex, ex.StatusCode!.Value);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            if (ex is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } httpError)
-            {
-                throw new AuthenticationRequiredException(ToolKind.Codex, httpError.StatusCode!.Value);
-            }
             Debug.WriteLine($"[Gauge] CodexProvider usage fetch failed: {ex.Message}");
             throw;
         }
     }
+
+    private UsageSnapshot BuildSnapshot((string? Plan, List<UsageWindow> Windows) result) => new()
+    {
+        ToolName = ToolName,
+        Plan = result.Plan,
+        Windows = result.Windows,
+        CapturedAt = DateTimeOffset.Now,
+    };
 
     private async Task<(string? Plan, List<UsageWindow> Windows)> FetchUsageAsync(
         string token, string? accountId, CancellationToken cancellationToken)

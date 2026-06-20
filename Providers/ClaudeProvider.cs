@@ -60,7 +60,7 @@ public sealed class ClaudeProvider : IUsageProvider
 
     private readonly HttpClient _http;
     private readonly ICredentialSource _credentials;
-    private readonly IClaudeTokenRefresher? _refresher;
+    private readonly IDelegatedTokenRefresher? _refresher;
 
     // Only ever accessed from the coordinator's serialized refresh (one call at a
     // time), so no locking is needed.
@@ -71,7 +71,7 @@ public sealed class ClaudeProvider : IUsageProvider
     private string? _credentialFingerprint;
     private bool _credentialFingerprintInitialized;
 
-    public ClaudeProvider(HttpClient http, ICredentialSource credentials, IClaudeTokenRefresher? refresher = null)
+    public ClaudeProvider(HttpClient http, ICredentialSource credentials, IDelegatedTokenRefresher? refresher = null)
     {
         _http = http;
         _credentials = credentials;

@@ -62,6 +62,23 @@ public sealed class AuthenticationProviderTests
         Assert.Equal(AuthenticationStatus.Invalid, refreshed.Status);
     }
 
+    [Fact]
+    public async Task AcceptedCredentialClearsStickyRejectionAndRecovers()
+    {
+        var source = new FakeSource { Result = Available() };
+        var provider = Create(source, new FakeLocator("codex.exe"), new FakeRunner());
+        await provider.RefreshStateAsync();
+        provider.ReportInvalidCredentials();
+        Assert.Equal(AuthenticationStatus.Invalid, provider.State.Status);
+
+        // A subsequent successful fetch reports the token accepted: the card flips back to
+        // signed-in immediately and a later settings refresh keeps it that way (the sticky
+        // rejection is gone, even though the token fingerprint never changed).
+        provider.ReportCredentialsAccepted();
+        Assert.Equal(AuthenticationStatus.Available, provider.State.Status);
+        Assert.Equal(AuthenticationStatus.Available, (await provider.RefreshStateAsync()).Status);
+    }
+
     private static CliAuthenticationProvider Create(ICredentialSource source, ICliLocator locator, ICliProcessRunner runner)
         => new(ToolKind.Codex, source, locator, runner);
 

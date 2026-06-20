@@ -6,6 +6,8 @@ namespace Gauge.Services;
 /// <summary>Outcome of one provider's snapshot attempt.</summary>
 public sealed record ProviderSnapshotResult
 {
+    public required ToolKind Tool { get; init; }
+
     public required string ToolName { get; init; }
 
     /// <summary>The snapshot, if the provider succeeded.</summary>
@@ -51,11 +53,11 @@ public sealed class UsageService
         try
         {
             var snapshot = await provider.GetSnapshotAsync(cancellationToken);
-            return new ProviderSnapshotResult { ToolName = provider.ToolName, Snapshot = snapshot };
+            return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Snapshot = snapshot };
         }
         catch (Exception ex)
         {
-            return new ProviderSnapshotResult { ToolName = provider.ToolName, Error = ex };
+            return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Error = ex };
         }
     }
 }

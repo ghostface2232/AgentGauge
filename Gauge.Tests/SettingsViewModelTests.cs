@@ -35,5 +35,6 @@ public sealed class SettingsViewModelTests
         public Task<AuthenticationState> RefreshStateAsync(CancellationToken cancellationToken = default) => Task.FromResult(State);
         public Task<AuthenticationState> LoginAsync(CancellationToken cancellationToken = default) => Task.FromResult(State);
         public void ReportInvalidCredentials() { }
+        public void ReportCredentialsAccepted() { }
     }
 }

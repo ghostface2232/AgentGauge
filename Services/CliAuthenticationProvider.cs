@@ -101,6 +101,22 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
         }
     }
 
+    public void ReportCredentialsAccepted()
+    {
+        if (IsLoginRunning || !_credentialsRejected)
+        {
+            return;
+        }
+        _credentialsRejected = false;
+        _rejectedCredentialFingerprint = null;
+        // Flip the card back to signed-in right away; the exact plan label is refreshed on
+        // the next RefreshStateAsync (the credential file already has it).
+        if (State.Status == AuthenticationStatus.Invalid)
+        {
+            SetState(NewState(AuthenticationStatus.Available, _credentials.Source, Loc.Get("Auth_SignedIn")));
+        }
+    }
+
     private AuthenticationState FromCredential(CredentialReadResult result)
     {
         if (result.Status == CredentialReadStatus.Available)

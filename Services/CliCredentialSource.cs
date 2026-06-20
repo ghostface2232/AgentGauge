@@ -80,6 +80,18 @@ public sealed class CliCredentialSource : ICredentialSource
             {
                 return Invalid(ToolKind.Codex, Loc.Get("Cred_CodexNoToken"));
             }
+
+            // The Codex access token is a ChatGPT-issued JWT (~10-day lifetime). Unlike
+            // Claude's credentials file there is no expiry field, so we read it from the
+            // JWT's own `exp` claim. After ~10 days without running Codex the token is
+            // expired at boot; reporting Invalid here lets the provider trigger a delegated
+            // refresh (codex doctor) instead of waiting for a 401 from the usage endpoint.
+            var expiresAt = ParseJwtExpiry(token);
+            if (expiresAt is { } expiry && expiry <= DateTimeOffset.UtcNow)
+            {
+                return Invalid(ToolKind.Codex, Loc.Get("Cred_CodexExpired"));
+            }
+
             return Available(ToolKind.Codex, new ToolCredential
             {
                 Tool = ToolKind.Codex,
@@ -87,6 +99,7 @@ public sealed class CliCredentialSource : ICredentialSource
                 Source = Source,
                 AccessToken = token,
                 AccountId = tokens.GetStringOrNull("account_id"),
+                ExpiresAt = expiresAt,
             });
         });
     }
@@ -122,6 +135,39 @@ public sealed class CliCredentialSource : ICredentialSource
     {
         Tool = tool, Status = CredentialReadStatus.Invalid, Message = message,
     };
+
+    /// <summary>
+    /// Reads the <c>exp</c> claim (Unix seconds) from a JWT's payload without validating
+    /// the signature — we only need the expiry, not to trust the token. Returns null if the
+    /// value isn't a well-formed JWT with a numeric exp.
+    /// </summary>
+    internal static DateTimeOffset? ParseJwtExpiry(string jwt)
+    {
+        var parts = jwt.Split('.');
+        if (parts.Length < 2)
+        {
+            return null;
+        }
+        try
+        {
+            using var document = JsonDocument.Parse(Base64UrlDecode(parts[1]));
+            if (document.RootElement.TryGetProperty("exp", out var exp) && exp.TryGetInt64(out var seconds))
+            {
+                return DateTimeOffset.FromUnixTimeSeconds(seconds);
+            }
+        }
+        catch (Exception ex) when (ex is FormatException or JsonException)
+        {
+            // Not a decodable JWT; treat as "no expiry known".
+        }
+        return null;
+    }
+
+    private static byte[] Base64UrlDecode(string value)
+    {
+        var s = value.Replace('-', '+').Replace('_', '/');
+        return Convert.FromBase64String(s.PadRight(s.Length + (4 - s.Length % 4) % 4, '='));
+    }
 
     internal static string? MapClaudePlan(string? subscriptionType, string? rateLimitTier)
     {

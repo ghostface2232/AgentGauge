@@ -56,6 +56,12 @@ public sealed class UsageCoordinator : IDisposable
     public event EventHandler<UsageState>? Updated;
     public event EventHandler<ToolKind>? AuthenticationRequired;
 
+    /// <summary>
+    /// Raised when a tool's fetch succeeds, so a prior server-side rejection (which is
+    /// sticky per token fingerprint) can be cleared once the token is accepted again.
+    /// </summary>
+    public event EventHandler<ToolKind>? AuthenticationRecovered;
+
     public UsageCoordinator(
         UsageService usageService,
         DispatcherQueue? dispatcher = null,
@@ -186,7 +192,7 @@ public sealed class UsageCoordinator : IDisposable
             Interlocked.Exchange(ref _lastRefreshStartedTick, Environment.TickCount64);
             var results = await _usageService.GetAllSnapshotsAsync(cancellationToken);
             var purgedTools = MergeIntoCache(results);
-            ReportAuthenticationFailures(results);
+            ReportAuthenticationOutcomes(results);
             EmitState();
             // Persist when at least one tool refreshed successfully, so an all-failed cycle
             // never overwrites the on-disk last-known value. Also persist when a tool was
@@ -209,15 +215,28 @@ public sealed class UsageCoordinator : IDisposable
         return true;
     }
 
-    private void ReportAuthenticationFailures(IReadOnlyList<ProviderSnapshotResult> results)
+    private void ReportAuthenticationOutcomes(IReadOnlyList<ProviderSnapshotResult> results)
     {
-        foreach (var error in results.Select(r => r.Error).OfType<AuthenticationRequiredException>())
+        foreach (var result in results)
         {
-            var handler = AuthenticationRequired;
-            if (handler is null) continue;
-            if (_dispatcher is not null) _dispatcher.TryEnqueue(() => handler(this, error.Tool));
-            else handler(this, error.Tool);
+            if (result.Error is AuthenticationRequiredException authError)
+            {
+                Raise(AuthenticationRequired, authError.Tool);
+            }
+            else if (result.Succeeded)
+            {
+                // A successful fetch means the server accepted the token; clear any sticky
+                // rejection so a tool that recovered stops showing as signed out.
+                Raise(AuthenticationRecovered, result.Tool);
+            }
         }
+    }
+
+    private void Raise(EventHandler<ToolKind>? handler, ToolKind tool)
+    {
+        if (handler is null) return;
+        if (_dispatcher is not null) _dispatcher.TryEnqueue(() => handler(this, tool));
+        else handler(this, tool);
     }
 
     /// <summary>Merges a refresh cycle's results into the cache; returns true if any stale tool was purged.</summary>

@@ -1,3 +1,4 @@
+using System.Text;
 using Gauge.Models;
 using Gauge.Services;
 
@@ -108,6 +109,56 @@ public sealed class CredentialSourceTests : IDisposable
 
         Assert.Equal(CredentialReadStatus.Available, result.Status);
         Assert.Equal("acct", result.Credential?.AccountId);
+    }
+
+    [Fact]
+    public async Task ExpiredCodexJwtIsInvalidWithReloginMessage()
+    {
+        var token = FakeJwt(DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeSeconds());
+        Write(".codex/auth.json", CodexAuthJson(token));
+
+        var result = await Source().ReadAsync(ToolKind.Codex);
+
+        Assert.Equal(CredentialReadStatus.Invalid, result.Status);
+        Assert.Contains("만료", result.Message ?? "");
+    }
+
+    [Fact]
+    public async Task UnexpiredCodexJwtIsAvailableWithExpiry()
+    {
+        var exp = DateTimeOffset.UtcNow.AddDays(9).ToUnixTimeSeconds();
+        Write(".codex/auth.json", CodexAuthJson(FakeJwt(exp)));
+
+        var result = await Source().ReadAsync(ToolKind.Codex);
+
+        Assert.Equal(CredentialReadStatus.Available, result.Status);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(exp), result.Credential?.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task CodexNonJwtTokenHasNoExpiryAndStaysAvailable()
+    {
+        // An opaque (non-JWT) token can't be decoded for an exp, so it must not be treated
+        // as expired — it stays Available with no expiry, preserving prior behavior.
+        Write(".codex/auth.json", CodexAuthJson("opaque-token"));
+
+        var result = await Source().ReadAsync(ToolKind.Codex);
+
+        Assert.Equal(CredentialReadStatus.Available, result.Status);
+        Assert.Null(result.Credential?.ExpiresAt);
+    }
+
+    private static string CodexAuthJson(string accessToken) =>
+        "{\"tokens\":{\"access_token\":\"" + accessToken + "\",\"account_id\":\"acct\"}}";
+
+    // Minimal unsigned JWT carrying just an exp claim (signature is never validated).
+    private static string FakeJwt(long expUnixSeconds)
+    {
+        static string Segment(string json) => Convert
+            .ToBase64String(Encoding.UTF8.GetBytes(json))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        return Segment("{\"alg\":\"none\",\"typ\":\"JWT\"}") + "."
+            + Segment("{\"exp\":" + expUnixSeconds + "}") + ".sig";
     }
 
     private CliCredentialSource Source() => new(() => _root, () => null);

@@ -72,9 +72,21 @@ public partial class App : Application
         var credentials = new CredentialSourceChain(new ICredentialSource[] { cliCredentials, cursorCredentials });
         var locator = new CliLocator();
         var processRunner = new CliProcessRunner();
-        // Lets the Claude provider recover an expired local token after boot by nudging the
-        // Claude CLI to refresh its own token, instead of failing until Claude Code is opened.
-        var claudeTokenRefresher = new ClaudeTokenRefresher(locator, processRunner);
+        // Let the providers recover an expired local token after boot by nudging the official
+        // CLI to refresh its own token, instead of failing until the tool is opened. Each uses
+        // a command verified to go through the CLI's authenticated bootstrap (which performs
+        // the refresh) WITHOUT spending model usage — a status command would only print cached
+        // auth and never refresh:
+        //   • Claude: `claude mcp list` (~5s). `claude auth status` is a no-op refresh.
+        //   • Codex:  `codex doctor` (~3s, runs local health checks + a reachability probe).
+        //     `codex login status` / `codex mcp list` never touch the ChatGPT token. The Codex
+        //     token is a ~10-day JWT, so this rarely fires; the 30s timeout is generous for
+        //     slow networks / low-spec PCs (the refresh completes early, so even a timeout
+        //     leaves the freshened token on disk).
+        var claudeTokenRefresher = new DelegatedTokenRefresher(
+            "claude", "mcp list", TimeSpan.FromSeconds(15), locator, processRunner);
+        var codexTokenRefresher = new DelegatedTokenRefresher(
+            "codex", "doctor", TimeSpan.FromSeconds(30), locator, processRunner);
         // Read auth state through the full credential chain (not just the CLI source)
         // so non-CLI tools like Cursor report their real logged-in state on the card.
         var authentication = ToolCatalog.All
@@ -88,7 +100,7 @@ public partial class App : Application
             new IUsageProvider[]
             {
                 new ClaudeProvider(_httpClient, credentials, claudeTokenRefresher),
-                new CodexProvider(_httpClient, credentials),
+                new CodexProvider(_httpClient, credentials, codexTokenRefresher),
                 new CursorProvider(_httpClient, credentials),
             },
             _toolRegistry.IsEnabled);
@@ -124,6 +136,7 @@ public partial class App : Application
         _notificationService.SetEnabled(notificationsEnabled);
         _coordinator.Updated += OnUsageUpdated;
         _coordinator.AuthenticationRequired += OnAuthenticationRequired;
+        _coordinator.AuthenticationRecovered += OnAuthenticationRecovered;
         // Adding/removing a service re-fetches immediately so its card appears/disappears.
         _toolRegistry.Changed += OnToolRegistryChanged;
 
@@ -237,6 +250,14 @@ public partial class App : Application
         if (_authentication?.TryGetValue(tool, out var provider) == true)
         {
             provider.ReportInvalidCredentials();
+        }
+    }
+
+    private void OnAuthenticationRecovered(object? sender, ToolKind tool)
+    {
+        if (_authentication?.TryGetValue(tool, out var provider) == true)
+        {
+            provider.ReportCredentialsAccepted();
         }
     }
 

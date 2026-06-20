@@ -24,7 +24,7 @@ public sealed class CliProcessRunnerTests : IDisposable
         await File.WriteAllTextAsync(script, "@echo off\r\nexit /b 7\r\n");
 
         var result = await new CliProcessRunner()
-            .RunHiddenAsync(script, "auth status", TimeSpan.FromSeconds(15), default);
+            .RunHiddenAsync(script, "mcp list", TimeSpan.FromSeconds(15), default);
 
         Assert.False(result.TimedOut);
         Assert.Equal(7, result.ExitCode);

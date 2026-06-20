@@ -115,6 +115,7 @@ internal static class Strings
         ["Cred_ClaudeNoToken"] = ["Claude Code 자격증명에 OAuth 토큰이 없습니다.", "No OAuth token in the Claude Code credentials.", "Claude Codeの資格情報にOAuthトークンがありません。"],
         ["Cred_ClaudeExpired"] = ["Claude Code 로그인이 만료되었습니다. 다시 로그인하세요.", "Your Claude Code sign-in expired. Please sign in again.", "Claude Codeのログイン有効期限が切れました。再度ログインしてください。"],
         ["Cred_CodexNoToken"] = ["Codex 자격증명에 OAuth 토큰이 없습니다.", "No OAuth token in the Codex credentials.", "Codexの資格情報にOAuthトークンがありません。"],
+        ["Cred_CodexExpired"] = ["Codex 로그인이 만료되었습니다. 다시 로그인하세요.", "Your Codex sign-in expired. Please sign in again.", "Codexのログイン有効期限が切れました。再度ログインしてください。"],
         ["Cred_ReadFailed"]   = ["자격증명 파일을 읽을 수 없습니다. CLI에서 다시 로그인하세요.", "Couldn't read the credential file. Sign in again from the CLI.", "資格情報ファイルを読み取れません。CLIで再度ログインしてください。"],
         ["Cred_CliInUse"]     = ["공식 CLI 로그인 정보를 사용 중입니다.", "Using the official CLI sign-in.", "公式CLIのログイン情報を使用中です。"],
         ["Cred_CursorReadFailed"] = ["Cursor 로그인 정보를 읽을 수 없습니다. Cursor 앱에서 다시 로그인하세요.", "Couldn't read the Cursor sign-in. Sign in again in the Cursor app.", "Cursorのログイン情報を読み取れません。Cursorアプリで再度ログインしてください。"],

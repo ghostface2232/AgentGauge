@@ -7,26 +7,25 @@ using Gauge.Services;
 namespace Gauge.Tests;
 
 /// <summary>
-/// When the local Claude token is expired, the provider asks the refresher to nudge the
-/// CLI and then re-reads the freshened credentials instead of immediately failing.
+/// When the local Codex token is expired (a ~10-day JWT past its exp), the provider asks
+/// the refresher to nudge the CLI (codex doctor) and then re-reads the freshened
+/// credentials instead of immediately failing.
 /// </summary>
-public sealed class ClaudeDelegatedRefreshTests
+public sealed class CodexDelegatedRefreshTests
 {
-    private const string UsageJson = """{ "five_hour": { "utilization": 25 } }""";
+    private const string UsageJson = """{ "rate_limit": { "primary_window": { "used_percent": 25 } } }""";
 
     [Fact]
     public async Task ExpiredTokenIsRecoveredViaDelegatedRefresh()
     {
-        // First read: expired/invalid. After the refresher runs, the re-read is valid.
-        var source = new SequencedSource(Invalid(), Available("fresh-token", "Max 5x"));
+        var source = new SequencedSource(Invalid(), Available("fresh-token"));
         var refresher = new FakeRefresher(ran: true);
-        var provider = new ClaudeProvider(new HttpClient(new StubHandler(UsageJson)), source, refresher);
+        var provider = new CodexProvider(new HttpClient(new StubHandler(UsageJson)), source, refresher);
 
         var snapshot = await provider.GetSnapshotAsync(default);
 
         Assert.Equal(1, refresher.Calls);
         Assert.Equal(2, source.Reads); // initial + post-refresh re-read
-        Assert.Equal("Max 5x", snapshot.Plan);
         Assert.Single(snapshot.Windows);
     }
 
@@ -35,7 +34,7 @@ public sealed class ClaudeDelegatedRefreshTests
     {
         var source = new SequencedSource(Invalid(), Invalid());
         var refresher = new FakeRefresher(ran: true);
-        var provider = new ClaudeProvider(new HttpClient(new StubHandler(UsageJson)), source, refresher);
+        var provider = new CodexProvider(new HttpClient(new StubHandler(UsageJson)), source, refresher);
 
         await Assert.ThrowsAsync<AuthenticationRequiredException>(() => provider.GetSnapshotAsync(default));
         Assert.Equal(1, refresher.Calls);
@@ -46,7 +45,7 @@ public sealed class ClaudeDelegatedRefreshTests
     {
         var source = new SequencedSource(Invalid(), Available("unused"));
         var refresher = new FakeRefresher(ran: false); // cooldown / no CLI
-        var provider = new ClaudeProvider(new HttpClient(new StubHandler(UsageJson)), source, refresher);
+        var provider = new CodexProvider(new HttpClient(new StubHandler(UsageJson)), source, refresher);
 
         await Assert.ThrowsAsync<AuthenticationRequiredException>(() => provider.GetSnapshotAsync(default));
         Assert.Equal(1, refresher.Calls);
@@ -61,7 +60,7 @@ public sealed class ClaudeDelegatedRefreshTests
         var source = new SequencedSource(Available("stale-token"), Available("fresh-token"));
         var refresher = new FakeRefresher(ran: true);
         var handler = new StubHandler(UsageJson) { FirstStatus = HttpStatusCode.Unauthorized };
-        var provider = new ClaudeProvider(new HttpClient(handler), source, refresher);
+        var provider = new CodexProvider(new HttpClient(handler), source, refresher);
 
         var snapshot = await provider.GetSnapshotAsync(default);
 
@@ -70,19 +69,30 @@ public sealed class ClaudeDelegatedRefreshTests
         Assert.Single(snapshot.Windows);
     }
 
-    private static CredentialReadResult Available(string token, string? plan = null) => new()
+    [Fact]
+    public async Task NoRefresherStillThrowsOnInvalidCredential()
     {
-        Tool = ToolKind.ClaudeCode, Status = CredentialReadStatus.Available,
+        // Without a refresher (the optional dependency omitted) the old behavior holds.
+        var source = new SequencedSource(Invalid());
+        var provider = new CodexProvider(new HttpClient(new StubHandler(UsageJson)), source);
+
+        await Assert.ThrowsAsync<AuthenticationRequiredException>(() => provider.GetSnapshotAsync(default));
+        Assert.Equal(1, source.Reads);
+    }
+
+    private static CredentialReadResult Available(string token) => new()
+    {
+        Tool = ToolKind.Codex, Status = CredentialReadStatus.Available,
         Credential = new ToolCredential
         {
-            Tool = ToolKind.ClaudeCode, Owner = CredentialOwner.CliLocal, Source = CredentialSource.CliLocal,
-            AccessToken = token, Plan = plan,
+            Tool = ToolKind.Codex, Owner = CredentialOwner.CliLocal, Source = CredentialSource.CliLocal,
+            AccessToken = token,
         },
     };
 
     private static CredentialReadResult Invalid() => new()
     {
-        Tool = ToolKind.ClaudeCode, Status = CredentialReadStatus.Invalid,
+        Tool = ToolKind.Codex, Status = CredentialReadStatus.Invalid,
     };
 
     /// <summary>Returns each supplied result in turn, repeating the last one thereafter.</summary>
@@ -118,11 +128,10 @@ public sealed class ClaudeDelegatedRefreshTests
         {
             var status = Calls == 0 && FirstStatus is { } first ? first : HttpStatusCode.OK;
             Calls++;
-            var response = new HttpResponseMessage(status)
+            return Task.FromResult(new HttpResponseMessage(status)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json"),
-            };
-            return Task.FromResult(response);
+            });
         }
     }
 }
