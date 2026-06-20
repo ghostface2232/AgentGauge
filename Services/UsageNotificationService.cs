@@ -36,8 +36,16 @@ public sealed class UsageNotificationService : IDisposable
     /// </summary>
     public void SetEnabled(bool enabled)
     {
+        var wasEnabled = _enabled;
         _enabled = enabled;
-        if (enabled) return;
+        if (enabled)
+        {
+            if (!wasEnabled)
+            {
+                _evaluator.ResetBaseline();
+            }
+            return;
+        }
 
         _suppressionTimer.Stop();
         _displayQueue.Clear();

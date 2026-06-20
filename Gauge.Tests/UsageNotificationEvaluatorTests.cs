@@ -48,6 +48,58 @@ public sealed class UsageNotificationEvaluatorTests
     }
 
     [Fact]
+    public void BillingCycle_CrossesSeventyAndNinetyOnlyOncePerCycle()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.BillingCycle, 0.60, Now.AddDays(20), Now), Now);
+
+        var caution = evaluator.Evaluate(State(UsageWindowType.BillingCycle, 0.72, Now.AddDays(20), Now.AddMinutes(1)), Now);
+        var repeat = evaluator.Evaluate(State(UsageWindowType.BillingCycle, 0.80, Now.AddDays(20), Now.AddMinutes(2)), Now);
+        var danger = evaluator.Evaluate(State(UsageWindowType.BillingCycle, 0.91, Now.AddDays(20), Now.AddMinutes(3)), Now);
+
+        Assert.Single(caution);
+        Assert.Equal(UsageWindowType.BillingCycle, caution[0].WindowType);
+        Assert.Equal(UsageLevel.Caution, caution[0].Level);
+        Assert.Empty(repeat);
+        Assert.Single(danger);
+        Assert.Equal(UsageLevel.Danger, danger[0].Level);
+    }
+
+    [Fact]
+    public void BillingCycle_ResetRearmsThresholdsWithoutResetNotification()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.BillingCycle, 0.60, Now.AddDays(1), Now), Now);
+        evaluator.Evaluate(State(UsageWindowType.BillingCycle, 0.72, Now.AddDays(1), Now.AddMinutes(1)), Now);
+
+        var reset = evaluator.Evaluate(
+            State(UsageWindowType.BillingCycle, 0.05, Now.AddDays(31), Now.AddDays(1)),
+            Now.AddDays(1));
+        var nextCycle = evaluator.Evaluate(
+            State(UsageWindowType.BillingCycle, 0.71, Now.AddDays(31), Now.AddDays(1).AddMinutes(1)),
+            Now.AddDays(1).AddMinutes(1));
+
+        Assert.Empty(reset);
+        Assert.Single(nextCycle);
+        Assert.Equal(UsageNotificationKind.Threshold, nextCycle[0].Kind);
+        Assert.Equal(UsageLevel.Caution, nextCycle[0].Level);
+    }
+
+    [Fact]
+    public void ResetBaseline_ReenabledAboveThreshold_DoesNotCatchUp()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.Weekly, 0.50, Now.AddDays(4), Now), Now);
+
+        evaluator.ResetBaseline();
+        var result = evaluator.Evaluate(
+            State(UsageWindowType.Weekly, 0.80, Now.AddDays(4), Now.AddHours(1)),
+            Now.AddHours(1));
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
     public void AdvancedResetTimeAndUsageDrop_AfterAlert_NotifiesReset()
     {
         var evaluator = new UsageNotificationEvaluator();
@@ -98,7 +150,13 @@ public sealed class UsageNotificationEvaluatorTests
                 {
                     Type = type,
                     UsedRatio = ratio,
-                    Label = type == UsageWindowType.FiveHour ? "5시간" : "주간",
+                    Label = type switch
+                    {
+                        UsageWindowType.FiveHour => "5시간",
+                        UsageWindowType.Weekly => "주간",
+                        UsageWindowType.BillingCycle => "사용량",
+                        _ => type.ToString(),
+                    },
                     ResetTime = reset,
                 },
             ],

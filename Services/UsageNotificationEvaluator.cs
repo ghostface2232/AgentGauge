@@ -15,6 +15,13 @@ public sealed class UsageNotificationEvaluator
 
     private readonly Dictionary<WindowKey, Observation> _observations = new();
 
+    /// <summary>
+    /// Drops all prior observations so the next state establishes a fresh baseline.
+    /// Use this when notifications are re-enabled to avoid replaying crossings that
+    /// happened while the user had notifications turned off.
+    /// </summary>
+    public void ResetBaseline() => _observations.Clear();
+
     public IReadOnlyList<UsageNotification> Evaluate(UsageState state, DateTimeOffset now)
     {
         var notifications = new List<UsageNotification>();
@@ -57,7 +64,9 @@ public sealed class UsageNotificationEvaluator
                 }
 
                 var reset = IsReset(previous, window);
-                if (reset && previous.HighestRatio >= MinimumThreshold(window.Type))
+                if (reset
+                    && SupportsResetNotification(window.Type)
+                    && previous.HighestRatio >= MinimumThreshold(window.Type))
                 {
                     notifications.Add(CreateReset(snapshot.ToolName, window, now));
                 }
@@ -104,7 +113,12 @@ public sealed class UsageNotificationEvaluator
     }
 
     private static bool IsSupportedWindow(UsageWindow window)
-        => window.Type is UsageWindowType.FiveHour or UsageWindowType.Weekly;
+        => window.Type is UsageWindowType.FiveHour
+            or UsageWindowType.Weekly
+            or UsageWindowType.BillingCycle;
+
+    private static bool SupportsResetNotification(UsageWindowType type)
+        => type is UsageWindowType.FiveHour or UsageWindowType.Weekly;
 
     private static bool IsReset(Observation previous, UsageWindow current)
     {
