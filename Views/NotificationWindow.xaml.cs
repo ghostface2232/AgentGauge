@@ -5,10 +5,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
-using Windows.Storage;
 using WinRT.Interop;
 
 namespace Gauge.Views;
@@ -40,6 +37,7 @@ public sealed partial class NotificationWindow : Window, IDisposable
     private Storyboard? _storyboard;
     private UsageNotification? _notification;
     private int _iconLoadId;
+    private string? _iconKey;
     private TimeSpan _dismissStartTime;
     private bool _dismissClockStarted;
     private bool _isDismissing;
@@ -218,41 +216,23 @@ public sealed partial class NotificationWindow : Window, IDisposable
             UsageLevel.Caution => "_70",
             _ => string.Empty,
         };
-        var path = Path.Combine(AppContext.BaseDirectory, "Assets", $"{stem}{suffix}.ico");
+        // Decode to the icon's exact on-screen pixel size (see IconDecoder for why a plain
+        // BitmapImage shimmers). _iconLoadId discards a load a newer Show()/theme change has
+        // superseded mid-await; _iconKey skips redundant reloads of the same variant/scale.
+        var scale = NotificationIcon.XamlRoot?.RasterizationScale
+            ?? (NativeMethods.GetDpiForWindow(_hwnd) / 96.0);
+        if (scale <= 0) scale = 1.0;
+        var targetPx = (uint)Math.Max(1, Math.Round(NotificationIcon.Width * scale));
 
-        // BitmapImage decodes an .ico's first directory entry (16px here) and upscales
-        // it — blurry. Decode the largest embedded frame explicitly so the small icon
-        // downsamples from a sharp 256/128 source instead. _iconLoadId discards a load
-        // that a newer Show()/theme change has superseded mid-await.
+        var key = $"{stem}{suffix}@{targetPx}";
+        if (key == _iconKey) return;
+
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", $"{stem}{suffix}.ico");
         var loadId = ++_iconLoadId;
-        try
-        {
-            var file = await StorageFile.GetFileFromPathAsync(path);
-            using var stream = await file.OpenReadAsync();
-            var decoder = await BitmapDecoder.CreateAsync(stream);
-            uint bestIndex = 0, bestWidth = 0;
-            for (uint i = 0; i < decoder.FrameCount; i++)
-            {
-                var frame = await decoder.GetFrameAsync(i);
-                if (frame.PixelWidth > bestWidth)
-                {
-                    bestWidth = frame.PixelWidth;
-                    bestIndex = i;
-                }
-            }
-            var best = await decoder.GetFrameAsync(bestIndex);
-            var softwareBitmap = await best.GetSoftwareBitmapAsync(
-                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
-            if (loadId != _iconLoadId) return;
-            var source = new SoftwareBitmapSource();
-            await source.SetBitmapAsync(softwareBitmap);
-            if (loadId != _iconLoadId) return;
-            NotificationIcon.Source = source;
-        }
-        catch
-        {
-            // Leave the previously shown icon in place on any IO/decode failure.
-        }
+        var source = await IconDecoder.LoadScaledAsync(path, targetPx);
+        if (source is null || loadId != _iconLoadId) return;
+        NotificationIcon.Source = source;
+        _iconKey = key;
     }
 
     private void RemoveCaptionFrame()

@@ -35,9 +35,9 @@ public sealed partial class PopoverWindow : Window
     // DesiredSize can land on a fractional physical pixel at 125/150% DPI. Keep a
     // small client-area inset so the final footer row never touches the window edge.
     private const double ContentHeightSafetyDip = 4;
-    // Reserve for footer + paddings when capping the scrollable body so the whole
-    // popover stays within the work area on very tall content.
-    private const double FooterChromeAllowanceDip = 96;
+    // Reserve for the title header + footer + paddings when capping the scrollable
+    // body so the whole popover stays within the work area on very tall content.
+    private const double FooterChromeAllowanceDip = 148;
 
     // --- Slide-in animation (tunable) ---
     private const double SlideOffsetY = 24;       // start offset below final position
@@ -66,6 +66,8 @@ public sealed partial class PopoverWindow : Window
     private double _usageViewHeightDip;
     private bool _usageLayoutRefreshPending;
     private Storyboard? _viewTransitionStoryboard;
+    private int _titleIconLoadId;
+    private string? _titleIconKey;
 
     /// <summary>Raised whenever the popover is actually shown (after the toggle guard).</summary>
     public event EventHandler? Opened;
@@ -92,7 +94,12 @@ public sealed partial class PopoverWindow : Window
 
         // Frosted Quick-Settings look.
         SystemBackdrop = new DesktopAcrylicBackdrop();
-        RootHost.ActualThemeChanged += (_, _) => UpdateDwmTheme();
+        RootHost.ActualThemeChanged += (_, _) =>
+        {
+            UpdateDwmTheme();
+            _ = UpdateTitleIcon();
+        };
+        _ = UpdateTitleIcon();
 
         // Start with DWM rounded corners. To switch to a larger radius later, make the
         // window background transparent and round RootBorder instead (its CornerRadius
@@ -133,6 +140,11 @@ public sealed partial class PopoverWindow : Window
     public void Show()
     {
         CaptureTargetMonitor();
+
+        // Re-decode the title mark for the monitor we're about to open on: the target
+        // physical size depends on this monitor's DPI, which CaptureTargetMonitor just
+        // refreshed. The key-dedupe inside makes this a no-op when the scale is unchanged.
+        _ = UpdateTitleIcon();
 
         // Cap the scrollable body so the window fits the work area AND never exceeds
         // MaxPopoverHeightDip. The footer bar (FooterChromeAllowanceDip) stays pinned
@@ -553,6 +565,29 @@ public sealed partial class PopoverWindow : Window
         RootBorder.Measure(new Size(PopoverWidthDip, double.PositiveInfinity));
         _usageViewHeightDip = RootBorder.DesiredSize.Height;
         _usageLayoutRefreshPending = false;
+    }
+
+    /// <summary>
+    /// Sets the title mark for the current theme, pre-scaled to its exact on-screen pixel
+    /// size via <see cref="IconDecoder"/>. _titleIconLoadId discards a load a newer
+    /// theme/DPI change has superseded mid-await; _titleIconKey skips redundant reloads.
+    /// </summary>
+    private async Task UpdateTitleIcon()
+    {
+        var stem = RootHost.ActualTheme == ElementTheme.Dark ? "gauge_icon_dark" : "gauge_icon";
+        var scale = TitleIcon.XamlRoot?.RasterizationScale ?? _scale;
+        if (scale <= 0) scale = 1.0;
+        var targetPx = (uint)Math.Max(1, Math.Round(TitleIcon.Width * scale));
+
+        var key = $"{stem}@{targetPx}";
+        if (key == _titleIconKey) return;
+
+        var path = Path.Combine(AppContext.BaseDirectory, "Assets", $"{stem}.ico");
+        var loadId = ++_titleIconLoadId;
+        var source = await IconDecoder.LoadScaledAsync(path, targetPx);
+        if (source is null || loadId != _titleIconLoadId) return;
+        TitleIcon.Source = source;
+        _titleIconKey = key;
     }
 
     private static DoubleAnimation CreateTransitionAnimation(

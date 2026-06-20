@@ -141,6 +141,7 @@
             </Border.RenderTransform>
             <Grid>
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <!-- Fill the arranged client height so the window's small DPI
                          safety allowance is absorbed by the body. This keeps this
                          footer on the same bottom edge as the settings footer. -->
@@ -148,12 +149,34 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
+                <!-- App title header. Same vertical placement, padding and style as the
+                     settings header so switching views keeps the title fixed in place;
+                     no back button here since this is the root view. The 32dip min
+                     height mirrors the settings header (whose back button sets that
+                     height) so the gap below the title matches across both views. -->
+                <Border Grid.Row="0" Padding="16,16,16,8">
+                    <Grid MinHeight="32">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                            <!-- App mark sized to sit ~level with the 20pt title cap height.
+                                 Source is set in code (UpdateTitleIcon) by decoding the .ico's
+                                 largest frame so it stays sharp instead of upscaling the 16px
+                                 entry a plain BitmapImage would pick. The 2dip left margin is an
+                                 optical nudge so the round mark sits visually flush with the
+                                 left edge rather than mathematically flush. -->
+                            <Image x:Name="TitleIcon" Margin="2,0,0,0"
+                                   Width="22" Height="22" VerticalAlignment="Center" />
+                            <TextBlock VerticalAlignment="Center" Text="Gauge"
+                                       Style="{StaticResource SubtitleTextBlockStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <!-- Body: cards when there is data, otherwise a guidance message.
                      Padded region; BodyScroll caps its height in code so the window
                      never exceeds MaxPopoverHeightDip — taller content scrolls here.
                      No bottom padding so scrolling content clips flush at the footer
                      divider instead of vanishing into an empty band above it. -->
-                <Border Grid.Row="0" Padding="16,16,16,0">
+                <Border Grid.Row="1" Padding="16,0,16,0">
                 <Grid>
                 <!-- Centered guidance shown when no tool has any data. -->
                 <TextBlock
@@ -281,7 +304,7 @@
                      than the acrylic body — like the Windows 11 Start menu bottom bar.
                      MinHeight + padding kept identical to the settings bar for a
                      consistent footer across both views. -->
-                <Border Grid.Row="1"
+                <Border Grid.Row="2"
                         Background="{ThemeResource LayerFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                         BorderThickness="0,1,0,0"
@@ -446,7 +469,7 @@
                                 Padding="8,9" VerticalAlignment="Center"
                                 Click="OnAddServiceClicked"
                                 ToolTipService.ToolTip="{loc:Localize Key=AddService}">
-                            <FontIcon Glyph="&#xE710;" FontSize="14" />
+                            <FontIcon Glyph="&#xE192;" FontSize="14" />
                         </Button>
                         <!-- Update action: Sync glyph while checking, Download once a release is found.
                              Status/label surfaced on hover via the tooltip. -->
