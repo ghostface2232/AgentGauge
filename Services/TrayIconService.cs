@@ -147,7 +147,7 @@ public sealed class TrayIconService : IDisposable
 
         _trayIcon = new TaskbarIcon
         {
-            ToolTipText = "Gauge",
+            ToolTipText = "AgentGauge",
             // Fire left-click immediately instead of waiting out the double-click
             // interval — a single click should toggle the popover with no lag.
             NoLeftClickDelay = true,

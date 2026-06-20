@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## Branding: external "AgentGauge", internal "Gauge"
+
+The product is presented to users as **AgentGauge** (window/tray/installer display name,
+docs, and the GitHub repo `ghostface2232/AgentGauge`). Its **internal identity stays
+`Gauge`** and must not change, because those names are what let an existing install keep
+working and upgrade in place: the `Gauge.exe` name, the installer `AppId`, the install
+folder `…\Programs\Gauge`, the Run-key value `Gauge`, the single-instance key
+`Gauge.SingleInstance`, the data folder `%APPDATA%\Gauge`, the release asset
+`GaugeSetup-win-x64.exe`, and the C# namespaces. When the doc below says "Gauge" for any
+of these identifiers it means the internal name; user-facing copy says "AgentGauge".
+
 ## Project: Gauge
 
 Gauge is a Windows system-tray app that monitors Claude Code, Codex, and Cursor usage. Clicking the tray icon opens a small popover at the bottom-right screen corner, styled like the Windows 11 Quick Settings panel. It shows each tool's usage windows together per tool (Claude Code and Codex expose a 5-hour session window and a weekly window; Cursor exposes a single billing-cycle window). Claude Code and Codex are registered by default; Cursor can be added from settings. Gemini and Antigravity are intentionally excluded.

@@ -1,8 +1,8 @@
 <img width="1440" alt="top_banner_gauge" src="https://github.com/user-attachments/assets/54514e8b-e494-4386-91ec-3d7c325394d1" />
 
-# Gauge
+# AgentGauge
 
-Gauge is a Windows system-tray app that lets you check the real usage limits of Claude Code, Codex, and Cursor at a glance.
+AgentGauge is a Windows system-tray app that lets you check the real usage limits of Claude Code, Codex, and Cursor at a glance.
 
 
 ## Screenshot
@@ -34,16 +34,16 @@ Gauge is a Windows system-tray app that lets you check the real usage limits of 
 ## Running
 
 1. Install with `GaugeSetup-win-x64.exe` (no administrator rights required). You can launch it straight from the finish page.
-2. Left-click the Gauge icon in the taskbar notification area.
+2. Left-click the AgentGauge icon in the taskbar notification area.
 
-Gauge has no ordinary main window. Right-click the tray icon to toggle run-on-startup or quit the app.
+AgentGauge has no ordinary main window. Right-click the tray icon to toggle run-on-startup or quit the app.
 
 Unsigned local builds may trigger Windows SmartScreen's unknown-publisher warning.
 
 
 ## Sign-in and data
 
-Gauge never issues or refreshes credentials itself. It reads the files managed by each official CLI, read-only.
+AgentGauge never issues or refreshes credentials itself. It reads the files managed by each official CLI, read-only.
 
 | Tool | Credential location | Sign-in |
 | --- | --- | --- |
@@ -51,21 +51,21 @@ Gauge never issues or refreshes credentials itself. It reads the files managed b
 | Codex | `%CODEX_HOME%\auth.json` or `%USERPROFILE%\.codex\auth.json` | `codex login` |
 | Cursor | `%APPDATA%\Cursor\User\globalStorage\state.vscdb` (read-only) | Sign in from the Cursor app |
 
-Cursor has no separate CLI login: once you sign in to the Cursor app, Gauge reads its local session token to display usage (the file is opened read-only).
+Cursor has no separate CLI login: once you sign in to the Cursor app, AgentGauge reads its local session token to display usage (the file is opened read-only).
 
-When a sign-in is needed, you can start the relevant CLI login process from the settings screen in the popover. Gauge does not write to or delete CLI credential files, and never logs tokens or CLI login output.
+When a sign-in is needed, you can start the relevant CLI login process from the settings screen in the popover. AgentGauge does not write to or delete CLI credential files, and never logs tokens or CLI login output.
 
 
 ## Updates
 
-On startup Gauge quietly checks GitHub for the latest release and, if a newer version exists, surfaces it on the **Update** card in settings. You can also check manually with the card's **Check for updates** button.
+On startup AgentGauge quietly checks GitHub for the latest release and, if a newer version exists, surfaces it on the **Update** card in settings. You can also check manually with the card's **Check for updates** button.
 
-When an update is available, clicking **Update** downloads the installer and runs it silently: the running Gauge exits, the new version is installed in the same location, and the app restarts automatically. No administrator rights are required.
+When an update is available, clicking **Update** downloads the installer and runs it silently: the running AgentGauge exits, the new version is installed in the same location, and the app restarts automatically. No administrator rights are required.
 
 
 ## Current limitations
 
-- Gauge relies on the tokens each CLI refreshes, so if you go a long time without using a CLI and its token expires, you may need to sign in again from that CLI.
+- AgentGauge relies on the tokens each CLI refreshes, so if you go a long time without using a CLI and its token expires, you may need to sign in again from that CLI.
 - The app does not implement its own OAuth/PKCE or token refresh.
 - It includes no official code signing.
 - Release automation currently targets x64 only.
@@ -73,6 +73,6 @@ When an update is available, clicking **Update** downloads the installer and run
 
 ## Credits
 
-Gauge was inspired by [CodexBar](https://github.com/steipete/codexbar), the macOS menu bar app for tracking AI coding tool usage. Several design ideas — including reading the official CLIs' usage endpoints read-only and delegating token refresh back to the CLI — were learned from it.
+AgentGauge was inspired by [CodexBar](https://github.com/steipete/codexbar), the macOS menu bar app for tracking AI coding tool usage. Several design ideas — including reading the official CLIs' usage endpoints read-only and delegating token refresh back to the CLI — were learned from it.
 
 The UI is set in [Pretendard](https://github.com/orioncactus/pretendard) by Kil Hyung-jin, bundled with the app under the SIL Open Font License 1.1 (see `Assets/Fonts/OFL.txt`).

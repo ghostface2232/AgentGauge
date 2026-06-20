@@ -5,6 +5,11 @@
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>Gauge</RootNamespace>
+    <!-- Internal identity stays "Gauge" (AssemblyName → Gauge.exe, namespaces, .pri).
+         Only the user-facing file metadata carries the external brand "AgentGauge". -->
+    <Product>AgentGauge</Product>
+    <AssemblyTitle>AgentGauge</AssemblyTitle>
+    <Company>AgentGauge</Company>
     <Version>0.1.3</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64;ARM64</Platforms>

@@ -17,7 +17,7 @@ public sealed partial class UsageViewModel : ObservableObject
     public UsageViewModel()
     {
         LastUpdatedText = Loc.Get("LastUpdated_Never");
-        TrayTooltipSummary = "Gauge";
+        TrayTooltipSummary = "AgentGauge";
         EmptyMessage = Loc.Get("Loading");
         IsEmpty = true;
         RefreshCommand = new RelayCommand(() => RefreshRequested?.Invoke(this, EventArgs.Empty));
@@ -132,7 +132,7 @@ public sealed partial class UsageViewModel : ObservableObject
     {
         if (tools.Count == 0)
         {
-            return "Gauge";
+            return "AgentGauge";
         }
 
         // Compact one-line-per-tool summary using each tool's highest window ratio, e.g.

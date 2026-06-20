@@ -6,16 +6,20 @@
   #define SourceDir "..\dist\app\win-x64"
 #endif
 
-#define MyAppName "Gauge"
+; Display/brand name shown to users. The app's internal identity stays "Gauge": the
+; exe, install folder, AppId, Run-key value and data paths are all unchanged, so an
+; existing Gauge install upgrades in place under the new brand.
+#define MyAppName "AgentGauge"
+#define MyInstallName "Gauge"
 #define MyAppExeName "Gauge.exe"
 
 [Setup]
 AppId={{C7092916-3DCD-4A16-AC81-4A9054B4C74C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppPublisher=Gauge
-DefaultDirName={localappdata}\Programs\{#MyAppName}
-DefaultGroupName={#MyAppName}
+AppPublisher=AgentGauge
+DefaultDirName={localappdata}\Programs\{#MyInstallName}
+DefaultGroupName={#MyInstallName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=..\Assets\gauge_icon.ico
 OutputDir=..\dist

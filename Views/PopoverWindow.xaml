@@ -165,7 +165,7 @@
                                  left edge rather than mathematically flush. -->
                             <Image x:Name="TitleIcon" Margin="2,0,0,0"
                                    Width="22" Height="22" VerticalAlignment="Center" />
-                            <TextBlock VerticalAlignment="Center" Text="Gauge"
+                            <TextBlock VerticalAlignment="Center" Text="AgentGauge"
                                        Style="{StaticResource SubtitleTextBlockStyle}" />
                         </StackPanel>
                     </Grid>

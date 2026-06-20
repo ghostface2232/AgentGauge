@@ -30,7 +30,7 @@ public sealed class UsageViewModelTests
 
         Assert.Empty(viewModel.Cards);
         Assert.True(viewModel.IsEmpty);
-        Assert.Equal("Gauge", viewModel.TrayTooltipSummary);
+        Assert.Equal("AgentGauge", viewModel.TrayTooltipSummary);
     }
 
     [Fact]

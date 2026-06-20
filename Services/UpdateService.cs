@@ -25,7 +25,10 @@ public sealed record UpdateCheckResult(UpdateStatus Status, Version CurrentVersi
 public sealed class UpdateService
 {
     private const string Owner = "ghostface2232";
-    private const string Repo = "gauge";
+    // External brand/repo is AgentGauge; the app's internal identity stays "Gauge".
+    // GitHub redirects the old "gauge" path here, so updaters from older builds still
+    // resolve releases through the rename.
+    private const string Repo = "AgentGauge";
     private const string AssetName = "GaugeSetup-win-x64.exe";
 
     private readonly HttpClient _http;

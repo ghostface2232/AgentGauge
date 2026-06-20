@@ -57,7 +57,7 @@ internal static class Strings
         ["Empty_NoHistory"]   = ["사용 기록이 아직 없습니다.", "No usage yet.", "使用履歴がまだありません。"],
         ["NoData"]            = ["데이터 없음",         "No data",           "データなし"],
         ["Tray_NoData"]       = ["{0} 데이터 없음",     "{0} no data",       "{0} データなし"],       // {0} = tool
-        ["Tray_Tooltip"]      = ["Gauge — {0}\n갱신: {1}", "Gauge — {0}\nUpdated: {1}", "Gauge — {0}\n更新: {1}"], // {0}=summary {1}=time
+        ["Tray_Tooltip"]      = ["AgentGauge — {0}\n갱신: {1}", "AgentGauge — {0}\nUpdated: {1}", "AgentGauge — {0}\n更新: {1}"], // {0}=summary {1}=time
 
         // ── Usage-window labels (by UsageWindowType) ───────────────────────
         ["Label_FiveHour"]    = ["5시간",            "5-hour",            "5時間"],
