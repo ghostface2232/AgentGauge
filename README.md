@@ -69,3 +69,8 @@ When an update is available, clicking **Update** downloads the installer and run
 - The app does not implement its own OAuth/PKCE or token refresh.
 - It includes no official code signing.
 - Release automation currently targets x64 only.
+
+
+## Credits
+
+Gauge was inspired by [CodexBar](https://github.com/steipete/codexbar), the macOS menu bar app for tracking AI coding tool usage. Several design ideas — including reading the official CLIs' usage endpoints read-only and delegating token refresh back to the CLI — were learned from it.

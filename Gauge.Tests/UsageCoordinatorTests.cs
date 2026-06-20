@@ -102,6 +102,73 @@ public sealed class UsageCoordinatorTests
         Assert.Equal(1, provider.CallCount);
     }
 
+    [Fact]
+    public async Task RehydratedSnapshotIsShownWhenColdStartRefreshFails()
+    {
+        var persistence = new FakePersistence
+        {
+            Seed = new[]
+            {
+                new UsageSnapshot
+                {
+                    ToolName = "Claude Code",
+                    CapturedAt = DateTimeOffset.UtcNow.AddMinutes(-20),
+                    Windows = new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5h", UsedRatio = .5 } },
+                },
+            },
+        };
+        var provider = new StubProvider("Claude Code") { Throw = true };
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }), persistence: persistence);
+        UsageState? state = null;
+        coordinator.Updated += (_, value) => state = value;
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+
+        // Even though the live fetch failed on cold start, the rehydrated value is surfaced.
+        var claude = Assert.Single(state!.Tools);
+        Assert.NotNull(claude.Snapshot);
+        Assert.True(claude.LastRefreshFailed);
+    }
+
+    [Fact]
+    public async Task SuccessfulRefreshIsPersisted()
+    {
+        var persistence = new FakePersistence();
+        var provider = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }), persistence: persistence);
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        var saved = Assert.Single(persistence.Saved);
+        Assert.Equal("Codex", saved.ToolName);
+    }
+
+    [Fact]
+    public async Task AllFailedCycleDoesNotOverwritePersistedCache()
+    {
+        var persistence = new FakePersistence();
+        var provider = new StubProvider("Codex") { Throw = true };
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }), persistence: persistence);
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+
+        Assert.False(persistence.SaveCalled);
+    }
+
+    private sealed class FakePersistence : IUsageCachePersistence
+    {
+        public IReadOnlyList<UsageSnapshot> Seed { get; set; } = Array.Empty<UsageSnapshot>();
+        public IReadOnlyList<UsageSnapshot> Saved { get; private set; } = Array.Empty<UsageSnapshot>();
+        public bool SaveCalled { get; private set; }
+
+        public IReadOnlyList<UsageSnapshot> Load() => Seed;
+        public void Save(IReadOnlyCollection<UsageSnapshot> snapshots)
+        {
+            SaveCalled = true;
+            Saved = snapshots.ToList();
+        }
+    }
+
     private sealed class StubProvider(string name) : IUsageProvider
     {
         public ToolKind Tool => name == "Codex" ? ToolKind.Codex : ToolKind.ClaudeCode;

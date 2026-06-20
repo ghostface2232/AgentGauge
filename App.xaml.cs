@@ -72,6 +72,9 @@ public partial class App : Application
         var credentials = new CredentialSourceChain(new ICredentialSource[] { cliCredentials, cursorCredentials });
         var locator = new CliLocator();
         var processRunner = new CliProcessRunner();
+        // Lets the Claude provider recover an expired local token after boot by nudging the
+        // Claude CLI to refresh its own token, instead of failing until Claude Code is opened.
+        var claudeTokenRefresher = new ClaudeTokenRefresher(locator, processRunner);
         // Read auth state through the full credential chain (not just the CLI source)
         // so non-CLI tools like Cursor report their real logged-in state on the card.
         var authentication = ToolCatalog.All
@@ -84,7 +87,7 @@ public partial class App : Application
         var usageService = new UsageService(
             new IUsageProvider[]
             {
-                new ClaudeProvider(_httpClient, credentials),
+                new ClaudeProvider(_httpClient, credentials, claudeTokenRefresher),
                 new CodexProvider(_httpClient, credentials),
                 new CursorProvider(_httpClient, credentials),
             },
@@ -115,7 +118,8 @@ public partial class App : Application
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
 
-        _coordinator = new UsageCoordinator(usageService, DispatcherQueue.GetForCurrentThread());
+        _coordinator = new UsageCoordinator(
+            usageService, DispatcherQueue.GetForCurrentThread(), new UsageCacheStore());
         _notificationService = new UsageNotificationService(DispatcherQueue.GetForCurrentThread());
         _notificationService.SetEnabled(notificationsEnabled);
         _coordinator.Updated += OnUsageUpdated;

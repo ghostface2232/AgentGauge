@@ -33,6 +33,11 @@ namespace Gauge.Providers;
 ///
 /// The plan label (Max 5x/20x, Pro, …) comes from the credentials file, so it is
 /// reported even before the first successful usage call.
+///
+/// EXPIRED TOKEN: the CLI's access token lives only a few hours, so after an overnight
+/// boot it is expired before Claude Code is ever launched. When an <see cref="IClaudeTokenRefresher"/>
+/// is supplied, a stale/rejected token triggers a delegated refresh (the CLI refreshes
+/// its own token) and a re-read, so usage works without first opening Claude Code.
 /// </summary>
 public sealed class ClaudeProvider : IUsageProvider
 {
@@ -55,6 +60,7 @@ public sealed class ClaudeProvider : IUsageProvider
 
     private readonly HttpClient _http;
     private readonly ICredentialSource _credentials;
+    private readonly IClaudeTokenRefresher? _refresher;
 
     // Only ever accessed from the coordinator's serialized refresh (one call at a
     // time), so no locking is needed.
@@ -65,10 +71,11 @@ public sealed class ClaudeProvider : IUsageProvider
     private string? _credentialFingerprint;
     private bool _credentialFingerprintInitialized;
 
-    public ClaudeProvider(HttpClient http, ICredentialSource credentials)
+    public ClaudeProvider(HttpClient http, ICredentialSource credentials, IClaudeTokenRefresher? refresher = null)
     {
         _http = http;
         _credentials = credentials;
+        _refresher = refresher;
     }
 
     public ToolKind Tool => ToolKind.ClaudeCode;
@@ -77,6 +84,18 @@ public sealed class ClaudeProvider : IUsageProvider
     public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
     {
         var credentialResult = await _credentials.ReadAsync(ToolKind.ClaudeCode, cancellationToken);
+
+        // The local access token expires after a few hours, so after an overnight boot it
+        // is already expired before Claude Code is ever launched. Rather than fail, ask the
+        // CLI to refresh its own token (it owns the refresh-token rotation, so this can't
+        // break its login), then re-read the freshened credentials. Done before the
+        // fingerprint check below so a successful refresh doesn't read as an account switch.
+        if (credentialResult.Status == CredentialReadStatus.Invalid && _refresher is not null
+            && await _refresher.TryRefreshAsync(cancellationToken))
+        {
+            credentialResult = await _credentials.ReadAsync(ToolKind.ClaudeCode, cancellationToken);
+        }
+
         var credentials = credentialResult.Credential;
         var now = Environment.TickCount64;
 
@@ -125,18 +144,7 @@ public sealed class ClaudeProvider : IUsageProvider
 
         try
         {
-            var windows = await FetchWindowsAsync(token, cancellationToken);
-            _consecutive429 = 0;
-            _cooldownUntilTick = 0;
-            _lastSuccessTick = Environment.TickCount64;
-            _lastSnapshot = new UsageSnapshot
-            {
-                ToolName = ToolName,
-                Plan = credentials.Plan,
-                Windows = windows,
-                CapturedAt = DateTimeOffset.Now,
-            };
-            return _lastSnapshot;
+            return RecordSuccess(await FetchWindowsAsync(token, cancellationToken), credentials.Plan);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
         {
@@ -155,6 +163,25 @@ public sealed class ClaudeProvider : IUsageProvider
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
+            // The server rejected the token even though the file looked valid (e.g. it
+            // expired between read and call, or was revoked). Try one delegated refresh,
+            // and if the CLI hands us a fresh token, retry the fetch once before giving up.
+            if (_refresher is not null && await _refresher.TryRefreshAsync(cancellationToken))
+            {
+                var refreshed = await _credentials.ReadAsync(ToolKind.ClaudeCode, cancellationToken);
+                if (refreshed.Status == CredentialReadStatus.Available
+                    && refreshed.Credential?.AccessToken is { Length: > 0 } freshToken)
+                {
+                    try
+                    {
+                        return RecordSuccess(await FetchWindowsAsync(freshToken, cancellationToken), refreshed.Credential.Plan);
+                    }
+                    catch (HttpRequestException retryEx) when (retryEx.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    {
+                        throw new AuthenticationRequiredException(ToolKind.ClaudeCode, retryEx.StatusCode!.Value);
+                    }
+                }
+            }
             throw new AuthenticationRequiredException(ToolKind.ClaudeCode, ex.StatusCode!.Value);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -166,6 +193,21 @@ public sealed class ClaudeProvider : IUsageProvider
             }
             throw;
         }
+    }
+
+    private UsageSnapshot RecordSuccess(List<UsageWindow> windows, string? plan)
+    {
+        _consecutive429 = 0;
+        _cooldownUntilTick = 0;
+        _lastSuccessTick = Environment.TickCount64;
+        _lastSnapshot = new UsageSnapshot
+        {
+            ToolName = ToolName,
+            Plan = plan,
+            Windows = windows,
+            CapturedAt = DateTimeOffset.Now,
+        };
+        return _lastSnapshot;
     }
 
     private static TimeSpan NextCooldown(int consecutive429)

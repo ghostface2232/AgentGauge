@@ -87,10 +87,14 @@ public sealed class AuthenticationProviderTests
         public int CallCount { get; private set; }
         public Task<CliProcessResult> RunVisibleAsync(string executable, string arguments, TimeSpan timeout, CancellationToken cancellationToken)
         { CallCount++; return Wait?.Task ?? Task.FromResult(Result); }
+        public Task<CliProcessResult> RunHiddenAsync(string executable, string arguments, TimeSpan timeout, CancellationToken cancellationToken)
+        { CallCount++; return Wait?.Task ?? Task.FromResult(Result); }
     }
     private sealed class CancellingRunner : ICliProcessRunner
     {
         public Task<CliProcessResult> RunVisibleAsync(string executable, string arguments, TimeSpan timeout, CancellationToken cancellationToken)
+            => Task.FromCanceled<CliProcessResult>(new CancellationToken(canceled: true));
+        public Task<CliProcessResult> RunHiddenAsync(string executable, string arguments, TimeSpan timeout, CancellationToken cancellationToken)
             => Task.FromCanceled<CliProcessResult>(new CancellationToken(canceled: true));
     }
 }

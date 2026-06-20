@@ -40,6 +40,7 @@ public sealed class UsageCoordinator : IDisposable
 
     private readonly UsageService _usageService;
     private readonly DispatcherQueue? _dispatcher;
+    private readonly IUsageCachePersistence? _persistence;
 
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly CancellationTokenSource _cts = new();
@@ -55,16 +56,71 @@ public sealed class UsageCoordinator : IDisposable
     public event EventHandler<UsageState>? Updated;
     public event EventHandler<ToolKind>? AuthenticationRequired;
 
-    public UsageCoordinator(UsageService usageService, DispatcherQueue? dispatcher = null)
+    public UsageCoordinator(
+        UsageService usageService,
+        DispatcherQueue? dispatcher = null,
+        IUsageCachePersistence? persistence = null)
     {
         _usageService = usageService;
         _dispatcher = dispatcher;
+        _persistence = persistence;
+        RehydrateFromDisk();
     }
 
     /// <summary>Starts the periodic refresh loop (does an immediate first refresh).</summary>
     public void Start()
     {
+        // Surface the rehydrated last-known values immediately, before the first network
+        // refresh completes, so a popover opened right after boot is never empty.
+        EmitState();
         _loopTask ??= Task.Run(() => RunLoopAsync(_cts.Token));
+    }
+
+    /// <summary>
+    /// Seeds the cache from the last persisted snapshots so cards show a last-known value
+    /// on a cold start (before any successful fetch). The stored capture time is kept, so
+    /// the UI shows the value's true age until a live refresh replaces it.
+    /// </summary>
+    private void RehydrateFromDisk()
+    {
+        if (_persistence is null)
+        {
+            return;
+        }
+
+        foreach (var snapshot in _persistence.Load())
+        {
+            if (_cache.ContainsKey(snapshot.ToolName))
+            {
+                continue;
+            }
+            _toolOrder.Add(snapshot.ToolName);
+            _cache[snapshot.ToolName] = new CachedUsage
+            {
+                ToolName = snapshot.ToolName,
+                Snapshot = snapshot,
+                LastUpdatedAt = snapshot.CapturedAt,
+                LastRefreshFailed = false,
+            };
+        }
+    }
+
+    private void PersistSuccessfulSnapshots()
+    {
+        if (_persistence is null)
+        {
+            return;
+        }
+
+        List<UsageSnapshot> snapshots;
+        lock (_cacheLock)
+        {
+            snapshots = _cache.Values
+                .Where(c => c.Snapshot is not null)
+                .Select(c => c.Snapshot!)
+                .ToList();
+        }
+        _persistence.Save(snapshots);
     }
 
     /// <summary>
@@ -132,6 +188,12 @@ public sealed class UsageCoordinator : IDisposable
             MergeIntoCache(results);
             ReportAuthenticationFailures(results);
             EmitState();
+            // Persist only when at least one tool refreshed successfully, so the on-disk
+            // last-known value is never overwritten by an all-failed cycle.
+            if (results.Any(r => r.Succeeded))
+            {
+                PersistSuccessfulSnapshots();
+            }
         }
         finally
         {

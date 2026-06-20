@@ -56,5 +56,7 @@ public sealed class ToolCatalogTests
     {
         public Task<CliProcessResult> RunVisibleAsync(string executable, string arguments, TimeSpan timeout, CancellationToken cancellationToken)
             => Task.FromResult(new CliProcessResult(0, false));
+        public Task<CliProcessResult> RunHiddenAsync(string executable, string arguments, TimeSpan timeout, CancellationToken cancellationToken)
+            => Task.FromResult(new CliProcessResult(0, false));
     }
 }
