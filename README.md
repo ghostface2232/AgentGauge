@@ -1,4 +1,4 @@
-<img width="1440" alt="top_banner_gauge" src="https://github.com/user-attachments/assets/54514e8b-e494-4386-91ec-3d7c325394d1" />
+<img width="1440" alt="agentgauge_banner" src="https://github.com/user-attachments/assets/b6d6a7df-ca9b-4ed9-8a7a-bf22d8730c9e" />
 
 # AgentGauge
 
@@ -7,8 +7,8 @@ AgentGauge is a Windows system-tray app that lets you check the real usage limit
 
 ## Screenshot
 
-<img width="1440" alt="introduction_01 png" src="https://github.com/user-attachments/assets/d9ecec5a-e98d-4ea5-b988-b8d194fde310" />
-<img width="1440" alt="introduction_02" src="https://github.com/user-attachments/assets/3fd6efe8-e584-4396-bd8d-367aeff630dc" />
+<img width="1440" alt="agentgauge_img1" src="https://github.com/user-attachments/assets/e349d33f-9bc4-4b69-ab2a-340bc01d1bd6" />
+<img width="1440" alt="agentgauge_img2" src="https://github.com/user-attachments/assets/cd691d04-cc4b-4caf-95a3-efc620ad6f6b" />
 
 
 ## Features
