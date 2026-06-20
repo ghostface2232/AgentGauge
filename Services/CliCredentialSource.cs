@@ -156,9 +156,10 @@ public sealed class CliCredentialSource : ICredentialSource
                 return DateTimeOffset.FromUnixTimeSeconds(seconds);
             }
         }
-        catch (Exception ex) when (ex is FormatException or JsonException)
+        catch (Exception ex) when (ex is FormatException or JsonException or ArgumentOutOfRangeException)
         {
-            // Not a decodable JWT; treat as "no expiry known".
+            // Not a decodable JWT, or an out-of-range exp from a corrupt token; treat as
+            // "no expiry known" rather than letting it escape as an unhandled exception.
         }
         return null;
     }

@@ -148,6 +148,20 @@ public sealed class CredentialSourceTests : IDisposable
         Assert.Null(result.Credential?.ExpiresAt);
     }
 
+    [Fact]
+    public async Task CodexJwtWithOutOfRangeExpIsHandledNotThrown()
+    {
+        // A corrupt token with an absurd exp must not escape as ArgumentOutOfRangeException;
+        // it degrades to "no expiry known" → Available (the server will reject it if bad).
+        var token = FakeJwtRawExp("999999999999999");
+        Write(".codex/auth.json", CodexAuthJson(token));
+
+        var result = await Source().ReadAsync(ToolKind.Codex);
+
+        Assert.Equal(CredentialReadStatus.Available, result.Status);
+        Assert.Null(result.Credential?.ExpiresAt);
+    }
+
     private static string CodexAuthJson(string accessToken) =>
         "{\"tokens\":{\"access_token\":\"" + accessToken + "\",\"account_id\":\"acct\"}}";
 
@@ -159,6 +173,16 @@ public sealed class CredentialSourceTests : IDisposable
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
         return Segment("{\"alg\":\"none\",\"typ\":\"JWT\"}") + "."
             + Segment("{\"exp\":" + expUnixSeconds + "}") + ".sig";
+    }
+
+    // Like FakeJwt but lets the exp be any raw JSON number (e.g. out of DateTimeOffset range).
+    private static string FakeJwtRawExp(string rawExp)
+    {
+        static string Segment(string json) => Convert
+            .ToBase64String(Encoding.UTF8.GetBytes(json))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        return Segment("{\"alg\":\"none\",\"typ\":\"JWT\"}") + "."
+            + Segment("{\"exp\":" + rawExp + "}") + ".sig";
     }
 
     private CliCredentialSource Source() => new(() => _root, () => null);

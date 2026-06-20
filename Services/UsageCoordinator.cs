@@ -190,9 +190,16 @@ public sealed class UsageCoordinator : IDisposable
         try
         {
             Interlocked.Exchange(ref _lastRefreshStartedTick, Environment.TickCount64);
+            // Snapshot the cached capture-times before merging so a genuine live fetch can
+            // be told apart from a re-served cache (see ReportAuthenticationOutcomes).
+            Dictionary<string, DateTimeOffset?> priorCaptured;
+            lock (_cacheLock)
+            {
+                priorCaptured = _cache.ToDictionary(kv => kv.Key, kv => kv.Value.Snapshot?.CapturedAt);
+            }
             var results = await _usageService.GetAllSnapshotsAsync(cancellationToken);
             var purgedTools = MergeIntoCache(results);
-            ReportAuthenticationOutcomes(results);
+            ReportAuthenticationOutcomes(results, priorCaptured);
             EmitState();
             // Persist when at least one tool refreshed successfully, so an all-failed cycle
             // never overwrites the on-disk last-known value. Also persist when a tool was
@@ -215,7 +222,8 @@ public sealed class UsageCoordinator : IDisposable
         return true;
     }
 
-    private void ReportAuthenticationOutcomes(IReadOnlyList<ProviderSnapshotResult> results)
+    private void ReportAuthenticationOutcomes(
+        IReadOnlyList<ProviderSnapshotResult> results, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
     {
         foreach (var result in results)
         {
@@ -223,13 +231,34 @@ public sealed class UsageCoordinator : IDisposable
             {
                 Raise(AuthenticationRequired, authError.Tool);
             }
-            else if (result.Succeeded)
+            else if (IsLiveServerSuccess(result, priorCaptured))
             {
-                // A successful fetch means the server accepted the token; clear any sticky
-                // rejection so a tool that recovered stops showing as signed out.
+                // Only a genuine live fetch proves the server accepted the token; clear any
+                // sticky rejection so a tool that recovered stops showing as signed out.
                 Raise(AuthenticationRecovered, result.Tool);
             }
         }
+    }
+
+    /// <summary>
+    /// True only when a result represents a fresh server-accepted fetch — a snapshot with
+    /// real windows whose <see cref="UsageSnapshot.CapturedAt"/> advanced past the previously
+    /// cached one. This deliberately excludes outcomes that are "successes" but do NOT prove
+    /// the server accepted the token: an empty snapshot returned when there is no credential,
+    /// and a provider re-serving its last good snapshot during a cooldown/429/network error
+    /// (those reuse the prior <c>CapturedAt</c>). Without this gate, logging out or a network
+    /// blip after a 401 would wrongly clear the rejection and flip the card back to signed-in.
+    /// </summary>
+    private static bool IsLiveServerSuccess(
+        ProviderSnapshotResult result, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
+    {
+        if (!result.Succeeded || result.Snapshot is not { Windows.Count: > 0 } snapshot)
+        {
+            return false;
+        }
+        return !priorCaptured.TryGetValue(result.ToolName, out var prior)
+            || prior is null
+            || snapshot.CapturedAt > prior.Value;
     }
 
     private void Raise(EventHandler<ToolKind>? handler, ToolKind tool)

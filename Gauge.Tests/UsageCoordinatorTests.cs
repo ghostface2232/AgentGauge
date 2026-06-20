@@ -58,6 +58,39 @@ public sealed class UsageCoordinatorTests
     }
 
     [Fact]
+    public async Task EmptySnapshotSuccessDoesNotRaiseRecovered()
+    {
+        // No credential → providers return an empty snapshot as a "success"; that is NOT a
+        // server acceptance, so it must not clear a sticky rejection.
+        var provider = new StubProvider("Codex") { EmptyWindows = true };
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }));
+        var recovered = new List<ToolKind>();
+        coordinator.AuthenticationRecovered += (_, tool) => recovered.Add(tool);
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+
+        Assert.Empty(recovered);
+    }
+
+    [Fact]
+    public async Task ReservedCacheWithUnchangedCaptureTimeDoesNotRaiseRecovered()
+    {
+        // Simulate a provider re-serving its last good snapshot (same CapturedAt) on a
+        // cooldown/429/network error: only the first, genuinely live fetch recovers.
+        var provider = new StubProvider("Codex") { FixedCapturedAt = DateTimeOffset.UtcNow };
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }));
+        var recovered = new List<ToolKind>();
+        coordinator.AuthenticationRecovered += (_, tool) => recovered.Add(tool);
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Equal(new[] { ToolKind.Codex }, recovered); // first fetch is live
+
+        recovered.Clear();
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Empty(recovered); // re-served same snapshot → not a fresh acceptance
+    }
+
+    [Fact]
     public async Task ColdStartFailureLeavesNullSnapshotAndNoLastUpdated()
     {
         var provider = new StubProvider("Codex") { Throw = true };
@@ -236,13 +269,22 @@ public sealed class UsageCoordinatorTests
         public int CallCount { get; private set; }
         public bool Throw { get; set; }
         public bool ThrowAuth { get; set; }
+        public bool EmptyWindows { get; set; }
+        public DateTimeOffset? FixedCapturedAt { get; set; }
         public Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
         {
             CallCount++;
             if (ThrowAuth) throw new AuthenticationRequiredException(Tool, HttpStatusCode.Unauthorized);
             if (Throw) throw new HttpRequestException("offline");
-            return Task.FromResult(new UsageSnapshot { ToolName = ToolName, CapturedAt = DateTimeOffset.Now,
-                Windows = new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5시간", UsedRatio = .2 } } });
+            var windows = EmptyWindows
+                ? Array.Empty<UsageWindow>()
+                : new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5시간", UsedRatio = .2 } };
+            return Task.FromResult(new UsageSnapshot
+            {
+                ToolName = ToolName,
+                CapturedAt = FixedCapturedAt ?? DateTimeOffset.Now,
+                Windows = windows,
+            });
         }
     }
 }
