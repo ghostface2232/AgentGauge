@@ -1,3 +1,4 @@
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.ViewModels;
 
@@ -6,13 +7,13 @@ namespace Gauge.Tests;
 public sealed class UsageViewModelTests
 {
     [Fact]
-    public void ApplyShowsOnlyToolsWithUsageWindows()
+    public void ApplyShowsCardForToolWithUsage()
     {
         var viewModel = new UsageViewModel();
 
         viewModel.Apply(State(
             WithUsage("Claude Code", 0.42),
-            WithoutUsage("Codex")));
+            WithoutRecord("Codex")));
 
         var card = Assert.Single(viewModel.Cards);
         Assert.Equal("Claude Code", card.ToolName);
@@ -21,28 +22,59 @@ public sealed class UsageViewModelTests
     }
 
     [Fact]
-    public void ApplyRemovesCardWhenOnlyAnotherToolHasUsage()
-    {
-        var viewModel = new UsageViewModel();
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithoutUsage("Codex")));
-
-        viewModel.Apply(State(WithoutUsage("Claude Code"), WithUsage("Codex", 0.73)));
-
-        var card = Assert.Single(viewModel.Cards);
-        Assert.Equal("Codex", card.ToolName);
-        Assert.Equal("Codex 73%", viewModel.TrayTooltipSummary);
-    }
-
-    [Fact]
-    public void ApplyWithNoUsageWindowsShowsEmptyStateWithoutToolCards()
+    public void ApplyExcludesToolsWithNoRecord()
     {
         var viewModel = new UsageViewModel();
 
-        viewModel.Apply(State(WithoutUsage("Claude Code"), WithoutUsage("Codex")));
+        viewModel.Apply(State(WithoutRecord("Claude Code"), WithoutRecord("Codex")));
 
         Assert.Empty(viewModel.Cards);
         Assert.True(viewModel.IsEmpty);
         Assert.Equal("Gauge", viewModel.TrayTooltipSummary);
+    }
+
+    [Fact]
+    public void ApplyShowsNoDataCardForToolWithRecordButNoWindows()
+    {
+        var viewModel = new UsageViewModel();
+
+        viewModel.Apply(State(WithEmptyRecord("Codex")));
+
+        var card = Assert.Single(viewModel.Cards);
+        Assert.Equal("Codex", card.ToolName);
+        Assert.False(card.HasAnyData);
+        Assert.Equal(Loc.Get("NoData"), card.StatusText);
+        Assert.False(viewModel.IsEmpty);
+        Assert.Equal(Loc.Format("Tray_NoData", "Codex"), viewModel.TrayTooltipSummary);
+    }
+
+    [Fact]
+    public void ApplyShowsBothUsageAndNoDataCards()
+    {
+        var viewModel = new UsageViewModel();
+
+        viewModel.Apply(State(
+            WithUsage("Claude Code", 0.42),
+            WithEmptyRecord("Codex")));
+
+        Assert.Equal(2, viewModel.Cards.Count);
+        Assert.False(viewModel.IsEmpty);
+        Assert.Equal(
+            $"Claude Code 42% · {Loc.Format("Tray_NoData", "Codex")}",
+            viewModel.TrayTooltipSummary);
+    }
+
+    [Fact]
+    public void ApplyRemovesCardWhenToolLosesItsRecord()
+    {
+        var viewModel = new UsageViewModel();
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithoutRecord("Codex")));
+
+        viewModel.Apply(State(WithoutRecord("Claude Code"), WithUsage("Codex", 0.73)));
+
+        var card = Assert.Single(viewModel.Cards);
+        Assert.Equal("Codex", card.ToolName);
+        Assert.Equal("Codex 73%", viewModel.TrayTooltipSummary);
     }
 
     private static UsageState State(params CachedUsage[] tools) => new()
@@ -74,7 +106,9 @@ public sealed class UsageViewModelTests
         };
     }
 
-    private static CachedUsage WithoutUsage(string toolName) => new()
+    // A tool Gauge has a record for (a snapshot) but with no usage windows — shown as a
+    // "no data" card rather than excluded.
+    private static CachedUsage WithEmptyRecord(string toolName) => new()
     {
         ToolName = toolName,
         Snapshot = new UsageSnapshot
@@ -83,5 +117,12 @@ public sealed class UsageViewModelTests
             CapturedAt = new DateTimeOffset(2026, 6, 20, 0, 0, 0, TimeSpan.Zero),
             Windows = Array.Empty<UsageWindow>(),
         },
+    };
+
+    // A tool that has never succeeded (no snapshot: not signed in / no history) — left
+    // off the usage surface entirely.
+    private static CachedUsage WithoutRecord(string toolName) => new()
+    {
+        ToolName = toolName,
     };
 }

@@ -57,8 +57,14 @@ public sealed partial class UsageViewModel : ObservableObject
 
     public void Apply(UsageState state)
     {
-        HighestUsageRatio = state.Tools
-            .Where(t => t.Snapshot is { Windows.Count: > 0 })
+        // The usage surface shows every tool Gauge has a record for — i.e. one that has
+        // succeeded at least once (HasData), even if its snapshot is now stale or has no
+        // windows (those render as a "no data" card). Tools that have never succeeded (no
+        // snapshot: not signed in, no OAuth, no history) are left off, so the default
+        // Claude/Codex cards aren't forced onto users who don't use one of them.
+        var recorded = state.Tools.Where(t => t.HasData).ToList();
+
+        HighestUsageRatio = recorded
             .SelectMany(t => t.Snapshot!.Windows)
             .Select(w => w.UsedRatio)
             .DefaultIfEmpty(0)
@@ -68,12 +74,11 @@ public sealed partial class UsageViewModel : ObservableObject
         LastUpdatedText = state.LastUpdatedAt is { } updated
             ? Loc.Format("LastUpdated_At", updated.ToLocalTime().ToString("HH:mm"))
             : Loc.Get("LastUpdated_Never");
-        TrayTooltipSummary = BuildTrayTooltipSummary(state);
-        RefreshCards(state);
+        TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
+        RefreshCards(recorded);
 
-        var anyData = state.Tools.Any(t => t.Snapshot is { Windows.Count: > 0 });
-        IsEmpty = !anyData;
-        if (!anyData)
+        IsEmpty = recorded.Count == 0;
+        if (IsEmpty)
         {
             EmptyMessage = BuildEmptyMessage(state);
         }
@@ -96,16 +101,8 @@ public sealed partial class UsageViewModel : ObservableObject
         return Loc.Get("Empty_NoHistory");
     }
 
-    private void RefreshCards(UsageState state)
+    private void RefreshCards(IReadOnlyList<CachedUsage> tools)
     {
-        // Registration controls which providers are polled and shown in settings,
-        // but the usage surface should contain only tools that have real windows.
-        // This avoids forcing the default Claude Code/Codex cards onto users who
-        // only have one of those tools installed or signed in.
-        var tools = state.Tools
-            .Where(t => t.Snapshot is { Windows.Count: > 0 })
-            .ToList();
-
         // Remove cards for tools no longer present.
         for (var i = Cards.Count - 1; i >= 0; i--)
         {
@@ -131,25 +128,28 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
-    private static string BuildTrayTooltipSummary(UsageState state)
+    private static string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools)
     {
-        var toolsWithData = state.Tools
-            .Where(t => t.Snapshot is { Windows.Count: > 0 })
-            .ToList();
-
-        if (toolsWithData.Count == 0)
+        if (tools.Count == 0)
         {
             return "Gauge";
         }
 
-        // Compact one-line-per-tool summary using each tool's highest window ratio,
-        // e.g. "Claude Code 63% · Codex 42%". Kept short for the shell tooltip.
+        // Compact one-line-per-tool summary using each tool's highest window ratio, e.g.
+        // "Claude Code 63% · Codex 42%". A recorded tool with no windows (stale/empty
+        // snapshot) shows "<tool> no data" instead. Kept short for the shell tooltip.
         var parts = new List<string>();
-        foreach (var tool in toolsWithData)
+        foreach (var tool in tools)
         {
-            var snapshot = tool.Snapshot!;
-            var highest = snapshot.Windows.Max(w => w.UsedRatio);
-            parts.Add($"{tool.ToolName} {highest * 100:0}%");
+            if (tool.Snapshot is { Windows.Count: > 0 } snapshot)
+            {
+                var highest = snapshot.Windows.Max(w => w.UsedRatio);
+                parts.Add($"{tool.ToolName} {highest * 100:0}%");
+            }
+            else
+            {
+                parts.Add(Loc.Format("Tray_NoData", tool.ToolName));
+            }
         }
 
         return string.Join(" · ", parts);
