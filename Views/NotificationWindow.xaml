@@ -21,9 +21,6 @@
                        Style="{StaticResource BodyStrongTextBlockStyle}" />
             <TextBlock x:Name="MessageText" TextWrapping="Wrap" Opacity="0.72"
                        Style="{StaticResource CaptionTextBlockStyle}" />
-            <TextBlock x:Name="SuppressedCountText" TextWrapping="Wrap" Opacity="0.55"
-                       Visibility="Collapsed"
-                       Style="{StaticResource CaptionTextBlockStyle}" />
         </StackPanel>
     </Grid>
 </Window>

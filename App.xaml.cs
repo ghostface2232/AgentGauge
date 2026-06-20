@@ -148,11 +148,16 @@ public partial class App : Application
         _coordinator.Start();
         // Unpackaged WinUI launches do not reliably copy ordinary EXE arguments into
         // LaunchActivatedEventArgs.Arguments. Read the actual process command line so
-        // the developer visual-QA switch works when launched from PowerShell/Explorer.
-        if (Environment.GetCommandLineArgs()
-            .Contains("--notification-demo", StringComparer.OrdinalIgnoreCase))
+        // the developer visual-QA switches work when launched from PowerShell/Explorer.
+        var commandLine = Environment.GetCommandLineArgs();
+        if (commandLine.Contains("--notification-demo", StringComparer.OrdinalIgnoreCase))
         {
             _notificationService.ShowDemoSequence();
+        }
+        // Worst-case longest text in KO/EN/JA, to verify the fixed-size window never clips.
+        if (commandLine.Contains("--notification-longest", StringComparer.OrdinalIgnoreCase))
+        {
+            _notificationService.ShowLongestTextDemo();
         }
     }
 

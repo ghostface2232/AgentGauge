@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using Gauge.Localization;
 using Gauge.Models;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -13,7 +12,7 @@ namespace Gauge.Views;
 /// <summary>A non-activating, auto-dismiss usage notification above the work area.</summary>
 public sealed partial class NotificationWindow : Window, IDisposable
 {
-    private const double WidthDip = 320;
+    private const double WidthDip = 360;
     private const double HeightDip = 76;
     private const double EdgeMarginDip = 12;
     private const double StackGapDip = 8;
@@ -81,7 +80,6 @@ public sealed partial class NotificationWindow : Window, IDisposable
 
     public void Show(
         UsageNotification notification,
-        int suppressedCount = 0,
         ElementTheme? themeOverride = null,
         TimeSpan? visibleDuration = null)
     {
@@ -100,14 +98,8 @@ public sealed partial class NotificationWindow : Window, IDisposable
         _notification = notification;
         TitleText.Text = notification.Title;
         MessageText.Text = notification.Message;
-        SuppressedCountText.Text = suppressedCount > 1
-            ? Loc.Format("Notif_Suppressed", suppressedCount)
-            : string.Empty;
-        SuppressedCountText.Visibility = suppressedCount > 1
-            ? Visibility.Visible
-            : Visibility.Collapsed;
         UpdateIcon();
-        PositionAboveWorkArea(suppressedCount > 1 ? HeightDip + 16 : HeightDip);
+        PositionAboveWorkArea(HeightDip);
 
         _isVisible = true;
         AppWindow.Show(activateWindow: false);

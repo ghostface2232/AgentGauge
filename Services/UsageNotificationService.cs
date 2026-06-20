@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Runtime.InteropServices;
 using Gauge.Localization;
 using Gauge.Models;
@@ -15,7 +16,6 @@ public sealed class UsageNotificationService : IDisposable
     private readonly Queue<QueuedNotification> _displayQueue = new();
     private readonly DispatcherQueueTimer _suppressionTimer;
     private UsageNotification? _latestSuppressed;
-    private int _suppressedCount;
     private bool _isShowing;
     private bool _enabled = true;
     private bool _disposed;
@@ -50,7 +50,6 @@ public sealed class UsageNotificationService : IDisposable
         _suppressionTimer.Stop();
         _displayQueue.Clear();
         _latestSuppressed = null;
-        _suppressedCount = 0;
     }
 
     public void Process(UsageState state)
@@ -62,7 +61,7 @@ public sealed class UsageNotificationService : IDisposable
             if (CanPresentNow())
             {
                 FlushSuppressedToDisplayQueue();
-                _displayQueue.Enqueue(new QueuedNotification(notification, 0, null, null, false));
+                _displayQueue.Enqueue(new QueuedNotification(notification, null, null, false));
             }
             else
             {
@@ -90,10 +89,72 @@ public sealed class UsageNotificationService : IDisposable
             foreach (var sample in samples)
             {
                 _displayQueue.Enqueue(new QueuedNotification(
-                    sample, 0, theme, TimeSpan.FromSeconds(3), true));
+                    sample, theme, TimeSpan.FromSeconds(3), true));
             }
         }
         ShowNext();
+    }
+
+    /// <summary>
+    /// Developer visual QA: the worst-case (longest) notification text in each of the three
+    /// UI languages — title + message — in light and dark, so the fixed-size window can be
+    /// checked for clipping. Strings are built per language straight from the resource table,
+    /// so one run shows Korean, English, and Japanese regardless of the app's current language.
+    /// </summary>
+    public void ShowLongestTextDemo()
+    {
+        var now = DateTimeOffset.Now;
+        foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
+        {
+            foreach (var lang in new[] { AppLanguage.Korean, AppLanguage.English, AppLanguage.Japanese })
+            {
+                var (title, message) = LongestText(lang);
+                var sample = new UsageNotification
+                {
+                    Kind = UsageNotificationKind.Threshold,
+                    Level = UsageLevel.Danger,
+                    ToolName = "Claude Code",
+                    WindowType = UsageWindowType.FiveHour,
+                    Title = title,
+                    Message = message,
+                    CreatedAt = now,
+                };
+                _displayQueue.Enqueue(new QueuedNotification(sample, theme, TimeSpan.FromSeconds(4), true));
+            }
+        }
+        ShowNext();
+    }
+
+    /// <summary>
+    /// Builds the longest title and message a real notification could show in
+    /// <paramref name="lang"/>, by substituting worst-case values (longest tool name and
+    /// window label, 100%, a two-digit date) into the actual templates and picking the
+    /// longest message variant.
+    /// </summary>
+    private static (string Title, string Message) LongestText(AppLanguage lang)
+    {
+        var index = (int)lang;
+        var culture = lang.ToCulture();
+        string Text(string key) => Strings.Table[key][index] ?? Strings.Table[key][(int)AppLanguage.English]!;
+
+        // The longest window label for this language (e.g. KO "5시간" vs "주간").
+        var fiveHour = Text("Label_FiveHour");
+        var weekly = Text("Label_Weekly");
+        var label = weekly.Length >= fiveHour.Length ? weekly : fiveHour;
+
+        // "Claude Code" is the longest registered tool name; 100% is the widest percent.
+        var title = string.Format(culture, Text("Notif_ThresholdTitle"), "Claude Code", label, 100);
+
+        // The widest message that can fill the body, across the notification's variants.
+        var date = new DateTime(2026, 12, 31).ToString(Text("DateFormat_MonthDay"), culture);
+        var message = new[]
+        {
+            string.Format(culture, Text("Notif_ResetMessage"), 100.0),
+            Text("Reset_Unknown"),
+            string.Format(culture, Text("Reset_InDays"), 7, date),
+        }.OrderByDescending(s => s.Length).First();
+
+        return (title, message);
     }
 
     private void ShowNext()
@@ -103,14 +164,14 @@ public sealed class UsageNotificationService : IDisposable
         {
             while (_displayQueue.TryDequeue(out var queued))
             {
-                Suppress(queued.Notification, Math.Max(1, queued.SuppressedCount));
+                Suppress(queued.Notification);
             }
             return;
         }
 
         var next = _displayQueue.Dequeue();
         _isShowing = true;
-        _window.Show(next.Notification, next.SuppressedCount, next.ThemeOverride, next.VisibleDuration);
+        _window.Show(next.Notification, next.ThemeOverride, next.VisibleDuration);
     }
 
     private void OnDismissed(object? sender, EventArgs e)
@@ -119,10 +180,11 @@ public sealed class UsageNotificationService : IDisposable
         ShowNext();
     }
 
-    private void Suppress(UsageNotification notification, int count = 1)
+    private void Suppress(UsageNotification notification)
     {
+        // Hold only the most recent alert; older ones during Do Not Disturb are stale for a
+        // usage gauge, so when DND ends we surface just the latest (no "N missed" count).
         _latestSuppressed = notification;
-        _suppressedCount += count;
         if (!_suppressionTimer.IsRunning) _suppressionTimer.Start();
     }
 
@@ -136,9 +198,8 @@ public sealed class UsageNotificationService : IDisposable
     private void FlushSuppressedToDisplayQueue()
     {
         if (_latestSuppressed is null) return;
-        _displayQueue.Enqueue(new QueuedNotification(_latestSuppressed, _suppressedCount, null, null, false));
+        _displayQueue.Enqueue(new QueuedNotification(_latestSuppressed, null, null, false));
         _latestSuppressed = null;
-        _suppressedCount = 0;
         _suppressionTimer.Stop();
     }
 
@@ -187,7 +248,6 @@ public sealed class UsageNotificationService : IDisposable
 
     private sealed record QueuedNotification(
         UsageNotification Notification,
-        int SuppressedCount,
         ElementTheme? ThemeOverride,
         TimeSpan? VisibleDuration,
         bool ForcePresent);
