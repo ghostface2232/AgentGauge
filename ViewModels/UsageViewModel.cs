@@ -98,7 +98,13 @@ public sealed partial class UsageViewModel : ObservableObject
 
     private void RefreshCards(UsageState state)
     {
-        var tools = state.Tools;
+        // Registration controls which providers are polled and shown in settings,
+        // but the usage surface should contain only tools that have real windows.
+        // This avoids forcing the default Claude Code/Codex cards onto users who
+        // only have one of those tools installed or signed in.
+        var tools = state.Tools
+            .Where(t => t.Snapshot is { Windows.Count: > 0 })
+            .ToList();
 
         // Remove cards for tools no longer present.
         for (var i = Cards.Count - 1; i >= 0; i--)
@@ -127,25 +133,23 @@ public sealed partial class UsageViewModel : ObservableObject
 
     private static string BuildTrayTooltipSummary(UsageState state)
     {
-        if (state.Tools.Count == 0)
+        var toolsWithData = state.Tools
+            .Where(t => t.Snapshot is { Windows.Count: > 0 })
+            .ToList();
+
+        if (toolsWithData.Count == 0)
         {
             return "Gauge";
         }
 
         // Compact one-line-per-tool summary using each tool's highest window ratio,
-        // e.g. "Claude Code 63% · Codex 데이터 없음". Kept short for the shell tooltip.
+        // e.g. "Claude Code 63% · Codex 42%". Kept short for the shell tooltip.
         var parts = new List<string>();
-        foreach (var tool in state.Tools)
+        foreach (var tool in toolsWithData)
         {
-            if (tool.Snapshot is { Windows.Count: > 0 } snapshot)
-            {
-                var highest = snapshot.Windows.Max(w => w.UsedRatio);
-                parts.Add($"{tool.ToolName} {highest * 100:0}%");
-            }
-            else
-            {
-                parts.Add(Loc.Format("Tray_NoData", tool.ToolName));
-            }
+            var snapshot = tool.Snapshot!;
+            var highest = snapshot.Windows.Max(w => w.UsedRatio);
+            parts.Add($"{tool.ToolName} {highest * 100:0}%");
         }
 
         return string.Join(" · ", parts);
