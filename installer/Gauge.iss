@@ -21,7 +21,9 @@ AppPublisher=AgentGauge
 DefaultDirName={localappdata}\Programs\{#MyInstallName}
 DefaultGroupName={#MyInstallName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-SetupIconFile=..\Assets\gauge_icon.ico
+; Outward-facing brand icon (the GaugeSetup.exe icon + wizard title bar). Matches the
+; icon embedded in Gauge.exe, which is what UninstallDisplayIcon resolves to above.
+SetupIconFile=..\Assets\gauge_appicon.ico
 OutputDir=..\dist
 OutputBaseFilename=GaugeSetup-win-x64
 Compression=lzma2/ultra64

@@ -12,6 +12,11 @@
     <Company>AgentGauge</Company>
     <Version>0.1.5</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Outward-facing brand icon embedded in Gauge.exe: this is what Windows search,
+         Explorer, the Start-menu shortcut, and the Control Panel / "Apps" uninstall entry
+         (UninstallDisplayIcon points at the exe) all show. It is distinct from the runtime
+         tray/popover icons (gauge_icon*.ico), which load from disk and swap by usage level. -->
+    <ApplicationIcon>Assets\gauge_appicon.ico</ApplicationIcon>
     <Platforms>x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <UseWinUI>true</UseWinUI>
