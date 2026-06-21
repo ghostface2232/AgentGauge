@@ -108,6 +108,11 @@ internal static class Strings
         ["Auth_Missing"]      = ["더 정확한 사용량 정보를 보려면 로그인해주세요.",
                                  "Sign in to see more accurate usage.",
                                  "より正確な使用量を表示するにはログインしてください。"],
+        // Antigravity has no Gauge-readable credential; describe the source instead of asking
+        // the user to sign in (the popover card shows the real usage once it flows).
+        ["Auth_Antigravity"]  = ["Antigravity 앱에서 사용량을 읽어옵니다.",
+                                 "Reads usage from the Antigravity app.",
+                                 "Antigravityアプリから使用量を読み取ります。"],
 
         // ── Credential source messages ─────────────────────────────────────
         ["Cred_Missing"]      = ["로그인 정보가 없습니다.", "No sign-in information.", "ログイン情報がありません。"],

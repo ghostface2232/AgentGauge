@@ -176,7 +176,10 @@
                      never exceeds MaxPopoverHeightDip — taller content scrolls here.
                      No bottom padding so scrolling content clips flush at the footer
                      divider instead of vanishing into an empty band above it. -->
-                <Border Grid.Row="1" Padding="16,0,16,0">
+                <!-- Horizontal padding lives on the ScrollViewer (not this Border) so the
+                     auto-hide overlay scrollbar sits in the right gutter rather than over the
+                     cards' right edge. -->
+                <Border Grid.Row="1" Padding="0">
                 <Grid>
                 <!-- Centered guidance shown when no tool has any data. -->
                 <TextBlock
@@ -184,12 +187,14 @@
                     VerticalAlignment="Center"
                     TextAlignment="Center"
                     TextWrapping="Wrap"
+                    Margin="16,0"
                     Opacity="0.7"
                     Text="{Binding EmptyMessage}"
                     Style="{StaticResource BodyTextBlockStyle}"
                     Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}}" />
                 <ScrollViewer
                     x:Name="BodyScroll"
+                    Padding="16,0,16,0"
                     VerticalScrollBarVisibility="Auto"
                     HorizontalScrollMode="Disabled"
                     Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">

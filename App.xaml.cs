@@ -90,9 +90,13 @@ public partial class App : Application
             "codex", "doctor", TimeSpan.FromSeconds(30), locator, processRunner);
         // Read auth state through the full credential chain (not just the CLI source)
         // so non-CLI tools like Cursor report their real logged-in state on the card.
+        // Antigravity's sign-in is owned by the IDE's OAuth with no Gauge-readable credential,
+        // so its card state can't come from the credential chain like the CLI tools' do.
         var authentication = ToolCatalog.All
-            .Select(descriptor => new CliAuthenticationProvider(descriptor.Kind, credentials, locator, processRunner))
-            .ToArray<IAuthenticationProvider>();
+            .Select(descriptor => descriptor.Kind == ToolKind.Antigravity
+                ? (IAuthenticationProvider)new AntigravityAuthenticationProvider()
+                : new CliAuthenticationProvider(descriptor.Kind, credentials, locator, processRunner))
+            .ToArray();
         _authentication = authentication.ToDictionary(provider => provider.Tool);
 
         // Providers are built for the whole catalog but only queried for registered
