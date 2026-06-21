@@ -48,9 +48,9 @@ internal sealed class AntigravityProcessDiscovery
         var servers = new List<AntigravityLanguageServer>();
         try
         {
-            // "_" is a WQL LIKE wildcard, so escape the literal underscore in the binary name.
+            // "_" is a single-char wildcard in WQL LIKE; "[_]" matches a literal underscore.
             using var searcher = new ManagementObjectSearcher(
-                "SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name LIKE 'language\\_server%'");
+                "SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name LIKE 'language[_]server%'");
             using var results = searcher.Get();
 
             foreach (ManagementBaseObject result in results)
