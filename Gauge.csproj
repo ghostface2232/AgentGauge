@@ -22,8 +22,12 @@
     <!-- The test project lives in the Gauge.Tests subfolder. Exclude that whole
          subtree from this project's default item globs (Compile/Content/None/Page/
          PRIResource/...) so its build output is never pulled into — and recursively
-         nested under — Gauge's own output. Supersedes per-item Remove guards. -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);Gauge.Tests\**</DefaultItemExcludes>
+         nested under — Gauge's own output. Supersedes per-item Remove guards.
+         Ref\ holds read-only reference repos (CodexBar/claude-code/codex sources);
+         the WinUI SDK's default image globs (*.png/*.jpg/*.gif) would otherwise scan
+         that tree and copy ~14MB of unrelated assets (e.g. a 10MB demo.gif) into our
+         output. Exclude it for the same reason. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Gauge.Tests\**;Ref\**</DefaultItemExcludes>
 
     <!-- Unpackaged (win32) deployment, no MSIX. -->
     <WindowsPackageType>None</WindowsPackageType>
@@ -66,6 +70,28 @@
   <ItemGroup>
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- Gauge uses no Windows AI / ML. The Microsoft.WindowsAppSDK metapackage still pulls
+       in Microsoft.WindowsAppSDK.ML → Microsoft.Windows.AI.MachineLearning, whose native
+       onnxruntime.dll (~21MB) + DirectML.dll (~18MB) + Microsoft.Windows.AI.MachineLearning.dll
+       are auto-copied in self-contained mode (~40MB of dead weight). The ML auto-initializer
+       is a native (C++ ClCompile) mechanism, so a managed app that never calls the Windows ML
+       APIs never loads these — dropping them is safe. Strip them from both the build output and
+       the published drop, keyed on the originating NuGet package (mirrors the SDK's own
+       _SuppressWindowsMLNativeCopyLocal pattern used in Framework mode). -->
+  <Target Name="RemoveWindowsMLNativeFromBuild"
+          AfterTargets="ResolveLockFileCopyLocalFiles"
+          BeforeTargets="_CopyFilesMarkedCopyLocal">
+    <ItemGroup>
+      <NativeCopyLocalItems Remove="@(NativeCopyLocalItems)" Condition="'%(NativeCopyLocalItems.NuGetPackageId)' == 'Microsoft.Windows.AI.MachineLearning'" />
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)" Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'Microsoft.Windows.AI.MachineLearning'" />
+    </ItemGroup>
+  </Target>
+  <Target Name="RemoveWindowsMLNativeFromPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.NuGetPackageId)' == 'Microsoft.Windows.AI.MachineLearning'" />
+    </ItemGroup>
+  </Target>
 
   <!-- Unpackaged WinUI `dotnet publish` drops the app's merged resources index
        (Gauge.pri). Without it, Microsoft.UI.Xaml fails to load XamlControlsResources
