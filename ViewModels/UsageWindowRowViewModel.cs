@@ -12,15 +12,15 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
 {
     public UsageWindowRowViewModel(UsageWindow window)
     {
-        Type = window.Type;
+        Key = window.Key;
         Label = window.Label;
         PercentText = string.Empty;
         ResetText = string.Empty;
         Update(window);
     }
 
-    /// <summary>Stable key used to reconcile rows across refreshes.</summary>
-    public UsageWindowType Type { get; }
+    /// <summary>Provider-stable key used to reconcile rows across refreshes.</summary>
+    public string Key { get; }
 
     /// <summary>Window label (e.g. "5시간", "주간").</summary>
     public string Label { get; }

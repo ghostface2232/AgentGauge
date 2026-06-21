@@ -40,14 +40,14 @@ public sealed class UsageNotificationEvaluator
             {
                 foreach (var cachedWindow in snapshot.Windows.Where(IsSupportedWindow))
                 {
-                    present.Add(new WindowKey(snapshot.ToolName, cachedWindow.Type));
+                    present.Add(new WindowKey(snapshot.ToolName, cachedWindow.Key));
                 }
                 continue;
             }
 
             foreach (var window in snapshot.Windows.Where(IsSupportedWindow))
             {
-                var key = new WindowKey(snapshot.ToolName, window.Type);
+                var key = new WindowKey(snapshot.ToolName, window.Key);
                 present.Add(key);
 
                 if (!_observations.TryGetValue(key, out var previous))
@@ -194,7 +194,9 @@ public sealed class UsageNotificationEvaluator
         };
     }
 
-    private readonly record struct WindowKey(string ToolName, UsageWindowType Type);
+    // Keyed by the window's provider-stable Key, not its Type, so a tool with two windows
+    // of the same Type (e.g. Antigravity's two 5-hour limits) tracks each independently.
+    private readonly record struct WindowKey(string ToolName, string Window);
 
     private sealed record Observation(
         double Ratio,

@@ -48,6 +48,25 @@ public sealed class UsageNotificationEvaluatorTests
     }
 
     [Fact]
+    public void SameTypeWindows_TrackThresholdsIndependentlyById()
+    {
+        // A tool with two 5-hour windows (e.g. Antigravity's Gemini and Claude/GPT limits).
+        // Keying by window Id, not Type, keeps their baselines and threshold masks separate.
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(TwoFiveHour(0.60, 0.60, Now), Now);
+
+        // Only the first window crosses 90%.
+        var first = evaluator.Evaluate(TwoFiveHour(0.92, 0.61, Now.AddMinutes(1)), Now.AddMinutes(1));
+        Assert.Single(first);
+        Assert.Equal(UsageLevel.Danger, first[0].Level);
+
+        // The second window crossing later still fires — it was not masked by the first.
+        var second = evaluator.Evaluate(TwoFiveHour(0.93, 0.94, Now.AddMinutes(2)), Now.AddMinutes(2));
+        Assert.Single(second);
+        Assert.Equal(UsageLevel.Danger, second[0].Level);
+    }
+
+    [Fact]
     public void BillingCycle_CrossesSeventyAndNinetyOnlyOncePerCycle()
     {
         var evaluator = new UsageNotificationEvaluator();
@@ -131,6 +150,26 @@ public sealed class UsageNotificationEvaluatorTests
         Assert.Empty(result);
         Assert.Single(recovered);
         Assert.Equal(UsageLevel.Caution, recovered[0].Level);
+    }
+
+    private static UsageState TwoFiveHour(double first, double second, DateTimeOffset captured)
+    {
+        var reset = captured.AddHours(4);
+        var snapshot = new UsageSnapshot
+        {
+            ToolName = "Antigravity",
+            CapturedAt = captured,
+            Windows =
+            [
+                new UsageWindow { Id = "gemini-5h", Type = UsageWindowType.FiveHour, UsedRatio = first, Label = "Gemini 5h", ResetTime = reset },
+                new UsageWindow { Id = "3p-5h", Type = UsageWindowType.FiveHour, UsedRatio = second, Label = "Claude+GPT 5h", ResetTime = reset },
+            ],
+        };
+        return new UsageState
+        {
+            LastUpdatedAt = captured,
+            Tools = [new CachedUsage { ToolName = snapshot.ToolName, Snapshot = snapshot, LastUpdatedAt = captured }],
+        };
     }
 
     private static UsageState State(

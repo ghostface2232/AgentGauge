@@ -13,6 +13,21 @@ public sealed record UsageWindow
     /// <summary>Which window this represents (5-hour, weekly, …).</summary>
     public required UsageWindowType Type { get; init; }
 
+    /// <summary>
+    /// Provider-stable identity for this window within its tool's snapshot, independent of
+    /// <see cref="Type"/> and the language-dependent <see cref="Label"/>. A tool may expose
+    /// two windows of the same <see cref="Type"/> (e.g. Antigravity's Gemini and Claude/GPT
+    /// 5-hour limits); their Ids keep them distinct for reconciliation, notification
+    /// baselines, and cache persistence. Null for providers with at most one window per type.
+    /// </summary>
+    public string? Id { get; init; }
+
+    /// <summary>
+    /// Identity used to match this window across refreshes: <see cref="Id"/> when set, else
+    /// the <see cref="Type"/>. Two windows within one snapshot must have distinct keys.
+    /// </summary>
+    public string Key => Id ?? Type.ToString();
+
     /// <summary>Usage as a fraction in [0, 1].</summary>
     public required double UsedRatio { get; init; }
 

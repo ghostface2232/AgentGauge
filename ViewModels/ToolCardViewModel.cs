@@ -65,7 +65,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
         for (var i = Windows.Count - 1; i >= 0; i--)
         {
-            if (!windows.Any(w => w.Type == Windows[i].Type))
+            if (!windows.Any(w => w.Key == Windows[i].Key))
             {
                 Windows.RemoveAt(i);
             }
@@ -75,7 +75,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
         for (var index = 0; index < windows.Count; index++)
         {
             var window = windows[index];
-            var existing = Windows.FirstOrDefault(r => r.Type == window.Type);
+            var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
                 Windows.Insert(Math.Min(index, Windows.Count), new UsageWindowRowViewModel(window));

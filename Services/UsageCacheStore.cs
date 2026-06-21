@@ -34,7 +34,9 @@ public interface IUsageCachePersistence
 /// </summary>
 public sealed class UsageCacheStore : IUsageCachePersistence
 {
-    private const int CurrentVersion = 1;
+    // v2 added the per-window stable Id. v1 records (one window per type) remain readable:
+    // their windows simply have no Id and fall back to the window Type as their key.
+    private const int CurrentVersion = 2;
     private const string FileName = "usage-cache.json";
 
     private static readonly JsonSerializerOptions Options = new()
@@ -63,7 +65,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         {
             using var stream = File.OpenRead(path);
             var dto = JsonSerializer.Deserialize<CacheDto>(stream, Options);
-            if (dto?.Version != CurrentVersion || dto.Tools is null)
+            if (dto?.Tools is null || dto.Version is < 1 or > CurrentVersion)
             {
                 return Array.Empty<UsageSnapshot>();
             }
@@ -112,6 +114,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         CapturedAt = snapshot.CapturedAt,
         Windows = snapshot.Windows.Select(w => new WindowDto
         {
+            Id = w.Id,
             Type = w.Type,
             UsedRatio = w.UsedRatio,
             ResetTime = w.ResetTime,
@@ -127,6 +130,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         CapturedAt = dto.CapturedAt,
         Windows = (dto.Windows ?? new List<WindowDto>()).Select(w => new UsageWindow
         {
+            Id = w.Id,
             Type = w.Type,
             UsedRatio = w.UsedRatio,
             // Labels are language-dependent; re-derive for the active language.
@@ -153,6 +157,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
 
     private sealed class WindowDto
     {
+        public string? Id { get; set; }
         public UsageWindowType Type { get; set; }
         public double UsedRatio { get; set; }
         public DateTimeOffset? ResetTime { get; set; }

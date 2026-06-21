@@ -42,6 +42,30 @@ public sealed class UsageCacheStoreTests : IDisposable
     }
 
     [Fact]
+    public void SaveThenLoadRestoresPerWindowStableId()
+    {
+        // Antigravity exposes two windows of the same Type; their stable Ids must survive the
+        // round-trip so reconciliation and notification keys stay distinct after a restart.
+        var snapshot = new UsageSnapshot
+        {
+            ToolName = "Antigravity",
+            CapturedAt = DateTimeOffset.UtcNow,
+            Windows = new[]
+            {
+                new UsageWindow { Id = "gemini-5h", Type = UsageWindowType.FiveHour, Label = "g5", UsedRatio = 0.1 },
+                new UsageWindow { Id = "3p-5h", Type = UsageWindowType.FiveHour, Label = "c5", UsedRatio = 0.2 },
+            },
+        };
+
+        new UsageCacheStore(_dir).Save(new[] { snapshot });
+        var loaded = Assert.Single(new UsageCacheStore(_dir).Load());
+
+        Assert.Equal(2, loaded.Windows.Count);
+        Assert.Equal(new[] { "gemini-5h", "3p-5h" }, loaded.Windows.Select(w => w.Id));
+        Assert.Equal(new[] { "gemini-5h", "3p-5h" }, loaded.Windows.Select(w => w.Key));
+    }
+
+    [Fact]
     public void LoadReturnsEmptyWhenFileAbsent()
     {
         Assert.Empty(new UsageCacheStore(_dir).Load());
