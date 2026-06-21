@@ -233,6 +233,16 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <StackPanel Spacing="2" Margin="0,0,0,10">
+                                                        <!-- Model-family heading (e.g. "Gemini",
+                                                             "Claude/GPT"), shown once above the
+                                                             first row of each group. -->
+                                                        <TextBlock
+                                                            Margin="0,2,0,4"
+                                                            Opacity="0.9"
+                                                            FontSize="13"
+                                                            Text="{Binding GroupHeader}"
+                                                            Style="{StaticResource BodyStrongTextBlockStyle}"
+                                                            Visibility="{Binding HasGroupHeader, Converter={StaticResource BoolToVis}}" />
                                                         <Grid ColumnSpacing="10">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto" />

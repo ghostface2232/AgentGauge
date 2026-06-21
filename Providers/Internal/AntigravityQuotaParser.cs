@@ -93,11 +93,19 @@ internal static class AntigravityQuotaParser
         {
             Id = bucketId,
             Type = type,
+            GroupLabel = FamilyLabel(bucketId),
             UsedRatio = Math.Clamp(1.0 - remaining, 0.0, 1.0),
             Label = WindowLabels.For(type),
             ResetTime = ParseResetTime(bucket),
         };
     }
+
+    // The model family a bucket belongs to, from its stable id prefix (gemini-*, 3p-*). Used as
+    // the card's group heading; null for an unrecognized prefix (rendered without a group).
+    private static string? FamilyLabel(string bucketId)
+        => bucketId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase) ? "Gemini"
+            : bucketId.StartsWith("3p", StringComparison.OrdinalIgnoreCase) ? "Claude/GPT"
+            : null;
 
     private static UsageWindowType? MapWindowType(string? window) => window switch
     {

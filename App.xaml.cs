@@ -30,6 +30,7 @@ public partial class App : Application
     private NotificationSettingsStore? _notificationSettingsStore;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
+    private AntigravityProvider? _antigravityProvider;
 
     public App()
     {
@@ -96,12 +97,17 @@ public partial class App : Application
 
         // Providers are built for the whole catalog but only queried for registered
         // tools (the registry filter). Adding/removing a tool needs no pipeline rebuild.
+        // Antigravity has no usage endpoint or Gauge-owned credential: it reads quota from the
+        // IDE's local language server, or an engine Gauge launches itself when the IDE is closed.
+        // Held for disposal so that delegate engine (and its sidecars) is torn down on exit.
+        _antigravityProvider = new AntigravityProvider();
         var usageService = new UsageService(
             new IUsageProvider[]
             {
                 new ClaudeProvider(_httpClient, credentials, claudeTokenRefresher),
                 new CodexProvider(_httpClient, credentials, codexTokenRefresher),
                 new CursorProvider(_httpClient, credentials),
+                _antigravityProvider,
             },
             _toolRegistry.IsEnabled);
 
@@ -295,6 +301,10 @@ public partial class App : Application
         // unsubscribes the theme listener), then quit.
         _coordinator?.Dispose();
         _coordinator = null;
+        // After the coordinator has stopped (no refresh in flight), tear down any delegate
+        // engine Gauge launched, along with its sidecar tree.
+        _antigravityProvider?.Dispose();
+        _antigravityProvider = null;
         _notificationService?.Dispose();
         _notificationService = null;
         _trayIcon?.Dispose();

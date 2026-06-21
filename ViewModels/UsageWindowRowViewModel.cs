@@ -14,6 +14,7 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     {
         Key = window.Key;
         Label = window.Label;
+        GroupHeader = string.Empty;
         PercentText = string.Empty;
         ResetText = string.Empty;
         Update(window);
@@ -24,6 +25,17 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
 
     /// <summary>Window label (e.g. "5시간", "주간").</summary>
     public string Label { get; }
+
+    /// <summary>
+    /// Family heading shown above this row, set only on the first row of each group (e.g.
+    /// "Gemini", "Claude/GPT"); empty otherwise. The card assigns it by display position, so it
+    /// is not a property of the window itself.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasGroupHeader))]
+    public partial string GroupHeader { get; set; }
+
+    public bool HasGroupHeader => !string.IsNullOrEmpty(GroupHeader);
 
     /// <summary>0–100 for the progress bar.</summary>
     [ObservableProperty]

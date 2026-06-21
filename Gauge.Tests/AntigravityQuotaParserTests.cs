@@ -65,6 +65,10 @@ public sealed class AntigravityQuotaParserTests
         Assert.Equal(
             new[] { "gemini-weekly", "gemini-5h", "3p-weekly", "3p-5h" },
             windows.Select(w => w.Key));
+        // Each window carries its model family, used as the card's group heading.
+        Assert.Equal(
+            new[] { "Gemini", "Gemini", "Claude/GPT", "Claude/GPT" },
+            windows.Select(w => w.GroupLabel));
 
         var geminiWeekly = windows[0];
         Assert.Equal(UsageWindowType.Weekly, geminiWeekly.Type);

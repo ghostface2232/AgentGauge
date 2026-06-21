@@ -50,7 +50,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
         Plan = plan ?? string.Empty;
         HasPlan = !string.IsNullOrEmpty(plan);
 
-        var windows = cached.Snapshot?.Windows ?? (IReadOnlyList<UsageWindow>)Array.Empty<UsageWindow>();
+        var windows = OrderForDisplay(cached.Snapshot?.Windows ?? Array.Empty<UsageWindow>());
 
         if (windows.Count == 0)
         {
@@ -71,7 +71,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
             }
         }
 
-        // Add new / update existing rows in place, preserving provider order.
+        // Add new / update existing rows in place, in display order.
         for (var index = 0; index < windows.Count; index++)
         {
             var window = windows[index];
@@ -84,6 +84,65 @@ public sealed partial class ToolCardViewModel : ObservableObject
             {
                 existing.Update(window);
             }
+        }
+
+        AssignGroupHeaders(windows);
+    }
+
+    /// <summary>
+    /// Orders windows for display when a tool groups them (Antigravity): families stay together
+    /// in first-seen order, and within a family the 5-hour limit comes before the weekly one.
+    /// Tools without groups keep their provider order unchanged.
+    /// </summary>
+    private static IReadOnlyList<UsageWindow> OrderForDisplay(IReadOnlyList<UsageWindow> windows)
+    {
+        if (!windows.Any(w => !string.IsNullOrEmpty(w.GroupLabel)))
+        {
+            return windows;
+        }
+
+        var groupOrder = new Dictionary<string, int>();
+        foreach (var window in windows)
+        {
+            var group = window.GroupLabel ?? string.Empty;
+            if (!groupOrder.ContainsKey(group))
+            {
+                groupOrder[group] = groupOrder.Count;
+            }
+        }
+
+        return windows
+            .Select((window, index) => (window, index))
+            .OrderBy(item => groupOrder[item.window.GroupLabel ?? string.Empty])
+            .ThenBy(item => TypeRank(item.window.Type))
+            .ThenBy(item => item.index)
+            .Select(item => item.window)
+            .ToList();
+    }
+
+    private static int TypeRank(UsageWindowType type) => type switch
+    {
+        UsageWindowType.FiveHour => 0,
+        UsageWindowType.Weekly => 1,
+        UsageWindowType.ModelQuota => 2,
+        UsageWindowType.BillingCycle => 3,
+        _ => 9,
+    };
+
+    // The group heading sits on the first row of each family; clear it on the others.
+    private void AssignGroupHeaders(IReadOnlyList<UsageWindow> ordered)
+    {
+        var headed = new HashSet<string>();
+        foreach (var window in ordered)
+        {
+            if (Windows.FirstOrDefault(r => r.Key == window.Key) is not { } row)
+            {
+                continue;
+            }
+
+            row.GroupHeader = window.GroupLabel is { Length: > 0 } group && headed.Add(group)
+                ? group
+                : string.Empty;
         }
     }
 }

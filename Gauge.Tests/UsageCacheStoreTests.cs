@@ -52,8 +52,8 @@ public sealed class UsageCacheStoreTests : IDisposable
             CapturedAt = DateTimeOffset.UtcNow,
             Windows = new[]
             {
-                new UsageWindow { Id = "gemini-5h", Type = UsageWindowType.FiveHour, Label = "g5", UsedRatio = 0.1 },
-                new UsageWindow { Id = "3p-5h", Type = UsageWindowType.FiveHour, Label = "c5", UsedRatio = 0.2 },
+                new UsageWindow { Id = "gemini-5h", GroupLabel = "Gemini", Type = UsageWindowType.FiveHour, Label = "g5", UsedRatio = 0.1 },
+                new UsageWindow { Id = "3p-5h", GroupLabel = "Claude/GPT", Type = UsageWindowType.FiveHour, Label = "c5", UsedRatio = 0.2 },
             },
         };
 
@@ -63,6 +63,8 @@ public sealed class UsageCacheStoreTests : IDisposable
         Assert.Equal(2, loaded.Windows.Count);
         Assert.Equal(new[] { "gemini-5h", "3p-5h" }, loaded.Windows.Select(w => w.Id));
         Assert.Equal(new[] { "gemini-5h", "3p-5h" }, loaded.Windows.Select(w => w.Key));
+        // GroupLabel is language-neutral, so it round-trips as stored (no re-derivation).
+        Assert.Equal(new[] { "Gemini", "Claude/GPT" }, loaded.Windows.Select(w => w.GroupLabel));
     }
 
     [Fact]

@@ -28,6 +28,15 @@ public sealed record UsageWindow
     /// </summary>
     public string Key => Id ?? Type.ToString();
 
+    /// <summary>
+    /// Display group this window belongs to, when a tool's windows fall into named groups —
+    /// e.g. Antigravity's "Gemini" and "Claude/GPT" model families, each with its own 5-hour and
+    /// weekly limit. The card shows windows that share a group together under this heading. Null
+    /// when the tool's windows are not grouped. Language-neutral (a product family name), so
+    /// unlike <see cref="Label"/> it is persisted as-is.
+    /// </summary>
+    public string? GroupLabel { get; init; }
+
     /// <summary>Usage as a fraction in [0, 1].</summary>
     public required double UsedRatio { get; init; }
 

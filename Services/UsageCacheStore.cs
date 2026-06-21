@@ -115,6 +115,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         Windows = snapshot.Windows.Select(w => new WindowDto
         {
             Id = w.Id,
+            GroupLabel = w.GroupLabel,
             Type = w.Type,
             UsedRatio = w.UsedRatio,
             ResetTime = w.ResetTime,
@@ -131,9 +132,11 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         Windows = (dto.Windows ?? new List<WindowDto>()).Select(w => new UsageWindow
         {
             Id = w.Id,
+            GroupLabel = w.GroupLabel,
             Type = w.Type,
             UsedRatio = w.UsedRatio,
-            // Labels are language-dependent; re-derive for the active language.
+            // Labels are language-dependent; re-derive for the active language. GroupLabel is a
+            // language-neutral family name, so it is restored as stored.
             Label = WindowLabels.For(w.Type),
             ResetTime = w.ResetTime,
             UsedTokens = w.UsedTokens,
@@ -158,6 +161,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
     private sealed class WindowDto
     {
         public string? Id { get; set; }
+        public string? GroupLabel { get; set; }
         public UsageWindowType Type { get; set; }
         public double UsedRatio { get; set; }
         public DateTimeOffset? ResetTime { get; set; }
