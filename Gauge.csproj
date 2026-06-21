@@ -10,7 +10,7 @@
     <Product>AgentGauge</Product>
     <AssemblyTitle>AgentGauge</AssemblyTitle>
     <Company>AgentGauge</Company>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Outward-facing brand icon embedded in Gauge.exe: this is what Windows search,
          Explorer, the Start-menu shortcut, and the Control Panel / "Apps" uninstall entry
