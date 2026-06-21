@@ -624,16 +624,21 @@ public sealed partial class PopoverWindow : Window
     }
 
     /// <summary>
-    /// Reveals a <see cref="ScrollViewer"/>'s vertical scrollbar while the view is changing and
-    /// hides it ~1s after scrolling stops. Driven by us rather than the system so the bar never
-    /// sits permanently over the cards, independent of the OS "always show scrollbars" setting.
+    /// Reveals a <see cref="ScrollViewer"/>'s vertical scrollbar instantly while the view is
+    /// changing and fades it out ~1s after scrolling stops. Driven by us rather than the system
+    /// so the bar never sits permanently over the cards, independent of the OS "always show
+    /// scrollbars" setting. The fade animates the scrollbar element's opacity; if it can't be
+    /// located in the template, this degrades to a plain show/hide.
     /// </summary>
     private sealed class AutoHideScrollBar
     {
         private static readonly TimeSpan HideDelay = TimeSpan.FromSeconds(1);
+        private const int FadeOutMs = 250;
 
         private readonly ScrollViewer _scroller;
         private readonly DispatcherTimer _timer;
+        private ScrollBar? _bar;
+        private Storyboard? _fadeOut;
 
         public AutoHideScrollBar(ScrollViewer scroller)
         {
@@ -643,16 +648,79 @@ public sealed partial class PopoverWindow : Window
             _timer.Tick += (_, _) =>
             {
                 _timer.Stop();
-                _scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+                BeginFadeOut();
             };
             _scroller.ViewChanged += (_, _) => Reveal();
+            _scroller.Loaded += (_, _) => _bar ??= FindVerticalScrollBar(_scroller);
         }
 
         public void Reveal()
         {
             _scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            _bar ??= FindVerticalScrollBar(_scroller);
+            _fadeOut?.Stop();
+            _fadeOut = null;
+            if (_bar is not null)
+            {
+                _bar.Opacity = 1; // instant on scroll — no fade-in lag
+            }
+
             _timer.Stop();
             _timer.Start();
+        }
+
+        private void BeginFadeOut()
+        {
+            if (_bar is null)
+            {
+                _scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+                return;
+            }
+
+            var animation = new DoubleAnimation
+            {
+                To = 0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(FadeOutMs)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
+            Storyboard.SetTarget(animation, _bar);
+            Storyboard.SetTargetProperty(animation, "Opacity");
+
+            var storyboard = new Storyboard();
+            storyboard.Children.Add(animation);
+            storyboard.Completed += (_, _) =>
+            {
+                if (!ReferenceEquals(_fadeOut, storyboard))
+                {
+                    return; // superseded by a Reveal
+                }
+
+                _scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+                _bar!.Opacity = 1; // reset so the next reveal is fully opaque
+                _fadeOut = null;
+            };
+            _fadeOut = storyboard;
+            storyboard.Begin();
+        }
+
+        private static ScrollBar? FindVerticalScrollBar(DependencyObject root)
+        {
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is ScrollBar { Orientation: Orientation.Vertical } bar)
+                {
+                    return bar;
+                }
+
+                if (FindVerticalScrollBar(child) is { } found)
+                {
+                    return found;
+                }
+            }
+
+            return null;
         }
     }
 
