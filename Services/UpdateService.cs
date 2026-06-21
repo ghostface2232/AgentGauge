@@ -109,12 +109,13 @@ public sealed class UpdateService
                 await stream.CopyToAsync(file, cancellationToken);
             }
 
-            // /SILENT shows only a progress window; CloseApplications=yes closes the
+            // /VERYSILENT hides the installer UI entirely (no progress window); the
+            // in-app ring spinner stands in for it. CloseApplications=yes closes the
             // running app, and the WizardSilent [Run] entry relaunches it afterwards.
             Process.Start(new ProcessStartInfo
             {
                 FileName = installer,
-                Arguments = "/SILENT /SUPPRESSMSGBOXES /NORESTART",
+                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
                 UseShellExecute = false,
             });
             return true;

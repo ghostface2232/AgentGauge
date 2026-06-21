@@ -40,7 +40,7 @@ Each card can render its windows either as horizontal bars (default) or as circu
 ## Releases and in-app updates
 
 - Releases live on GitHub Releases, tagged `v<Version>` (matching `Gauge.csproj`), with `GaugeSetup-win-x64.exe` as the asset. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds the installer and creates a **draft** release (asset + auto-generated notes); writing the final notes and publishing the release are done manually. `release.ps1 -Draft` is the local equivalent. The in-app updater only sees a release once it is published.
-- `UpdateService` checks `releases/latest` against the running assembly version, downloads the installer asset, and launches it with `/SILENT`; the app then exits (`UpdateViewModel.ExitRequested` → `App.ShutdownAndExit`) so the installer can replace files and relaunch.
+- `UpdateService` checks `releases/latest` against the running assembly version, downloads the installer asset, and launches it with `/VERYSILENT` (no installer UI — the settings footer's ring spinner stands in during the download); the app then exits (`UpdateViewModel.ExitRequested` → `App.ShutdownAndExit`) so the installer can replace files and relaunch. The relaunch passes `--updated`, which `App.OnLaunched` detects to open the window once so the user sees the update landed.
 - Update checks are automatic-on-launch (quiet) plus on-demand from the settings footer's single action button (localized "Check for updates" → "Update" once a newer release is found; see Localization). Applying an update is always a deliberate click — never auto-installed.
 - The asset name `GaugeSetup-win-x64.exe` is contract: it is hard-coded in `UpdateService` and produced by `installer/Gauge.iss` (`OutputBaseFilename`). Keep them in sync.
 

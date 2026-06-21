@@ -169,6 +169,14 @@ public partial class App : Application
         {
             _notificationService.ShowDemoSequence();
         }
+
+        // Post-update relaunch: the silent installer (now fully hidden) passes --updated
+        // so we open the window once. Otherwise the app would relaunch straight to the
+        // tray and the user couldn't tell the update had applied.
+        if (commandLine.Contains("--updated", StringComparer.OrdinalIgnoreCase))
+        {
+            _popover.Show();
+        }
     }
 
     private void OnUsageUpdated(object? sender, UsageState state)

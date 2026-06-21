@@ -492,7 +492,7 @@
                      when the content actually exceeds the (usage-matched) panel height. -->
                 <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollMode="Disabled" Padding="16,0,16,0">
-                <StackPanel Spacing="14" VerticalAlignment="Top" Margin="0,0,0,12">
+                <StackPanel Spacing="8" VerticalAlignment="Top" Margin="0,0,0,12">
                     <!-- App-wide toggles, grouped in one card directly under the title:
                          usage notifications and run-on-startup. Two-way bound to the
                          GlobalSettingsViewModel; the empty On/Off content keeps the switch
@@ -602,14 +602,23 @@
                             <FontIcon Glyph="&#xE192;" FontSize="14" />
                         </Button>
                         <!-- Update action: Sync glyph while checking, Download once a release is found.
-                             Status/label surfaced on hover via the tooltip. -->
-                        <Button Grid.Column="2"
-                                Style="{StaticResource BorderlessIconButtonStyle}"
-                                Padding="8,9" VerticalAlignment="Center"
-                                Command="{Binding ActionCommand}"
-                                ToolTipService.ToolTip="{Binding Tooltip}">
-                            <FontIcon Glyph="{Binding ActionGlyph}" FontSize="14" />
-                        </Button>
+                             Status/label surfaced on hover via the tooltip. While an action is
+                             running, the button is swapped for a small ring spinner so the
+                             (now hidden) installer's progress is reflected in-app. -->
+                        <Grid Grid.Column="2">
+                            <Button Style="{StaticResource BorderlessIconButtonStyle}"
+                                    Padding="8,9" VerticalAlignment="Center"
+                                    Command="{Binding ActionCommand}"
+                                    ToolTipService.ToolTip="{Binding Tooltip}"
+                                    Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
+                                <FontIcon Glyph="{Binding ActionGlyph}" FontSize="14" />
+                            </Button>
+                            <ProgressRing Width="16" Height="16"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          IsActive="{Binding IsBusy}"
+                                          Visibility="{Binding IsBusy, Converter={StaticResource BoolToVis}}"
+                                          ToolTipService.ToolTip="{Binding Tooltip}" />
+                        </Grid>
                     </Grid>
                 </Border>
             </Grid>

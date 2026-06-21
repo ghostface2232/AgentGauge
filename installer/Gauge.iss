@@ -63,9 +63,11 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 [Run]
 ; Interactive install: optional launch checkbox on the finished page.
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-; Silent update (in-app updater runs Setup with /SILENT): there is no finished
-; page, so relaunch Gauge automatically once the files are in place.
-Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: WizardSilent
+; Silent update (in-app updater runs Setup with /VERYSILENT): there is no finished
+; page, so relaunch Gauge automatically once the files are in place. The --updated
+; flag tells the app this launch followed an update so it opens its window once,
+; confirming the update landed (the installer itself is now fully hidden).
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--updated"; Flags: nowait; Check: WizardSilent
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
