@@ -18,6 +18,10 @@ public sealed class SettingsViewModel
     private readonly ToolRegistry _registry;
     private readonly IReadOnlyDictionary<ToolKind, IAuthenticationProvider> _providers;
 
+    /// <summary>Latest usage state, kept so plan labels can be (re)applied to cards as they
+    /// are rebuilt — newly added cards pick up the plan without waiting for the next refresh.</summary>
+    private UsageState _lastUsage = UsageState.Empty;
+
     public SettingsViewModel(
         ToolRegistry registry,
         IReadOnlyDictionary<ToolKind, IAuthenticationProvider> providers,
@@ -52,6 +56,23 @@ public sealed class SettingsViewModel
     }
 
     public Task RefreshAsync() => Task.WhenAll(Authentication.Select(card => card.RefreshAsync()));
+
+    /// <summary>
+    /// Feeds the latest usage snapshots to the auth cards so each shows its plan label
+    /// beside the signed-in status — the same plan the main screen displays. Called by the
+    /// app whenever the coordinator pushes fresh usage.
+    /// </summary>
+    public void ApplyUsage(UsageState state)
+    {
+        _lastUsage = state;
+        foreach (var card in Authentication)
+        {
+            card.ApplyPlan(PlanFor(card.ToolName));
+        }
+    }
+
+    private string? PlanFor(string toolName) =>
+        _lastUsage.Tools.FirstOrDefault(t => t.ToolName == toolName)?.Snapshot?.Plan;
 
     private void RemoveTool(ToolKind kind)
     {
@@ -93,6 +114,7 @@ public sealed class SettingsViewModel
             card.AuthenticationSucceeded += (_, _) => AuthenticationSucceeded?.Invoke(this, EventArgs.Empty);
             card.RemoveRequested += (_, _) => RemoveTool(card.Tool);
             Authentication.Add(card);
+            card.ApplyPlan(PlanFor(card.ToolName));
             _ = card.RefreshAsync();
         }
     }

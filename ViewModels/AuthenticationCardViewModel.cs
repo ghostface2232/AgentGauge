@@ -12,6 +12,13 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
 
     private readonly ToolDescriptor _descriptor;
 
+    // The signed-in status line is rebuilt from two independent inputs: the auth state
+    // (signed in / out / expired …) and the plan label, which the usage pipeline pushes in
+    // separately. Both are retained so an update to either recomposes the line in place.
+    private string _baseStatus = "";
+    private bool _isSignedIn;
+    private string? _plan;
+
     public AuthenticationCardViewModel(IAuthenticationProvider provider)
     {
         _provider = provider;
@@ -57,9 +64,22 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
 
     public async Task RefreshAsync() => Apply(await _provider.RefreshStateAsync());
 
+    /// <summary>
+    /// Sets the plan/subscription label (e.g. "Max 5x") shown beside the signed-in status.
+    /// The plan is the same one the main screen shows; it comes from the usage snapshot, not
+    /// the credential, so every tool reports it — not just Claude. Pushed in by
+    /// <see cref="SettingsViewModel"/> whenever fresh usage arrives.
+    /// </summary>
+    public void ApplyPlan(string? plan)
+    {
+        _plan = plan;
+        UpdateStatusText();
+    }
+
     private void Apply(AuthenticationState state)
     {
-        StatusText = state.Message;
+        _baseStatus = state.Message;
+        _isSignedIn = state.Status == AuthenticationStatus.Available;
         IsLoginRunning = state.IsLoginRunning;
         LoginButtonText = state.Status switch
         {
@@ -67,6 +87,14 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
             AuthenticationStatus.Available or AuthenticationStatus.Invalid => Loc.Get("Login_Switch"),
             _ => Loc.Get("Login"),
         };
+        UpdateStatusText();
         LoginCommand.NotifyCanExecuteChanged();
     }
+
+    // Shows "Signed in · {plan}" once signed in with a known plan, otherwise the bare
+    // status message (the plan is meaningless next to "not signed in" / error states).
+    private void UpdateStatusText() =>
+        StatusText = _isSignedIn && _plan is { Length: > 0 } plan
+            ? Loc.Format("Auth_SignedInWithPlan", plan)
+            : _baseStatus;
 }

@@ -184,6 +184,8 @@ public partial class App : Application
         // Coordinator marshals this to the UI thread.
         _notificationService?.Process(state);
         _viewModel?.Apply(state);
+        // Feed the same snapshots to the settings cards so each shows its plan label.
+        _settingsViewModel?.ApplyUsage(state);
         _popover?.RefreshUsageLayout();
         if (_viewModel is not null)
         {

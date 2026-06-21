@@ -133,10 +133,10 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
             _credentialsRejected = false;
             _rejectedCredentialFingerprint = null;
             _lastCredentialFingerprint = fingerprint;
-            return NewState(AuthenticationStatus.Available, credential.Source,
-                credential.Plan is { Length: > 0 } plan
-                    ? Loc.Format("Auth_SignedInWithPlan", plan)
-                    : Loc.Get("Auth_SignedIn"));
+            // The plan label is no longer baked into the status here: the settings card now
+            // shows the plan from the usage snapshot (the same source the main screen uses),
+            // so every tool — not just Claude — gets one. See AuthenticationCardViewModel.ApplyPlan.
+            return NewState(AuthenticationStatus.Available, credential.Source, Loc.Get("Auth_SignedIn"));
         }
 
         _lastCredentialFingerprint = null;
