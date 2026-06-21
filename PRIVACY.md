@@ -1,13 +1,13 @@
 # AgentGauge: Privacy Policy
 
-**Effective date:** 2026-06-19
+**Effective date:** 2026-06-21
 **Contact:** baemingwan@gmail.com
 **Repository:** https://github.com/ghostface2232/AgentGauge
 
 ---
 
 ## 1. Summary
-AgentGauge is a Windows tray app that displays usage limits for developer tools such as Claude Code, Codex, and Cursor. **AgentGauge does not collect or store personal information, and does not transmit any data to the developer.** AgentGauge operates no servers of its own and contains no analytics or tracking. All processing happens locally on the user's PC.
+AgentGauge is a Windows tray app that displays usage limits for developer tools such as Claude Code, Codex, Cursor, and Antigravity. **AgentGauge does not collect or store personal information, and does not transmit any data to the developer.** AgentGauge operates no servers of its own and contains no analytics or tracking. All processing happens locally on the user's PC.
 
 ## 2. Information Accessed and Processed
 AgentGauge accesses the following information **read-only on the user's device** solely to display usage. This information is never sent to the developer or any third party.
@@ -15,7 +15,9 @@ AgentGauge accesses the following information **read-only on the user's device**
 | Information | Source | Purpose |
 | --- | --- | --- |
 | OAuth tokens | Local files managed by each CLI (`%USERPROFILE%\.claude\.credentials.json`, `%USERPROFILE%\.codex\auth.json`, Cursor `state.vscdb`) | Authenticate requests to each tool's official usage API |
-| Usage data | Responses from each tool's official API | Display limits and usage in the tray popover |
+| Usage data | Responses from each tool's official API, or — for Antigravity — from the app's local engine over a loopback (127.0.0.1) connection | Display limits and usage in the tray popover |
+
+For Antigravity, AgentGauge reads **no** credential file. It obtains usage from Antigravity's own local engine: either the one the running app already hosts, or, when the app is closed, an engine AgentGauge briefly launches that signs itself in from the user's existing on-disk Antigravity login and is shut down again immediately after the reading. AgentGauge does not read, write, refresh, or log Antigravity's credentials.
 
 AgentGauge **never writes or deletes** credential files and does not log or store tokens or login output.
 
@@ -31,10 +33,12 @@ AgentGauge communicates only with the following external endpoints. All of them 
 
 Tokens sent to each service, and the resulting data handling, are governed by that service's privacy policy (Anthropic, OpenAI, Cursor — links above).
 
+For Antigravity, AgentGauge itself makes **no external network call**: it talks only to the Antigravity engine on the local loopback address (127.0.0.1), which never leaves the device. That engine — part of Antigravity, whether the app's own or one AgentGauge briefly launches — may in turn contact Antigravity's first-party cloud to fetch quota, exactly as it does for the Antigravity app; that traffic is the engine's own and is governed by Antigravity's privacy policy, not the developer's.
+
 ## 4. Data Stored on the Device
 The only data AgentGauge stores on the user's PC is the following, which contains no personally identifying information:
 
-- `%APPDATA%\Gauge\settings.json` — only the **list of registered tools** to display
+- `%APPDATA%\Gauge\settings.json` — only the user's own **app preferences**: the list of registered tools to display, the UI language, whether usage notifications are on, and the card view mode (bars or gauges)
 - Windows registry (`HKCU\...\Run`) — the **auto-start setting**, if enabled by the user
 
 This data can be removed at any time by uninstalling the app or deleting the file/registry entry.

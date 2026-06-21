@@ -2,7 +2,7 @@
 
 # AgentGauge
 
-AgentGauge is a Windows system-tray app that lets you check the real usage limits of Claude Code, Codex, and Cursor at a glance.
+AgentGauge is a Windows system-tray app that lets you check the real usage limits of Claude Code, Codex, Cursor, and Antigravity at a glance.
 
 
 ## Screenshot
@@ -13,10 +13,11 @@ AgentGauge is a Windows system-tray app that lets you check the real usage limit
 
 ## Features
 
-- Shows real usage for Claude Code, Codex, and Cursor.
-- Register the services you want in settings, and remove them from their card (default: Claude Code · Codex).
-- Progress bars and the tray icon turn yellow above 70% and red above 90%.
-- Refreshes usage every 60 seconds, and immediately when you open the app from the tray.
+- Shows real usage for Claude Code, Codex, Cursor, and Antigravity (Antigravity shows a 5-hour and a weekly limit for each of its Gemini and Claude/GPT model families).
+- Register the services you want in settings, and remove them from their card (default: Claude Code · Codex; add Cursor or Antigravity from settings).
+- Choose how cards display usage — horizontal **bars** or circular **gauges** — from the view-mode dropdown in settings.
+- Progress bars/gauges and the tray icon turn yellow above 70% and red above 90%.
+- Refreshes usage every few minutes, and immediately when you open the app from the tray.
 - Caps the popover height and scrolls internally when you add many tools.
 - Optional run on Windows startup.
 - Light and dark mode.
@@ -27,8 +28,8 @@ AgentGauge is a Windows system-tray app that lets you check the real usage limit
 
 - Windows 10 version 2004 (build 19041) or later, or Windows 11.
 - An x64 PC.
-- The tools you want to track installed: the Claude Code CLI, the Codex CLI, and/or the Cursor app.
-- Being signed in to those tools (for Cursor, sign in from the Cursor app).
+- The tools you want to track installed: the Claude Code CLI, the Codex CLI, the Cursor app, and/or the Antigravity app.
+- Being signed in to those tools (for Cursor and Antigravity, sign in from their own app).
 
 
 ## Running
@@ -50,8 +51,11 @@ AgentGauge never issues or refreshes credentials itself. It reads the files mana
 | Claude Code | `%USERPROFILE%\.claude\.credentials.json` | `claude /login` |
 | Codex | `%CODEX_HOME%\auth.json` or `%USERPROFILE%\.codex\auth.json` | `codex login` |
 | Cursor | `%APPDATA%\Cursor\User\globalStorage\state.vscdb` (read-only) | Sign in from the Cursor app |
+| Antigravity | None read by AgentGauge — usage comes from the app's local engine | Sign in from the Antigravity app |
 
 Cursor has no separate CLI login: once you sign in to the Cursor app, AgentGauge reads its local session token to display usage (the file is opened read-only).
+
+Antigravity is different again: AgentGauge reads no credential file for it at all. It reads usage from Antigravity's own local engine over a loopback (127.0.0.1) connection — either the one the running app already hosts, or, when the app is closed, an engine AgentGauge briefly launches that signs itself in from your existing on-disk Antigravity login (and is shut down again right after the reading). AgentGauge never reads, writes, or refreshes your Antigravity credentials.
 
 When a sign-in is needed, you can start the relevant CLI login process from the settings screen in the popover. AgentGauge does not write to or delete CLI credential files, and never logs tokens or CLI login output.
 
