@@ -8,6 +8,10 @@ public enum ToolKind
     // Antigravity reads its rich 5h/weekly quota from the IDE's local language server
     // (attach), or from an engine Gauge launches itself when the IDE is closed (delegate).
     Antigravity,
+    // GitHub Copilot exposes its monthly quota (chat / completions / premium requests) via
+    // GitHub's internal copilot_internal/user endpoint, read with the GitHub OAuth token a
+    // local client already stores (the gh CLI, or a github-copilot apps.json file).
+    GitHubCopilot,
 }
 
 public enum CredentialOwner

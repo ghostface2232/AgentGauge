@@ -87,8 +87,18 @@ public static class ToolCatalog
         LoginKind = LoginKind.GuidanceOnly,
     };
 
+    public static readonly ToolDescriptor GitHubCopilot = new()
+    {
+        Kind = ToolKind.GitHubCopilot,
+        DisplayName = "GitHub Copilot",
+        // Sign-in is delegated to the GitHub CLI's device-flow login. Gauge then reads the
+        // OAuth token gh stores (or a github-copilot apps.json file) — it never logs in itself.
+        LoginCommand = "gh",
+        LoginArguments = "auth login",
+    };
+
     /// <summary>Declaration order is the order tools are shown in the UI.</summary>
-    public static readonly IReadOnlyList<ToolDescriptor> All = new[] { ClaudeCode, Codex, Cursor, Antigravity };
+    public static readonly IReadOnlyList<ToolDescriptor> All = new[] { ClaudeCode, Codex, Cursor, Antigravity, GitHubCopilot };
 
     private static readonly IReadOnlyDictionary<ToolKind, ToolDescriptor> ByKind =
         All.ToDictionary(descriptor => descriptor.Kind);

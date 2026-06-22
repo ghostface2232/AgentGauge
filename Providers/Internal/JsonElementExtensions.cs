@@ -34,6 +34,13 @@ internal static class JsonElementExtensions
             ? result
             : null;
 
+    public static bool? GetBoolOrNull(this JsonElement element, string property)
+        => element.ValueKind == JsonValueKind.Object
+           && element.TryGetProperty(property, out var value)
+           && value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : null;
+
     public static JsonElement? GetObjectOrNull(this JsonElement element, string property)
         => element.ValueKind == JsonValueKind.Object
            && element.TryGetProperty(property, out var value)

@@ -21,7 +21,7 @@ public sealed class ToolRegistryTests
         var registry = new ToolRegistry(new InMemoryStore());
 
         Assert.Equal(new[] { ToolKind.ClaudeCode, ToolKind.Codex }, registry.Enabled);
-        Assert.Equal(new[] { ToolKind.Cursor, ToolKind.Antigravity }, registry.Available);
+        Assert.Equal(new[] { ToolKind.Cursor, ToolKind.Antigravity, ToolKind.GitHubCopilot }, registry.Available);
     }
 
     [Fact]

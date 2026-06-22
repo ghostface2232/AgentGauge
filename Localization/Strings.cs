@@ -68,6 +68,10 @@ internal static class Strings
         ["Label_Weekly"]      = ["주간",             "Weekly",            "週間"],
         ["Label_BillingCycle"] = ["사용량",          "Usage",             "使用量"],
         ["Label_ModelQuota"]  = ["모델",             "Model",             "モデル"],
+        // GitHub Copilot's per-quota window labels (its monthly chat / completions / premium).
+        ["Label_Copilot_Chat"] = ["채팅",            "Chat",              "チャット"],
+        ["Label_Copilot_Completions"] = ["코드 완성", "Completions",      "コード補完"],
+        ["Label_Copilot_Premium"] = ["프리미엄 요청", "Premium requests", "プレミアム要求"],
 
         // ── Reset-time phrases ─────────────────────────────────────────────
         ["Reset_Done"]        = ["초기화됨",          "Reset",             "リセット済み"],
@@ -131,6 +135,7 @@ internal static class Strings
         ["Cred_CursorParseFailed"] = ["Cursor 로그인 토큰을 해석할 수 없습니다. Cursor 앱에서 다시 로그인하세요.", "Couldn't parse the Cursor sign-in token. Sign in again in the Cursor app.", "Cursorのログイントークンを解析できません。Cursorアプリで再度ログインしてください。"],
         ["Cred_CursorExpired"] = ["Cursor 로그인이 만료되었습니다. Cursor 앱에서 다시 로그인하세요.", "Your Cursor sign-in expired. Sign in again in the Cursor app.", "Cursorのログイン有効期限が切れました。Cursorアプリで再度ログインしてください。"],
         ["Cred_CursorInUse"]  = ["Cursor 앱 로그인 정보를 사용 중입니다.", "Using the Cursor app sign-in.", "Cursorアプリのログイン情報を使用中です。"],
+        ["Cred_CopilotInUse"] = ["GitHub 로그인 정보를 사용 중입니다.", "Using the GitHub sign-in.", "GitHubのログイン情報を使用中です。"],
 
         // ── Tool guidance (resolved lazily; see ToolCatalog) ───────────────
         ["Guidance_Cursor"]   = ["Cursor 앱에서 로그인하세요.", "Sign in from the Cursor app.", "Cursorアプリでログインしてください。"],

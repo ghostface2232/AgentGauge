@@ -71,7 +71,12 @@ public partial class App : Application
         _toolRegistry = new ToolRegistry(new ToolRegistryStore());
         var cliCredentials = new CliCredentialSource();
         var cursorCredentials = new CursorCredentialSource();
-        var credentials = new CredentialSourceChain(new ICredentialSource[] { cliCredentials, cursorCredentials });
+        // GitHub Copilot's token isn't a single fixed file: it reads from the gh CLI
+        // (`gh auth token`) or a github-copilot apps.json/hosts.json file, whichever the
+        // machine has — so the same build works across Windows setups, not just one.
+        var githubCopilotCredentials = new GitHubCopilotCredentialSource();
+        var credentials = new CredentialSourceChain(
+            new ICredentialSource[] { cliCredentials, cursorCredentials, githubCopilotCredentials });
         var locator = new CliLocator();
         var processRunner = new CliProcessRunner();
         // Let the providers recover an expired local token after boot by nudging the official
@@ -113,6 +118,7 @@ public partial class App : Application
                 new CodexProvider(_httpClient, credentials, codexTokenRefresher),
                 new CursorProvider(_httpClient, credentials),
                 _antigravityProvider,
+                new GitHubCopilotProvider(_httpClient, credentials),
             },
             _toolRegistry.IsEnabled);
 
