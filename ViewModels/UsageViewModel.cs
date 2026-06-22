@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Gauge.Localization;
 using Gauge.Models;
+using Gauge.Services;
 
 namespace Gauge.ViewModels;
 
@@ -14,13 +15,91 @@ namespace Gauge.ViewModels;
 /// </summary>
 public sealed partial class UsageViewModel : ObservableObject
 {
-    public UsageViewModel()
+    /// <summary>Source of the display order, shared with the settings screen so a reorder on
+    /// either surface shows on the other. Optional so tests can construct the VM standalone
+    /// (cards then keep the order the coordinator supplies).</summary>
+    private readonly ToolRegistry? _registry;
+
+    public UsageViewModel(ToolRegistry? registry = null)
     {
+        _registry = registry;
+        // A reorder elsewhere (the settings screen) re-sorts the cards in place — no re-fetch.
+        if (_registry is not null)
+        {
+            _registry.OrderChanged += (_, _) => ResortCards();
+        }
         LastUpdatedText = Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = "AgentGauge";
         EmptyMessage = Loc.Get("Loading");
         IsEmpty = true;
         RefreshCommand = new RelayCommand(() => RefreshRequested?.Invoke(this, EventArgs.Empty));
+    }
+
+    /// <summary>
+    /// Persists a new card order after a drag on the main screen. Maps each card's tool name
+    /// back to its <see cref="ToolKind"/> (every provider's <c>ToolName</c> is its catalog
+    /// display name) and hands it to the registry, which propagates the order to the settings
+    /// screen via its <see cref="ToolRegistry.Changed"/> event.
+    /// </summary>
+    public void ReorderTools(IReadOnlyList<string> toolNamesInNewOrder)
+    {
+        if (_registry is null)
+        {
+            return;
+        }
+        var kinds = toolNamesInNewOrder
+            .Select(name => ToolCatalog.All.FirstOrDefault(d => d.DisplayName == name)?.Kind)
+            .OfType<ToolKind>()
+            .ToList();
+        _registry.ReorderEnabled(kinds);
+    }
+
+    /// <summary>Reorders the existing cards in place to match the registry's display order,
+    /// without rebuilding containers or re-fetching usage. Called when the order changes on
+    /// another screen.</summary>
+    public void ResortCards()
+    {
+        if (_registry is null)
+        {
+            return;
+        }
+        var target = 0;
+        foreach (var kind in _registry.Enabled)
+        {
+            var name = ToolCatalog.For(kind).DisplayName;
+            for (var i = target; i < Cards.Count; i++)
+            {
+                if (Cards[i].ToolName == name)
+                {
+                    if (i != target)
+                    {
+                        Cards.Move(i, target);
+                    }
+                    target++;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>The display-order position of a tool name, or <see cref="int.MaxValue"/> when
+    /// it has no registry slot (no registry, or not registered) so it sorts to the end while
+    /// preserving the coordinator's relative order via a stable sort.</summary>
+    private int OrderOf(string toolName)
+    {
+        if (_registry is null)
+        {
+            return int.MaxValue;
+        }
+        var enabled = _registry.Enabled;
+        for (var i = 0; i < enabled.Count; i++)
+        {
+            if (ToolCatalog.For(enabled[i]).DisplayName == toolName)
+            {
+                return i;
+            }
+        }
+        return int.MaxValue;
     }
 
     /// <summary>One card per tool.</summary>
@@ -79,7 +158,10 @@ public sealed partial class UsageViewModel : ObservableObject
         // windows (those render as a "no data" card). Tools that have never succeeded (no
         // snapshot: not signed in, no OAuth, no history) are left off, so the default
         // Claude/Codex cards aren't forced onto users who don't use one of them.
-        var recorded = state.Tools.Where(t => t.HasData).ToList();
+        // Order by the shared registry display order so the cards match the settings screen
+        // (and reflect a drag-to-reorder done on either surface). OrderBy is stable, so tools
+        // without a registry slot keep the coordinator's relative order at the end.
+        var recorded = state.Tools.Where(t => t.HasData).OrderBy(t => OrderOf(t.ToolName)).ToList();
 
         HighestUsageRatio = recorded
             .SelectMany(t => t.Snapshot!.Windows)
@@ -129,17 +211,36 @@ public sealed partial class UsageViewModel : ObservableObject
         }
 
         // Add new tools / update existing in place (avoids container churn).
-        for (var index = 0; index < tools.Count; index++)
+        foreach (var tool in tools)
         {
-            var tool = tools[index];
             var existing = Cards.FirstOrDefault(c => c.ToolName == tool.ToolName);
             if (existing is null)
             {
-                Cards.Insert(Math.Min(index, Cards.Count), new ToolCardViewModel(tool) { ViewMode = ViewMode });
+                Cards.Add(new ToolCardViewModel(tool) { ViewMode = ViewMode });
             }
             else
             {
                 existing.Update(tool);
+            }
+        }
+
+        // Reorder cards in place to match the incoming (registry-ordered) sequence, so a
+        // reorder done elsewhere is reflected here without rebuilding the containers.
+        for (var target = 0; target < tools.Count; target++)
+        {
+            var name = tools[target].ToolName;
+            var current = -1;
+            for (var i = target; i < Cards.Count; i++)
+            {
+                if (Cards[i].ToolName == name)
+                {
+                    current = i;
+                    break;
+                }
+            }
+            if (current > target)
+            {
+                Cards.Move(current, target);
             }
         }
     }

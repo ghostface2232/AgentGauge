@@ -76,6 +76,11 @@ public sealed partial class PopoverWindow : Window
     private AutoHideScrollBar? _usageAutoHide;
     private AutoHideScrollBar? _settingsAutoHide;
 
+    // Live drag-to-reorder for the two service lists. Created once per host (the usage list's
+    // items panel once it loads; the settings repeater up front).
+    private ReorderSurface? _usageReorder;
+    private ReorderSurface? _authReorder;
+
     /// <summary>Raised whenever the popover is actually shown (after the toggle guard).</summary>
     public event EventHandler? Opened;
 
@@ -123,6 +128,22 @@ public sealed partial class PopoverWindow : Window
         // permanently over the cards' right edge.
         _usageAutoHide = new AutoHideScrollBar(BodyScroll);
         _settingsAutoHide = new AutoHideScrollBar(SettingsScroll);
+
+        // Press-and-drag reorder for the settings service grid. The usage list's surface is
+        // created in OnUsagePanelLoaded (its items panel is built by the ItemsControl template).
+        _authReorder = new ReorderSurface(
+            AuthRepeater,
+            () => (SettingsBorder.DataContext as SettingsViewModel)?.Authentication.Count ?? 0,
+            index => AuthRepeater.TryGetElement(index) as FrameworkElement,
+            (from, to) =>
+            {
+                if (SettingsBorder.DataContext is not SettingsViewModel vm) return;
+                // Finalize the visible order immediately; persist + sync the other screen on the
+                // next tick so the drop stays snappy (the order is already correct on screen).
+                if (from != to) vm.Authentication.Move(from, to);
+                SettingsBorder.DispatcherQueue.TryEnqueue(
+                    () => vm.ReorderTools(vm.Authentication.Select(c => c.Tool).ToList()));
+            });
 
         Activated += OnActivated;
 
@@ -501,6 +522,29 @@ public sealed partial class PopoverWindow : Window
         flyout.ShowAt(anchor);
     }
 
+    // Build the usage list's reorder surface once its items panel exists. The ItemsControl
+    // creates the StackPanel from its ItemsPanelTemplate, so we can't reference it until Loaded.
+    private void OnUsagePanelLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not StackPanel panel || _usageReorder is not null)
+        {
+            return;
+        }
+        _usageReorder = new ReorderSurface(
+            panel,
+            () => panel.Children.Count,
+            index => index >= 0 && index < panel.Children.Count ? panel.Children[index] as FrameworkElement : null,
+            (from, to) =>
+            {
+                if (RootHost.DataContext is not UsageViewModel vm) return;
+                // Finalize the visible order immediately; persist + sync the other screen on the
+                // next tick so the drop stays snappy.
+                if (from != to) vm.Cards.Move(from, to);
+                RootHost.DispatcherQueue.TryEnqueue(
+                    () => vm.ReorderTools(vm.Cards.Select(c => c.ToolName).ToList()));
+            });
+    }
+
     private void OnSettingsBackClicked(object sender, RoutedEventArgs e)
     {
         if (_isViewTransitioning || !_isSettingsView) return;
@@ -738,6 +782,382 @@ public sealed partial class PopoverWindow : Window
             }
 
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Press-and-drag live reordering for one list of cards. The pressed card itself (not a
+    /// ghost image) follows the pointer; the other cards animate aside in real time to open a
+    /// gap at the insertion point — like reordering icons on a phone home screen. On release
+    /// the card settles into the gap and the new order is committed (and persisted).
+    ///
+    /// Layout-agnostic: it snapshots each slot's laid-out position from the realized
+    /// containers, so the same logic drives the usage list (a vertical StackPanel) and the
+    /// settings grid (a 2-column ItemsRepeater). The host element receives the pointer events
+    /// and is the pointer-capture target; the supplied accessors map slot index → container
+    /// and commit a logical move.
+    /// </summary>
+    private sealed class ReorderSurface
+    {
+        private const double DragThreshold = 6;   // pointer travel (px) before a press becomes a drag
+        private const int ShiftMs = 170;          // how long a card takes to slide aside / settle
+        private const double Hysteresis = 14;     // px a slot must win by to steal the target (anti-flicker)
+
+        private readonly UIElement _host;
+        private readonly Func<int> _count;
+        private readonly Func<int, FrameworkElement?> _container;
+        private readonly Action<int, int> _commit;
+        private readonly Dictionary<FrameworkElement, Storyboard> _running = new();
+
+        private bool _pressed;
+        private bool _dragging;
+        private uint _pointerId;
+        private int _from;
+        private int _target;
+        private Point _pressPoint;
+        private Point[] _home = Array.Empty<Point>();   // each slot's top-left, in host coordinates
+        private Point[] _centers = Array.Empty<Point>(); // each slot's center, for nearest-slot targeting
+        private FrameworkElement? _dragged;
+
+        public ReorderSurface(
+            UIElement host, Func<int> count, Func<int, FrameworkElement?> container, Action<int, int> commit)
+        {
+            _host = host;
+            _count = count;
+            _container = container;
+            _commit = commit;
+            host.PointerPressed += OnPointerPressed;
+            host.PointerMoved += OnPointerMoved;
+            host.PointerReleased += OnPointerReleased;
+            host.PointerCaptureLost += OnPointerEnded;
+            host.PointerCanceled += OnPointerEnded;
+        }
+
+        private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (_pressed || _dragging)
+            {
+                return;
+            }
+            var pt = e.GetCurrentPoint(_host).Position;
+            var idx = HitTest(pt);
+            if (idx < 0)
+            {
+                return;
+            }
+            _pressed = true;
+            _from = idx;
+            _pressPoint = pt;
+            _pointerId = e.Pointer.PointerId;
+        }
+
+        private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_pressed || e.Pointer.PointerId != _pointerId)
+            {
+                return;
+            }
+            var pt = e.GetCurrentPoint(_host).Position;
+
+            if (!_dragging)
+            {
+                if (Math.Abs(pt.X - _pressPoint.X) < DragThreshold && Math.Abs(pt.Y - _pressPoint.Y) < DragThreshold)
+                {
+                    return; // still within the tap tolerance — let a click through
+                }
+                if (!BeginDrag(e.Pointer))
+                {
+                    _pressed = false;
+                    return;
+                }
+            }
+
+            var dx = pt.X - _pressPoint.X;
+            var dy = pt.Y - _pressPoint.Y;
+
+            // Keep the card within the list's content width so it never crosses into the
+            // scroll viewer's edge padding (where it would be clipped). For the full-width
+            // usage list this pins X to 0 (vertical-only drag); for the settings grid it lets
+            // the card move between columns but not past the left/right edge.
+            if (_dragged is not null)
+            {
+                var hostWidth = (_host as FrameworkElement)?.ActualWidth ?? double.MaxValue;
+                var minDx = -_home[_from].X;
+                var maxDx = hostWidth - _dragged.ActualWidth - _home[_from].X;
+                dx = Math.Clamp(dx, Math.Min(minDx, maxDx), Math.Max(minDx, maxDx));
+
+                // The pressed card tracks the pointer instantly (no animation).
+                StopAnimation(_dragged);
+                var t = Translate(_dragged);
+                t.X = dx;
+                t.Y = dy;
+            }
+
+            // Insertion point = the slot the dragged card is now nearest to. The card center
+            // already reflects the clamped X (so it can reach the next column) plus the free Y.
+            var center = new Point(_centers[_from].X + dx, _centers[_from].Y + dy);
+            var target = ComputeTarget(center);
+            if (target != _target)
+            {
+                _target = target;
+                ShiftOthers();
+            }
+            e.Handled = true;
+        }
+
+        private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_pressed)
+            {
+                return;
+            }
+            var wasDragging = _dragging;
+            var from = _from;
+            var target = _target;
+            _pressed = false;
+            _host.ReleasePointerCaptures();
+            if (!wasDragging)
+            {
+                _dragging = false;
+                return; // a plain tap — nothing to reorder
+            }
+            e.Handled = true;
+            Settle(from, target);
+        }
+
+        private void OnPointerEnded(object sender, PointerRoutedEventArgs e)
+        {
+            // Capture lost / canceled mid-drag: settle at the current target so the cards
+            // aren't stranded mid-shift.
+            if (!_dragging)
+            {
+                _pressed = false;
+                return;
+            }
+            var from = _from;
+            var target = _target;
+            _pressed = false;
+            Settle(from, target);
+        }
+
+        private bool BeginDrag(Pointer pointer)
+        {
+            var n = _count();
+            if (n <= 1 || _from < 0 || _from >= n)
+            {
+                return false;
+            }
+            _home = new Point[n];
+            _centers = new Point[n];
+            for (var i = 0; i < n; i++)
+            {
+                var el = _container(i);
+                _home[i] = el is null ? default : new Point(el.ActualOffset.X, el.ActualOffset.Y);
+                _centers[i] = el is null
+                    ? default
+                    : new Point(el.ActualOffset.X + (el.ActualWidth / 2), el.ActualOffset.Y + (el.ActualHeight / 2));
+            }
+            _dragged = _container(_from);
+            if (_dragged is null)
+            {
+                return false;
+            }
+            Canvas.SetZIndex(_dragged, 1); // lift above the cards it slides over
+            _dragging = true;
+            _target = _from;
+            _host.CapturePointer(pointer);
+            return true;
+        }
+
+        private void Settle(int from, int target)
+        {
+            _dragging = false;
+            var slot = Math.Clamp(target, 0, Math.Max(0, _home.Length - 1));
+            if (_dragged is null)
+            {
+                Commit(from, slot);
+                return;
+            }
+            // Slide the card into its gap, then swap the visual transforms for the real order in
+            // one synchronous step so there is no jump.
+            AnimateTo(_dragged, _home[slot].X - _home[from].X, _home[slot].Y - _home[from].Y,
+                () => Commit(from, slot));
+        }
+
+        private void Commit(int from, int slot)
+        {
+            ClearTransforms();
+            _dragged = null;
+            _commit(from, slot);
+        }
+
+        // Insertion slot for the dragged card: whichever home slot its center is now closest to
+        // (so a card flows into a slot once it is over that slot's half, like a phone home
+        // screen). A hysteresis band means a rival slot has to win by a clear margin before it
+        // steals the target — that gives a little resistance so the order doesn't flicker when
+        // the card hovers on a boundary.
+        private int ComputeTarget(Point center)
+        {
+            var n = _count();
+            if (n == 0)
+            {
+                return _target;
+            }
+            var current = Math.Clamp(_target, 0, n - 1);
+
+            var nearest = current;
+            var nearestDist = double.MaxValue;
+            for (var i = 0; i < n; i++)
+            {
+                var dist = Distance(center, _centers[i]);
+                if (dist < nearestDist)
+                {
+                    nearestDist = dist;
+                    nearest = i;
+                }
+            }
+
+            if (nearest == current)
+            {
+                return current;
+            }
+            // Only switch if the new slot is closer than the current one by the hysteresis margin.
+            return nearestDist + Hysteresis < Distance(center, _centers[current]) ? nearest : current;
+        }
+
+        private static double Distance(Point a, Point b)
+        {
+            var dx = a.X - b.X;
+            var dy = a.Y - b.Y;
+            return Math.Sqrt((dx * dx) + (dy * dy));
+        }
+
+        // Animate every non-dragged card to the slot it occupies once the dragged card is
+        // inserted at _target, opening (and closing) the gap live.
+        private void ShiftOthers()
+        {
+            var n = _count();
+            var order = new List<int>(n);
+            for (var i = 0; i < n; i++)
+            {
+                if (i != _from)
+                {
+                    order.Add(i);
+                }
+            }
+            order.Insert(Math.Clamp(_target, 0, order.Count), _from);
+
+            for (var slot = 0; slot < order.Count; slot++)
+            {
+                var logical = order[slot];
+                if (logical == _from)
+                {
+                    continue;
+                }
+                var el = _container(logical);
+                if (el is null)
+                {
+                    continue;
+                }
+                AnimateTo(el, _home[slot].X - _home[logical].X, _home[slot].Y - _home[logical].Y);
+            }
+        }
+
+        private int HitTest(Point pt)
+        {
+            for (var i = 0; i < _count(); i++)
+            {
+                var el = _container(i);
+                if (el is null)
+                {
+                    continue;
+                }
+                double x = el.ActualOffset.X;
+                double y = el.ActualOffset.Y;
+                if (pt.X >= x && pt.X <= x + el.ActualWidth && pt.Y >= y && pt.Y <= y + el.ActualHeight)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        private static TranslateTransform Translate(FrameworkElement el)
+        {
+            if (el.RenderTransform is TranslateTransform existing)
+            {
+                return existing;
+            }
+            var transform = new TranslateTransform();
+            el.RenderTransform = transform;
+            return transform;
+        }
+
+        private void AnimateTo(FrameworkElement el, double x, double y, Action? completed = null)
+        {
+            var t = Translate(el);
+            // Capture the currently-held values before stopping, so the new run starts from
+            // where the card actually is (no snap-to-base flicker when retargeting mid-shift).
+            var fromX = t.X;
+            var fromY = t.Y;
+            StopAnimation(el);
+
+            var sb = new Storyboard();
+            sb.Children.Add(Anim(t, "X", fromX, x));
+            sb.Children.Add(Anim(t, "Y", fromY, y));
+            sb.Completed += (_, _) =>
+            {
+                if (_running.TryGetValue(el, out var current) && ReferenceEquals(current, sb))
+                {
+                    _running.Remove(el);
+                }
+                completed?.Invoke();
+            };
+            _running[el] = sb;
+            sb.Begin();
+        }
+
+        private static DoubleAnimation Anim(TranslateTransform target, string property, double from, double to)
+        {
+            var animation = new DoubleAnimation
+            {
+                From = from,
+                To = to,
+                Duration = new Duration(TimeSpan.FromMilliseconds(ShiftMs)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
+            Storyboard.SetTarget(animation, target);
+            Storyboard.SetTargetProperty(animation, property);
+            return animation;
+        }
+
+        private void StopAnimation(FrameworkElement el)
+        {
+            if (_running.TryGetValue(el, out var sb))
+            {
+                sb.Stop();
+                _running.Remove(el);
+            }
+        }
+
+        private void ClearTransforms()
+        {
+            for (var i = 0; i < _count(); i++)
+            {
+                var el = _container(i);
+                if (el is null)
+                {
+                    continue;
+                }
+                StopAnimation(el);
+                if (el.RenderTransform is TranslateTransform t)
+                {
+                    t.X = 0;
+                    t.Y = 0;
+                }
+                Canvas.SetZIndex(el, 0);
+            }
+            _running.Clear();
         }
     }
 

@@ -205,7 +205,7 @@
                     <ItemsControl ItemsSource="{Binding Cards}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <StackPanel Spacing="8" />
+                                <StackPanel Spacing="8" Loaded="OnUsagePanelLoaded" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
@@ -561,7 +561,7 @@
 
                     <!-- One card per tool, side by side at equal width and height.
                          Data-bound (not indexed) so adding a tool needs no XAML change. -->
-                    <ItemsRepeater ItemsSource="{Binding Authentication}"
+                    <ItemsRepeater x:Name="AuthRepeater" ItemsSource="{Binding Authentication}"
                                    ItemTemplate="{StaticResource AuthCardTemplate}">
                         <ItemsRepeater.Layout>
                             <!-- MinItemWidth lets two cards share the ~328dip content width

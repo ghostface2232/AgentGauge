@@ -33,6 +33,10 @@ public sealed class SettingsViewModel
         Global = global;
         Authentication = new ObservableCollection<AuthenticationCardViewModel>();
         Update = new UpdateViewModel(updateService);
+        // Rebuild on add/remove, and re-sort on reorder (the latter so a drag on the main
+        // screen reorders the cards here too, with no provider re-fetch).
+        _registry.Changed += (_, _) => RebuildCards();
+        _registry.OrderChanged += (_, _) => RebuildCards();
         RebuildCards();
     }
 
@@ -47,13 +51,14 @@ public sealed class SettingsViewModel
         _registry.Available.Select(kind => new AddableTool(kind, ToolCatalog.For(kind).DisplayName)).ToList();
 
     /// <summary>Registers a tool (from the "+" picker) and shows its card.</summary>
-    public void AddTool(ToolKind kind)
-    {
-        if (_registry.Add(kind))
-        {
-            RebuildCards();
-        }
-    }
+    public void AddTool(ToolKind kind) => _registry.Add(kind);
+
+    /// <summary>
+    /// Persists a new card order after a drag on the settings screen. The registry raises
+    /// <see cref="ToolRegistry.Changed"/>, which both re-syncs these cards (a no-op since the
+    /// dragged collection already matches) and propagates the order to the main screen.
+    /// </summary>
+    public void ReorderTools(IReadOnlyList<ToolKind> newOrder) => _registry.ReorderEnabled(newOrder);
 
     public Task RefreshAsync() => Task.WhenAll(Authentication.Select(card => card.RefreshAsync()));
 
@@ -74,18 +79,12 @@ public sealed class SettingsViewModel
     private string? PlanFor(string toolName) =>
         _lastUsage.Tools.FirstOrDefault(t => t.ToolName == toolName)?.Snapshot?.Plan;
 
-    private void RemoveTool(ToolKind kind)
-    {
-        if (_registry.Remove(kind))
-        {
-            RebuildCards();
-        }
-    }
+    private void RemoveTool(ToolKind kind) => _registry.Remove(kind);
 
     /// <summary>
     /// Reconciles the card list with the registry: drops cards for tools no longer
-    /// registered, appends cards for newly registered ones (in catalog order), and
-    /// kicks off a refresh for any new card.
+    /// registered, appends cards for newly registered ones, reorders the existing cards to
+    /// match the registry's display order, and kicks off a refresh for any new card.
     /// </summary>
     private void RebuildCards()
     {
@@ -116,6 +115,25 @@ public sealed class SettingsViewModel
             Authentication.Add(card);
             card.ApplyPlan(PlanFor(card.ToolName));
             _ = card.RefreshAsync();
+        }
+
+        // Reorder cards in place to match the registry order (e.g. after a reorder elsewhere).
+        for (var target = 0; target < enabled.Count; target++)
+        {
+            var kind = enabled[target];
+            var current = -1;
+            for (var i = target; i < Authentication.Count; i++)
+            {
+                if (Authentication[i].Tool == kind)
+                {
+                    current = i;
+                    break;
+                }
+            }
+            if (current > target)
+            {
+                Authentication.Move(current, target);
+            }
         }
     }
 }

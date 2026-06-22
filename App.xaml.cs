@@ -140,7 +140,7 @@ public partial class App : Application
         // an available update; applying it stays a deliberate one-click action.
         _ = _settingsViewModel.Update.CheckInBackgroundAsync();
 
-        _viewModel = new UsageViewModel();
+        _viewModel = new UsageViewModel(_toolRegistry);
         _viewModel.SetViewMode(viewMode);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
