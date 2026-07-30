@@ -87,7 +87,9 @@ internal static class Strings
 
         // ── Notifications ──────────────────────────────────────────────────
         ["Notif_ThresholdTitle"] = ["{0} · {1} 한도 {2}% 도달", "{0} · {2}% of {1} limit used", "{0} · {1} 上限{2}%に到達"], // {0}=tool {1}=label {2}=percent
+        ["Notif_ThresholdScopedTitle"] = ["{0} · {1} {2} 한도 {3}% 도달", "{0} · {3}% of {1} {2} limit used", "{0} · {1} {2} 上限{3}%に到達"], // {0}=tool {1}=scope {2}=label {3}=percent
         ["Notif_ResetTitle"]  = ["{0} · {1} 한도 초기화", "{0} · {1} limit reset", "{0} · {1} 上限リセット"],
+        ["Notif_ResetScopedTitle"] = ["{0} · {1} {2} 한도 초기화", "{0} · {1} {2} limit reset", "{0} · {1} {2} 上限リセット"], // {0}=tool {1}=scope {2}=label
         ["Notif_ResetMessage"] = ["현재 {0:0}%로 한도 초기화됨", "Reset — {0:0}% now available", "利用枠が{0:0}%にリセットされました"],
 
         // ── Authentication state messages ──────────────────────────────────

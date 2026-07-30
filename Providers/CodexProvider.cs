@@ -183,15 +183,28 @@ public sealed class CodexProvider : IUsageProvider
             ? DateTimeOffset.FromUnixTimeSeconds(epoch)
             : (DateTimeOffset?)null;
         var durationSeconds = window.GetInt64OrNull("limit_window_seconds");
-        var type = ClassifyWindow(durationSeconds) ?? fallbackType;
-        TimeSpan? duration = durationSeconds is > 0 and <= 31_622_400
-            ? TimeSpan.FromSeconds(durationSeconds.Value)
-            : type switch
+        UsageWindowType type;
+        TimeSpan? duration;
+        if (window.TryGetProperty("limit_window_seconds", out _))
+        {
+            // Once the provider supplies a duration, it is the contract. Do not silently
+            // reinterpret a new or malformed duration by primary/secondary position.
+            if (durationSeconds is not { } seconds
+                || ClassifyWindow(seconds) is not { } classifiedType)
             {
-                UsageWindowType.FiveHour => TimeSpan.FromHours(5),
-                UsageWindowType.Weekly => TimeSpan.FromDays(7),
-                _ => null,
-            };
+                return null;
+            }
+
+            type = classifiedType;
+            duration = TimeSpan.FromSeconds(seconds);
+        }
+        else
+        {
+            // Older responses omitted the duration and used positional semantics. Retain
+            // that compatibility without inventing a duration for the UI's pace hint.
+            type = fallbackType;
+            duration = null;
+        }
         var id = idPrefix is null
             ? null
             : $"{idPrefix}-{(durationSeconds?.ToString() ?? type.ToString().ToLowerInvariant())}";
@@ -208,7 +221,7 @@ public sealed class CodexProvider : IUsageProvider
         };
     }
 
-    private static UsageWindowType? ClassifyWindow(long? durationSeconds) => durationSeconds switch
+    private static UsageWindowType? ClassifyWindow(long durationSeconds) => durationSeconds switch
     {
         5 * 60 * 60 => UsageWindowType.FiveHour,
         7 * 24 * 60 * 60 => UsageWindowType.Weekly,

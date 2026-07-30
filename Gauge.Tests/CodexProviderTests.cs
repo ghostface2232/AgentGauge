@@ -34,9 +34,11 @@ public sealed class CodexProviderTests
         var fiveHour = Assert.Single(snapshot.Windows, w => w.Type == UsageWindowType.FiveHour);
         Assert.Equal(0.50, fiveHour.UsedRatio, 3);
         Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1790000000), fiveHour.ResetTime);
+        Assert.Null(fiveHour.Duration);
 
         var weekly = Assert.Single(snapshot.Windows, w => w.Type == UsageWindowType.Weekly);
         Assert.Null(weekly.ResetTime);
+        Assert.Null(weekly.Duration);
     }
 
     [Fact]
@@ -80,6 +82,34 @@ public sealed class CodexProviderTests
 
         Assert.Equal(UsageWindowType.Weekly, snapshot.Windows[0].Type);
         Assert.Equal(UsageWindowType.FiveHour, snapshot.Windows[1].Type);
+    }
+
+    [Theory]
+    [InlineData("86400")]
+    [InlineData("0")]
+    [InlineData("\"18000\"")]
+    [InlineData("null")]
+    public async Task ExplicitUnsupportedOrMalformedDurationIsSkipped(string duration)
+    {
+        var json = $$"""
+        {
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 20,
+              "limit_window_seconds": {{duration}}
+            },
+            "secondary_window": {
+              "used_percent": 40,
+              "limit_window_seconds": 604800
+            }
+          }
+        }
+        """;
+
+        var snapshot = await Snapshot(json, Available("t"));
+
+        var weekly = Assert.Single(snapshot.Windows);
+        Assert.Equal(UsageWindowType.Weekly, weekly.Type);
     }
 
     [Fact]

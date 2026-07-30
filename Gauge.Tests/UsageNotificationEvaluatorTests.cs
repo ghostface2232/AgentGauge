@@ -67,6 +67,30 @@ public sealed class UsageNotificationEvaluatorTests
     }
 
     [Fact]
+    public void ScopedWindow_IdentifiesGroupInThresholdAndResetTitles()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(
+            State(UsageWindowType.Weekly, 0.60, Now.AddDays(4), Now,
+                id: "claude-weekly-scoped-fable", groupLabel: "Fable"),
+            Now);
+
+        var threshold = evaluator.Evaluate(
+            State(UsageWindowType.Weekly, 0.72, Now.AddDays(4), Now.AddMinutes(1),
+                id: "claude-weekly-scoped-fable", groupLabel: "Fable"),
+            Now.AddMinutes(1));
+        var reset = evaluator.Evaluate(
+            State(UsageWindowType.Weekly, 0.05, Now.AddDays(11), Now.AddMinutes(2),
+                id: "claude-weekly-scoped-fable", groupLabel: "Fable"),
+            Now.AddMinutes(2));
+
+        Assert.Single(threshold);
+        Assert.Contains("Fable", threshold[0].Title);
+        Assert.Single(reset);
+        Assert.Contains("Fable", reset[0].Title);
+    }
+
+    [Fact]
     public void BillingCycle_CrossesSeventyAndNinetyOnlyOncePerCycle()
     {
         var evaluator = new UsageNotificationEvaluator();
@@ -177,7 +201,9 @@ public sealed class UsageNotificationEvaluatorTests
         double ratio,
         DateTimeOffset reset,
         DateTimeOffset captured,
-        bool failed = false)
+        bool failed = false,
+        string? id = null,
+        string? groupLabel = null)
     {
         var snapshot = new UsageSnapshot
         {
@@ -187,6 +213,8 @@ public sealed class UsageNotificationEvaluatorTests
             [
                 new UsageWindow
                 {
+                    Id = id,
+                    GroupLabel = groupLabel,
                     Type = type,
                     UsedRatio = ratio,
                     Label = type switch

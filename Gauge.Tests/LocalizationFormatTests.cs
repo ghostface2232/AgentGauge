@@ -58,14 +58,22 @@ public sealed class LocalizationFormatTests : IDisposable
         Loc.Initialize(language);
 
         var title = NotificationText.ThresholdTitle("Codex", UsageWindowType.Weekly, 90);
+        var scopedTitle = NotificationText.ThresholdTitle(
+            "Claude Code", UsageWindowType.Weekly, 70, "Fable");
         var resetTitle = NotificationText.ResetTitle("Claude Code", UsageWindowType.FiveHour);
+        var scopedResetTitle = NotificationText.ResetTitle(
+            "Claude Code", UsageWindowType.Weekly, "Fable");
         var resetMessage = NotificationText.ResetMessage(100);
 
         Assert.DoesNotContain("{", title);
         Assert.Contains("90", title);
         Assert.Contains("Codex", title);
         Assert.DoesNotContain("Label_", title); // label resolved, not a raw key
+        Assert.DoesNotContain("{", scopedTitle);
+        Assert.Contains("Fable", scopedTitle);
         Assert.DoesNotContain("{", resetTitle);
+        Assert.DoesNotContain("{", scopedResetTitle);
+        Assert.Contains("Fable", scopedResetTitle);
         Assert.DoesNotContain("{", resetMessage);
         Assert.Contains("100", resetMessage);
     }
