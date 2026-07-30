@@ -46,6 +46,60 @@ public sealed class ClaudeProviderTests
         Assert.Equal(UsageWindowType.FiveHour, window.Type);
     }
 
+    [Fact]
+    public async Task ParsesFableFromScopedWeeklyLimitsArray()
+    {
+        const string json = """
+        {
+          "five_hour": { "utilization": 12, "resets_at": "2026-07-30T10:00:00Z" },
+          "seven_day": { "utilization": 34, "resets_at": "2026-08-03T00:00:00Z" },
+          "limits": [
+            { "kind": "session", "group": "session", "percent": 12 },
+            { "kind": "weekly_all", "group": "weekly", "percent": 34 },
+            {
+              "kind": "weekly_scoped",
+              "group": "weekly",
+              "percent": 46,
+              "resets_at": "2026-08-03T00:00:00Z",
+              "scope": { "model": { "id": null, "display_name": "Fable" } },
+              "is_active": false
+            }
+          ]
+        }
+        """;
+
+        var snapshot = await Snapshot(json, Available("t", "Max 5x"));
+
+        Assert.Equal(3, snapshot.Windows.Count);
+        var fable = Assert.Single(snapshot.Windows, w => w.Id == "claude-weekly-scoped-fable");
+        Assert.Equal("Fable", fable.GroupLabel);
+        Assert.Equal(UsageWindowType.Weekly, fable.Type);
+        Assert.Equal(0.46, fable.UsedRatio, 3);
+        Assert.Equal(TimeSpan.FromDays(7), fable.Duration);
+        Assert.NotNull(fable.ResetTime);
+    }
+
+    [Fact]
+    public async Task ScopedLimitsSkipAllModelsAndMalformedEntries()
+    {
+        const string json = """
+        {
+          "limits": [
+            {
+              "kind": "weekly_scoped", "group": "weekly", "percent": 10,
+              "scope": { "model": { "id": "all-models", "display_name": "All Models" } }
+            },
+            {
+              "kind": "weekly_scoped", "group": "weekly",
+              "scope": { "model": { "display_name": "Fable" } }
+            }
+          ]
+        }
+        """;
+
+        Assert.Empty((await Snapshot(json, Available("t"))).Windows);
+    }
+
     [Theory]
     [InlineData("""{ "five_hour": { "resets_at": "2026-07-01T00:00:00Z" } }""")] // utilization absent
     [InlineData("""{ "five_hour": { "utilization": "oops" } }""")]              // wrong type
@@ -66,6 +120,7 @@ public sealed class ClaudeProviderTests
         var snapshot = await Snapshot(json, Available("t"));
         var window = Assert.Single(snapshot.Windows);
         Assert.Equal(expected, window.UsedRatio, 3);
+        Assert.Equal(TimeSpan.FromHours(5), window.Duration);
     }
 
     [Fact]

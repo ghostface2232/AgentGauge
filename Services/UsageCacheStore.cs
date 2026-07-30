@@ -34,9 +34,9 @@ public interface IUsageCachePersistence
 /// </summary>
 public sealed class UsageCacheStore : IUsageCachePersistence
 {
-    // v2 added the per-window stable Id. v1 records (one window per type) remain readable:
-    // their windows simply have no Id and fall back to the window Type as their key.
-    private const int CurrentVersion = 2;
+    // v2 added the per-window stable Id; v3 added the provider-reported window duration.
+    // Older records remain readable: missing fields simply fall back to their old behavior.
+    private const int CurrentVersion = 3;
     private const string FileName = "usage-cache.json";
 
     private static readonly JsonSerializerOptions Options = new()
@@ -119,6 +119,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
             Type = w.Type,
             UsedRatio = w.UsedRatio,
             ResetTime = w.ResetTime,
+            DurationSeconds = w.Duration?.TotalSeconds,
             UsedTokens = w.UsedTokens,
             LimitTokens = w.LimitTokens,
         }).ToList(),
@@ -139,6 +140,9 @@ public sealed class UsageCacheStore : IUsageCachePersistence
             // language-neutral family name, so it is restored as stored.
             Label = WindowLabels.For(w.Type),
             ResetTime = w.ResetTime,
+            Duration = w.DurationSeconds is > 0 and <= 31_622_400
+                ? TimeSpan.FromSeconds(w.DurationSeconds.Value)
+                : null,
             UsedTokens = w.UsedTokens,
             LimitTokens = w.LimitTokens,
         }).ToList(),
@@ -165,6 +169,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         public UsageWindowType Type { get; set; }
         public double UsedRatio { get; set; }
         public DateTimeOffset? ResetTime { get; set; }
+        public double? DurationSeconds { get; set; }
         public long? UsedTokens { get; set; }
         public long? LimitTokens { get; set; }
     }

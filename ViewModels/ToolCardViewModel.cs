@@ -112,8 +112,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Orders windows for display when a tool groups them (Antigravity): families stay together
-    /// in first-seen order, and within a family the 5-hour limit comes before the weekly one.
+    /// Orders windows for display when a tool groups them by model/family scope: groups stay
+    /// together in first-seen order, and within a group 5-hour comes before weekly.
     /// Tools without groups keep their provider order unchanged.
     /// </summary>
     private static IReadOnlyList<UsageWindow> OrderForDisplay(IReadOnlyList<UsageWindow> windows)
@@ -156,8 +156,9 @@ public sealed partial class ToolCardViewModel : ObservableObject
     private void AssignGroupHeaders(IReadOnlyList<UsageWindow> ordered)
     {
         var headed = new HashSet<string>();
-        foreach (var window in ordered)
+        for (var index = 0; index < ordered.Count; index++)
         {
+            var window = ordered[index];
             if (Windows.FirstOrDefault(r => r.Key == window.Key) is not { } row)
             {
                 continue;
@@ -166,7 +167,10 @@ public sealed partial class ToolCardViewModel : ObservableObject
             if (window.GroupLabel is { Length: > 0 } group && headed.Add(group))
             {
                 row.GroupHeader = group;
-                row.ShowGroupDivider = headed.Count > 1;
+                // A named scope can follow account-wide ungrouped windows (Claude Fable /
+                // Codex additional limits), so position — not named-group count — decides
+                // whether a visual divider is needed.
+                row.ShowGroupDivider = index > 0;
             }
             else
             {

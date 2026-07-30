@@ -39,6 +39,78 @@ public sealed class CodexProviderTests
         Assert.Null(weekly.ResetTime);
     }
 
+    [Fact]
+    public async Task WeeklyOnlyPrimaryIsClassifiedByDuration()
+    {
+        const string json = """
+        {
+          "plan_type": "plus",
+          "rate_limit": {
+            "primary_window": {
+              "used_percent": 27,
+              "reset_at": 1790000000,
+              "limit_window_seconds": 604800
+            },
+            "secondary_window": null
+          }
+        }
+        """;
+
+        var snapshot = await Snapshot(json, Available("t"));
+
+        var weekly = Assert.Single(snapshot.Windows);
+        Assert.Equal(UsageWindowType.Weekly, weekly.Type);
+        Assert.Equal(TimeSpan.FromDays(7), weekly.Duration);
+        Assert.Equal("Weekly", weekly.Key);
+    }
+
+    [Fact]
+    public async Task WindowPositionsMaySwapWithoutChangingTheirTypes()
+    {
+        const string json = """
+        {
+          "rate_limit": {
+            "primary_window": { "used_percent": 20, "limit_window_seconds": 604800 },
+            "secondary_window": { "used_percent": 40, "limit_window_seconds": 18000 }
+          }
+        }
+        """;
+
+        var snapshot = await Snapshot(json, Available("t"));
+
+        Assert.Equal(UsageWindowType.Weekly, snapshot.Windows[0].Type);
+        Assert.Equal(UsageWindowType.FiveHour, snapshot.Windows[1].Type);
+    }
+
+    [Fact]
+    public async Task NamedAdditionalRateLimitsAreAddedLossily()
+    {
+        const string json = """
+        {
+          "rate_limit": {
+            "primary_window": { "used_percent": 10, "limit_window_seconds": 604800 }
+          },
+          "additional_rate_limits": [
+            {},
+            {
+              "limit_name": "Fast model",
+              "metered_feature": "fast-model",
+              "rate_limit": {
+                "primary_window": { "used_percent": 25, "limit_window_seconds": 18000 }
+              }
+            }
+          ]
+        }
+        """;
+
+        var snapshot = await Snapshot(json, Available("t"));
+
+        Assert.Equal(2, snapshot.Windows.Count);
+        var additional = Assert.Single(snapshot.Windows, w => w.GroupLabel == "Fast model");
+        Assert.Equal("codex-additional-fast-model-18000", additional.Id);
+        Assert.Equal(UsageWindowType.FiveHour, additional.Type);
+    }
+
     [Theory]
     [InlineData("plus", "Plus")]
     [InlineData("go", "Go")]

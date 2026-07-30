@@ -21,7 +21,14 @@ public sealed class UsageCacheStoreTests : IDisposable
             CapturedAt = captured,
             Windows = new[]
             {
-                new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5h", UsedRatio = 0.42, ResetTime = reset },
+                new UsageWindow
+                {
+                    Type = UsageWindowType.FiveHour,
+                    Label = "5h",
+                    UsedRatio = 0.42,
+                    ResetTime = reset,
+                    Duration = TimeSpan.FromHours(5),
+                },
                 new UsageWindow { Type = UsageWindowType.Weekly, Label = "wk", UsedRatio = 0.8 },
             },
         };
@@ -37,6 +44,7 @@ public sealed class UsageCacheStoreTests : IDisposable
         var fiveHour = Assert.Single(loaded.Windows, w => w.Type == UsageWindowType.FiveHour);
         Assert.Equal(0.42, fiveHour.UsedRatio, 3);
         Assert.Equal(reset, fiveHour.ResetTime);
+        Assert.Equal(TimeSpan.FromHours(5), fiveHour.Duration);
         // Labels are re-derived for the active language, never persisted-then-trusted.
         Assert.False(string.IsNullOrEmpty(fiveHour.Label));
     }

@@ -46,6 +46,14 @@ public sealed record UsageWindow
     /// <summary>When this window resets, if known.</summary>
     public DateTimeOffset? ResetTime { get; init; }
 
+    /// <summary>
+    /// Provider-reported duration of this limit window, when known. Keeping the duration
+    /// alongside the reset time lets the UI compare utilization with elapsed time and lets
+    /// providers classify windows by their actual contract instead of positional names such
+    /// as "primary" and "secondary".
+    /// </summary>
+    public TimeSpan? Duration { get; init; }
+
     /// <summary>Raw tokens used in the window, if available (for display).</summary>
     public long? UsedTokens { get; init; }
 

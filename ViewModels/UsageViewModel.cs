@@ -10,7 +10,7 @@ namespace Gauge.ViewModels;
 /// <summary>
 /// UI-facing view model for the popover. The coordinator pushes a
 /// <see cref="UsageState"/> via <see cref="Apply"/> (on the UI thread). Each tool gets
-/// one card showing all of its windows (5-hour and/or weekly) at once. The tray
+/// one card showing all of its currently reported windows at once. The tray
 /// tooltip is built from <see cref="TrayTooltipSummary"/>.
 /// </summary>
 public sealed partial class UsageViewModel : ObservableObject

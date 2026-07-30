@@ -307,11 +307,20 @@
                                                                 Text="{Binding PercentText}"
                                                                 Style="{StaticResource BodyStrongTextBlockStyle}" />
                                                         </Grid>
-                                                        <TextBlock
+                                                        <StackPanel
                                                             Margin="54,0,0,0"
-                                                            Opacity="0.7"
-                                                            Text="{Binding ResetText}"
-                                                            Style="{StaticResource CaptionTextBlockStyle}" />
+                                                            Orientation="Horizontal"
+                                                            Spacing="8">
+                                                            <TextBlock
+                                                                Opacity="0.7"
+                                                                Text="{Binding ResetText}"
+                                                                Style="{StaticResource CaptionTextBlockStyle}" />
+                                                            <TextBlock
+                                                                Text="{Binding PaceText}"
+                                                                Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}}"
+                                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                                Visibility="{Binding HasPaceWarning, Converter={StaticResource BoolToVis}}" />
+                                                        </StackPanel>
                                                     </StackPanel>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -385,6 +394,14 @@
                                                                             Opacity="0.7"
                                                                             Text="{Binding ResetText}"
                                                                             Style="{StaticResource CaptionTextBlockStyle}" />
+                                                                        <TextBlock
+                                                                            HorizontalAlignment="Center"
+                                                                            TextAlignment="Center"
+                                                                            TextWrapping="Wrap"
+                                                                            Text="{Binding PaceText}"
+                                                                            Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}}"
+                                                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                                                            Visibility="{Binding HasPaceWarning, Converter={StaticResource BoolToVis}}" />
                                                                     </StackPanel>
                                                                 </DataTemplate>
                                                             </ItemsRepeater.ItemTemplate>

@@ -4,7 +4,7 @@
 
 # AgentGauge
 
-AgentGauge is a Windows system-tray app that lets you check the real usage limits of Claude Code, Codex, Cursor, and Antigravity at a glance.
+AgentGauge is a Windows system-tray app that lets you check the real usage limits of Claude Code, Codex, Cursor, Antigravity, and GitHub Copilot at a glance.
 
 ## Screenshots
 
@@ -15,10 +15,12 @@ AgentGauge is a Windows system-tray app that lets you check the real usage limit
 
 ## Features
 
-- Shows real usage for Claude Code, Codex, Cursor, and Antigravity (Antigravity shows a 5-hour and a weekly limit for each of its Gemini and Claude/GPT model families).
-- Register the services you want in settings, and remove them from their card (default: Claude Code · Codex; add Cursor or Antigravity from settings).
+- Shows the usage windows each service currently reports, including Claude's separate model-scoped weekly limits such as Fable and Codex's weekly-only or 5-hour + weekly plan shapes.
+- Antigravity follows the model families enabled for your current plan: Gemini quotas remain visible while withdrawn or unavailable Claude/GPT quotas disappear instead of lingering as stale rows.
+- Register the services you want in settings, and remove them from their card (default: Claude Code · Codex; add Cursor, Antigravity, or GitHub Copilot from settings).
 - Choose how cards display usage — horizontal **bars** or circular **gauges** — from the view-mode dropdown in settings.
 - Progress bars/gauges and the tray icon turn yellow above 70% and red above 90%.
+- When a provider exposes both the window duration and reset time, an unobtrusive warning appears if usage is running meaningfully ahead of an even pace.
 - Refreshes usage every few minutes, and immediately when you open the app from the tray.
 - Caps the popover height and scrolls internally when you add many tools.
 - Optional run on Windows startup.
@@ -30,7 +32,7 @@ AgentGauge is a Windows system-tray app that lets you check the real usage limit
 
 - Windows 10 version 2004 (build 19041) or later, or Windows 11.
 - An x64 PC.
-- The tools you want to track installed: the Claude Code CLI, the Codex CLI, the Cursor app, and/or the Antigravity app.
+- The tools you want to track installed: the Claude Code CLI, the Codex CLI, the Cursor app, the Antigravity app, and/or GitHub CLI for Copilot usage.
 - Being signed in to those tools (for Cursor and Antigravity, sign in from their own app).
 
 
@@ -54,6 +56,7 @@ AgentGauge never issues or refreshes credentials itself. It reads the files mana
 | Codex | `%CODEX_HOME%\auth.json` or `%USERPROFILE%\.codex\auth.json` | `codex login` |
 | Cursor | `%APPDATA%\Cursor\User\globalStorage\state.vscdb` (read-only) | Sign in from the Cursor app |
 | Antigravity | None read by AgentGauge — usage comes from the app's local engine | Sign in from the Antigravity app |
+| GitHub Copilot | `gh auth token`, with compatible Copilot config files as fallback | `gh auth login` |
 
 Cursor has no separate CLI login: once you sign in to the Cursor app, AgentGauge reads its local session token to display usage (the file is opened read-only).
 

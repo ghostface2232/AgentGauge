@@ -19,7 +19,8 @@ public sealed record UsageSnapshot
 
     /// <summary>
     /// The windows this tool exposes. A tool may have a 5-hour window, a weekly
-    /// window, both, or neither — the list reflects only what was actually obtained.
+    /// window, scoped model limits, any subset of those, or none — the list reflects
+    /// only what was actually obtained.
     /// </summary>
     public required IReadOnlyList<UsageWindow> Windows { get; init; }
 

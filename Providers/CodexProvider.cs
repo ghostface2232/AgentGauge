@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using Gauge.Localization;
 using Gauge.Models;
@@ -12,10 +13,10 @@ namespace Gauge.Providers;
 /// <summary>
 /// Reads Codex usage from the ChatGPT backend usage endpoint
 /// (<c>GET https://chatgpt.com/backend-api/wham/usage</c>) using the OAuth token the
-/// Codex CLI stores in <c>~/.codex/auth.json</c>. This returns the real 5-hour
-/// (primary) and weekly (secondary) rate-limit utilization and reset times, plus the
-/// plan tier — the same data the CLI itself sees, and always current (unlike scanning
-/// local session logs, which go stale once Codex hasn't run for a while).
+/// Codex CLI stores in <c>~/.codex/auth.json</c>. This returns the real rate-limit
+/// utilization and reset times plus the plan tier. Window roles are derived from each
+/// window's <c>limit_window_seconds</c>, not from its primary/secondary position: during
+/// plan simplification the weekly window can be returned as primary with no secondary.
 ///
 /// A missing credential is a clean empty-data result. Network and API failures
 /// propagate so the coordinator keeps showing its last good snapshot rather than
@@ -148,15 +149,16 @@ public sealed class CodexProvider : IUsageProvider
         var windows = new List<UsageWindow>();
         if (root.GetObjectOrNull("rate_limit") is { } rateLimit)
         {
-            if (ParseWindow(rateLimit, "primary_window", UsageWindowType.FiveHour) is { } fiveHour)
+            if (ParseWindow(rateLimit, "primary_window", UsageWindowType.FiveHour) is { } primary)
             {
-                windows.Add(fiveHour);
+                windows.Add(primary);
             }
-            if (ParseWindow(rateLimit, "secondary_window", UsageWindowType.Weekly) is { } weekly)
+            if (ParseWindow(rateLimit, "secondary_window", UsageWindowType.Weekly) is { } secondary)
             {
-                windows.Add(weekly);
+                windows.Add(secondary);
             }
         }
+        windows.AddRange(ParseAdditionalRateLimits(root));
 
         return (plan, windows);
     }
@@ -164,7 +166,12 @@ public sealed class CodexProvider : IUsageProvider
     /// <summary>
     /// Parses one rate-limit window: <c>{ "used_percent": 0–100, "reset_at": epochSeconds }</c>.
     /// </summary>
-    private static UsageWindow? ParseWindow(JsonElement rateLimit, string property, UsageWindowType type)
+    private static UsageWindow? ParseWindow(
+        JsonElement rateLimit,
+        string property,
+        UsageWindowType fallbackType,
+        string? idPrefix = null,
+        string? groupLabel = null)
     {
         if (rateLimit.GetObjectOrNull(property) is not { } window
             || window.GetDoubleOrNull("used_percent") is not { } usedPercent)
@@ -175,14 +182,110 @@ public sealed class CodexProvider : IUsageProvider
         var resetTime = window.GetInt64OrNull("reset_at") is { } epoch
             ? DateTimeOffset.FromUnixTimeSeconds(epoch)
             : (DateTimeOffset?)null;
+        var durationSeconds = window.GetInt64OrNull("limit_window_seconds");
+        var type = ClassifyWindow(durationSeconds) ?? fallbackType;
+        TimeSpan? duration = durationSeconds is > 0 and <= 31_622_400
+            ? TimeSpan.FromSeconds(durationSeconds.Value)
+            : type switch
+            {
+                UsageWindowType.FiveHour => TimeSpan.FromHours(5),
+                UsageWindowType.Weekly => TimeSpan.FromDays(7),
+                _ => null,
+            };
+        var id = idPrefix is null
+            ? null
+            : $"{idPrefix}-{(durationSeconds?.ToString() ?? type.ToString().ToLowerInvariant())}";
 
         return new UsageWindow
         {
+            Id = id,
             Type = type,
+            GroupLabel = groupLabel,
             UsedRatio = Math.Clamp(usedPercent / 100.0, 0.0, 1.0),
             Label = WindowLabels.For(type),
             ResetTime = resetTime,
+            Duration = duration,
         };
+    }
+
+    private static UsageWindowType? ClassifyWindow(long? durationSeconds) => durationSeconds switch
+    {
+        5 * 60 * 60 => UsageWindowType.FiveHour,
+        7 * 24 * 60 * 60 => UsageWindowType.Weekly,
+        _ => null,
+    };
+
+    /// <summary>
+    /// New Codex plans may expose named model/feature limits alongside the account-wide
+    /// windows. They are optional and parsed lossily so an empty or malformed entry never
+    /// affects the primary usage display.
+    /// </summary>
+    private static IReadOnlyList<UsageWindow> ParseAdditionalRateLimits(JsonElement root)
+    {
+        if (!root.TryGetArray("additional_rate_limits", out var additional))
+        {
+            return Array.Empty<UsageWindow>();
+        }
+
+        var windows = new List<UsageWindow>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in additional.EnumerateArray())
+        {
+            var name = NormalizeText(entry.GetStringOrNull("limit_name"));
+            var feature = NormalizeText(entry.GetStringOrNull("metered_feature"));
+            var displayName = name ?? feature;
+            var identity = feature ?? name;
+            if (displayName is null || identity is null
+                || entry.GetObjectOrNull("rate_limit") is not { } rateLimit)
+            {
+                continue;
+            }
+
+            var slug = Slug(identity);
+            if (slug.Length == 0)
+            {
+                continue;
+            }
+            var prefix = $"codex-additional-{slug}";
+
+            foreach (var (property, fallbackType) in new[]
+                     {
+                         ("primary_window", UsageWindowType.FiveHour),
+                         ("secondary_window", UsageWindowType.Weekly),
+                     })
+            {
+                if (ParseWindow(rateLimit, property, fallbackType, prefix, displayName) is { } window
+                    && seen.Add(window.Key))
+                {
+                    windows.Add(window);
+                }
+            }
+        }
+
+        return windows;
+    }
+
+    private static string? NormalizeText(string? value)
+        => value?.Trim() is { Length: > 0 } text ? text : null;
+
+    private static string Slug(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        var lastWasDash = false;
+        foreach (var character in value.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(character);
+                lastWasDash = false;
+            }
+            else if (!lastWasDash && builder.Length > 0)
+            {
+                builder.Append('-');
+                lastWasDash = true;
+            }
+        }
+        return builder.ToString().TrimEnd('-');
     }
 
     private static string? MapPlan(string? planType) => planType?.ToLowerInvariant() switch

@@ -104,6 +104,24 @@ public sealed class ToolCardViewModelTests
         Assert.All(card.Windows, r => Assert.Empty(r.GroupHeader));
     }
 
+    [Fact]
+    public void ScopedWindowAfterAccountWindowsGetsHeadingAndDivider()
+    {
+        var card = new ToolCardViewModel(Cached("Claude Code",
+            Window(null, null, UsageWindowType.FiveHour),
+            Window(null, null, UsageWindowType.Weekly),
+            Window("claude-weekly-scoped-fable", "Fable", UsageWindowType.Weekly)));
+
+        Assert.Equal(new[] { "FiveHour", "Weekly", "claude-weekly-scoped-fable" },
+            card.Windows.Select(r => r.Key));
+        Assert.Equal("Fable", card.Windows[2].GroupHeader);
+        Assert.True(card.Windows[2].ShowGroupDivider);
+
+        Assert.Equal(new[] { "", "Fable" }, card.GaugeGroups.Select(g => g.Key));
+        Assert.False(card.GaugeGroups[0].ShowDivider);
+        Assert.True(card.GaugeGroups[1].ShowDivider);
+    }
+
     private static UsageWindow Window(string? id, string? group, UsageWindowType type) => new()
     {
         Id = id,

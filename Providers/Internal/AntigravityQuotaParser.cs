@@ -7,9 +7,10 @@ namespace Gauge.Providers.Internal;
 /// <summary>
 /// Tolerant parser for Antigravity's <c>RetrieveUserQuotaSummary</c> response. The language
 /// server reports quota as groups (model families) of buckets (one per window); this flattens
-/// them into up to four <see cref="UsageWindow"/>s — a 5-hour and a weekly limit per family —
-/// using each bucket's stable <c>bucketId</c> as the window <see cref="UsageWindow.Id"/> and its
-/// <c>window</c> field ("5h"/"weekly") as the <see cref="UsageWindowType"/>.
+/// whatever enabled families are currently offered into <see cref="UsageWindow"/>s, using each
+/// bucket's stable <c>bucketId</c> as the window <see cref="UsageWindow.Id"/> and its
+/// <c>window</c> field ("5h"/"weekly") as the <see cref="UsageWindowType"/>. This is intentionally
+/// dynamic: plans may add or withdraw the Claude/GPT family independently of Gemini.
 ///
 /// This is an unstable internal API, so every field is optional: a bucket missing a stable id,
 /// a recognized window, or a usable remaining fraction is skipped rather than guessed at, and a
@@ -41,14 +42,14 @@ internal static class AntigravityQuotaParser
         var windows = new List<UsageWindow>();
         foreach (var group in groups.EnumerateArray())
         {
-            if (!group.TryGetArray("buckets", out var buckets))
+            if (IsUnavailable(group) || !group.TryGetArray("buckets", out var buckets))
             {
                 continue;
             }
 
             foreach (var bucket in buckets.EnumerateArray())
             {
-                if (ParseBucket(bucket) is { } window)
+                if (ParseBucket(bucket, group) is { } window)
                 {
                     windows.Add(window);
                 }
@@ -58,7 +59,7 @@ internal static class AntigravityQuotaParser
         return windows;
     }
 
-    private static UsageWindow? ParseBucket(JsonElement bucket)
+    private static UsageWindow? ParseBucket(JsonElement bucket, JsonElement group)
     {
         if (bucket.ValueKind != JsonValueKind.Object)
         {
@@ -72,8 +73,9 @@ internal static class AntigravityQuotaParser
             return null;
         }
 
-        // A disabled bucket carries no live limit — omit it rather than render it as 0% used.
-        if (bucket.TryGetProperty("disabled", out var disabled) && disabled.ValueKind == JsonValueKind.True)
+        // A withdrawn/disabled bucket carries no live limit — omit it rather than render it as
+        // 0% used. Several field spellings are tolerated across language-server builds.
+        if (IsUnavailable(bucket))
         {
             return null;
         }
@@ -93,19 +95,40 @@ internal static class AntigravityQuotaParser
         {
             Id = bucketId,
             Type = type,
-            GroupLabel = FamilyLabel(bucketId),
+            GroupLabel = FamilyLabel(bucketId, group.GetStringOrNull("displayName")),
             UsedRatio = Math.Clamp(1.0 - remaining, 0.0, 1.0),
             Label = WindowLabels.For(type),
             ResetTime = ParseResetTime(bucket),
+            Duration = type == UsageWindowType.FiveHour
+                ? TimeSpan.FromHours(5)
+                : TimeSpan.FromDays(7),
         };
     }
 
-    // The model family a bucket belongs to, from its stable id prefix (gemini-*, 3p-*). Used as
-    // the card's group heading; null for an unrecognized prefix (rendered without a group).
-    private static string? FamilyLabel(string bucketId)
-        => bucketId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase) ? "Gemini"
-            : bucketId.StartsWith("3p", StringComparison.OrdinalIgnoreCase) ? "Claude/GPT"
-            : null;
+    // Prefer the group's own metadata so future bucket-id changes do not break grouping, with
+    // the observed gemini-* / 3p-* prefixes retained as a compatibility fallback.
+    private static string? FamilyLabel(string bucketId, string? displayName)
+    {
+        var normalized = displayName?.Trim();
+        if (normalized?.Contains("gemini", StringComparison.OrdinalIgnoreCase) == true
+            || bucketId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Gemini";
+        }
+        if (normalized?.Contains("claude", StringComparison.OrdinalIgnoreCase) == true
+            || normalized?.Contains("gpt", StringComparison.OrdinalIgnoreCase) == true
+            || bucketId.StartsWith("3p", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Claude/GPT";
+        }
+        return normalized is { Length: > 0 } ? normalized : null;
+    }
+
+    private static bool IsUnavailable(JsonElement element)
+        => element.GetBoolOrNull("disabled") == true
+            || element.GetBoolOrNull("isDisabled") == true
+            || element.GetBoolOrNull("enabled") == false
+            || element.GetBoolOrNull("available") == false;
 
     private static UsageWindowType? MapWindowType(string? window) => window switch
     {

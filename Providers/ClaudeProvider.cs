@@ -15,8 +15,9 @@ namespace Gauge.Providers;
 /// Reads Claude Code usage from Anthropic's official OAuth usage endpoint
 /// (<c>GET https://api.anthropic.com/api/oauth/usage</c>) using the OAuth token the
 /// CLI stores in <c>~/.claude/.credentials.json</c>. This returns the same real
-/// figures Claude Code's <c>/usage</c> shows — actual 5-hour and weekly utilization
-/// (0–100) and real reset times — unlike token-counting tools such as ccusage.
+/// figures Claude Code's <c>/usage</c> shows — actual 5-hour, weekly, and model-scoped
+/// weekly utilization (0–100) and real reset times — unlike token-counting tools such
+/// as ccusage. Newer responses expose scoped limits such as Fable through <c>limits[]</c>.
 ///
 /// RATE LIMITING: this endpoint is throttled hard. Measured behavior is ~3 reads in a
 /// short window, then 429 with a penalty cooldown (and no Retry-After header), and the
@@ -241,6 +242,7 @@ public sealed class ClaudeProvider : IUsageProvider
         {
             windows.Add(weekly);
         }
+        windows.AddRange(ParseScopedWeeklyLimits(root));
 
         return windows;
     }
@@ -263,6 +265,81 @@ public sealed class ClaudeProvider : IUsageProvider
             UsedRatio = Math.Clamp(utilization / 100.0, 0.0, 1.0),
             Label = WindowLabels.For(type),
             ResetTime = window.GetDateTimeOffsetOrNull("resets_at"),
+            Duration = type == UsageWindowType.FiveHour
+                ? TimeSpan.FromHours(5)
+                : TimeSpan.FromDays(7),
         };
+    }
+
+    /// <summary>
+    /// Parses the newer additive <c>limits[]</c> shape. The account-wide session and weekly
+    /// entries duplicate <c>five_hour</c>/<c>seven_day</c>, so only model-scoped weekly
+    /// entries are added. Anthropic currently reports Fable this way. <c>is_active</c> is
+    /// deliberately not used as a filter: live enforceable limits can report false.
+    /// </summary>
+    private static IReadOnlyList<UsageWindow> ParseScopedWeeklyLimits(JsonElement root)
+    {
+        if (!root.TryGetArray("limits", out var limits))
+        {
+            return Array.Empty<UsageWindow>();
+        }
+
+        var windows = new List<UsageWindow>();
+        var seenIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var limit in limits.EnumerateArray())
+        {
+            if (!string.Equals(limit.GetStringOrNull("kind"), "weekly_scoped", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(limit.GetStringOrNull("group"), "weekly", StringComparison.OrdinalIgnoreCase)
+                || limit.GetDoubleOrNull("percent") is not { } percent
+                || !double.IsFinite(percent)
+                || limit.GetObjectOrNull("scope")?.GetObjectOrNull("model") is not { } model
+                || NormalizeText(model.GetStringOrNull("display_name")) is not { } modelName)
+            {
+                continue;
+            }
+
+            var identity = NormalizeText(model.GetStringOrNull("id")) ?? modelName;
+            var slug = Slug(identity);
+            if (slug.Length == 0 || slug == "all-models" || !seenIds.Add(slug))
+            {
+                continue;
+            }
+
+            windows.Add(new UsageWindow
+            {
+                Id = $"claude-weekly-scoped-{slug}",
+                GroupLabel = modelName,
+                Type = UsageWindowType.Weekly,
+                UsedRatio = Math.Clamp(percent / 100.0, 0.0, 1.0),
+                Label = WindowLabels.For(UsageWindowType.Weekly),
+                ResetTime = limit.GetDateTimeOffsetOrNull("resets_at"),
+                Duration = TimeSpan.FromDays(7),
+            });
+        }
+
+        return windows;
+    }
+
+    private static string? NormalizeText(string? value)
+        => value?.Trim() is { Length: > 0 } text ? text : null;
+
+    private static string Slug(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        var lastWasDash = false;
+        foreach (var character in value.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(character);
+                lastWasDash = false;
+            }
+            else if (!lastWasDash && builder.Length > 0)
+            {
+                builder.Append('-');
+                lastWasDash = true;
+            }
+        }
+        return builder.ToString().TrimEnd('-');
     }
 }

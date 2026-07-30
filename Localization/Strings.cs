@@ -83,6 +83,7 @@ internal static class Strings
         ["Reset_InHours"]     = ["{0}시간 후 초기화",  "Resets in {0}h",    "{0}時間後にリセット"],
         ["Reset_InMinutes"]   = ["{0}분 후 초기화",    "Resets in {0}m",    "{0}分後にリセット"],
         ["DateFormat_MonthDay"] = ["M월 d일",         "MMM d",             "M月d日"],
+        ["Pace_Ahead"]        = ["균등 페이스보다 {0}%p 빠름", "Ahead of even pace by {0} pp", "均等ペースより{0}ポイント速い"],
 
         // ── Notifications ──────────────────────────────────────────────────
         ["Notif_ThresholdTitle"] = ["{0} · {1} 한도 {2}% 도달", "{0} · {2}% of {1} limit used", "{0} · {1} 上限{2}%に到達"], // {0}=tool {1}=label {2}=percent

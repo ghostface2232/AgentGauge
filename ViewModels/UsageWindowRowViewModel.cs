@@ -13,12 +13,13 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     public UsageWindowRowViewModel(UsageWindow window)
     {
         Key = window.Key;
-        Label = window.Label;
-        FamilyLabel = window.GroupLabel ?? string.Empty;
+        Label = string.Empty;
+        FamilyLabel = string.Empty;
         GroupHeader = string.Empty;
         PercentText = string.Empty;
         PercentNumber = string.Empty;
         ResetText = string.Empty;
+        PaceText = string.Empty;
         Update(window);
     }
 
@@ -26,7 +27,8 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     public string Key { get; }
 
     /// <summary>Window label (e.g. "5시간", "주간").</summary>
-    public string Label { get; }
+    [ObservableProperty]
+    public partial string Label { get; set; }
 
     /// <summary>
     /// Model-family name for this window (e.g. "Gemini", "Claude/GPT"), empty for ungrouped
@@ -34,7 +36,9 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     /// each group for the bar layout — this is the window's own family and is shown on every
     /// gauge in gauge mode, where each gauge stands alone in a grid cell.
     /// </summary>
-    public string FamilyLabel { get; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFamilyLabel))]
+    public partial string FamilyLabel { get; set; }
 
     /// <summary>True when this window belongs to a model family (controls the gauge label).</summary>
     public bool HasFamilyLabel => !string.IsNullOrEmpty(FamilyLabel);
@@ -74,14 +78,26 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     public partial string ResetText { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPaceWarning))]
+    public partial string PaceText { get; set; }
+
+    public bool HasPaceWarning => !string.IsNullOrEmpty(PaceText);
+
+    [ObservableProperty]
+    public partial UsageLevel PaceLevel { get; set; }
+
+    [ObservableProperty]
     public partial UsageLevel Level { get; set; }
 
     public void Update(UsageWindow window)
     {
+        Label = window.Label;
+        FamilyLabel = window.GroupLabel ?? string.Empty;
         Percent = Math.Clamp(window.UsedRatio, 0.0, 1.0) * 100.0;
         PercentText = $"{window.UsedRatio * 100:0}%";
         PercentNumber = $"{window.UsedRatio * 100:0}";
         Level = UsageLevelClassifier.Classify(window.UsedRatio);
         ResetText = ResetTimeFormatter.ForRow(window.ResetTime);
+        (PaceText, PaceLevel) = UsagePaceClassifier.ForRow(window);
     }
 }

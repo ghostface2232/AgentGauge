@@ -74,10 +74,12 @@ public sealed class AntigravityQuotaParserTests
         Assert.Equal(UsageWindowType.Weekly, geminiWeekly.Type);
         Assert.Equal(1 - 0.9989373, geminiWeekly.UsedRatio, 6);
         Assert.Equal(DateTimeOffset.Parse("2026-06-28T00:03:00Z"), geminiWeekly.ResetTime);
+        Assert.Equal(TimeSpan.FromDays(7), geminiWeekly.Duration);
 
         var geminiFiveHour = windows[1];
         Assert.Equal(UsageWindowType.FiveHour, geminiFiveHour.Type);
         Assert.Equal(1 - 0.9936241, geminiFiveHour.UsedRatio, 6);
+        Assert.Equal(TimeSpan.FromHours(5), geminiFiveHour.Duration);
 
         // remainingFraction == 1 → fully available, never clamped into spent.
         Assert.Equal(0.0, windows[2].UsedRatio, 6);
@@ -156,6 +158,53 @@ public sealed class AntigravityQuotaParserTests
         """;
         var window = Assert.Single(AntigravityQuotaParser.Parse(json));
         Assert.Equal("gemini-5h", window.Id);
+    }
+
+    [Fact]
+    public void UsesGroupMetadataWhenBucketIdsChange()
+    {
+        const string json = """
+        {
+          "response": {
+            "groups": [{
+              "displayName": "Claude and GPT models",
+              "buckets": [{
+                "bucketId": "partner-weekly-v2",
+                "window": "weekly",
+                "remainingFraction": 0.8
+              }]
+            }]
+          }
+        }
+        """;
+
+        var window = Assert.Single(AntigravityQuotaParser.Parse(json));
+        Assert.Equal("Claude/GPT", window.GroupLabel);
+    }
+
+    [Theory]
+    [InlineData("""{ "disabled": true }""")]
+    [InlineData("""{ "isDisabled": true }""")]
+    [InlineData("""{ "enabled": false }""")]
+    [InlineData("""{ "available": false }""")]
+    public void WithdrawnGroupOrBucketIsOmitted(string state)
+    {
+        var bucketState = $$"""
+        {
+          "response": {
+            "groups": [{
+              "displayName": "Claude and GPT models",
+              "buckets": [{
+                "bucketId": "3p-weekly",
+                "window": "weekly",
+                "remainingFraction": 0.8,
+                {{state.Trim('{', '}')}}
+              }]
+            }]
+          }
+        }
+        """;
+        Assert.Empty(AntigravityQuotaParser.Parse(bucketState));
     }
 
     [Theory]
