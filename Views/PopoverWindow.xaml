@@ -234,15 +234,16 @@
                                                 Text="{Binding Plan}"
                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                 Visibility="{Binding HasPlan, Converter={StaticResource BoolToVis}}" />
-                                            <!-- Only stale last-good data gets a marker. Healthy cards
-                                                 remain unchanged; the tooltip/automation name carries
-                                                 the meaning so the dot is not color-only feedback. -->
-                                            <Border
-                                                Width="6"
-                                                Height="6"
+                                            <!-- Keep stale last-good data visibly and semantically
+                                                 labeled. Unlike a color-only dot, this text is exposed
+                                                 by the TextBlock automation peer and needs no hover or
+                                                 keyboard focus to communicate the failed refresh. -->
+                                            <TextBlock
                                                 VerticalAlignment="Center"
-                                                CornerRadius="3"
-                                                Background="{StaticResource UsageCautionBrush}"
+                                                FontSize="12"
+                                                Foreground="{StaticResource UsageCautionBrush}"
+                                                Text="{loc:Localize Key=Status_RefreshIssue}"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
                                                 AutomationProperties.Name="{loc:Localize Key=Tooltip_RefreshIssue}"
                                                 ToolTipService.ToolTip="{loc:Localize Key=Tooltip_RefreshIssue}"
                                                 Visibility="{Binding HasRefreshIssue, Converter={StaticResource BoolToVis}}" />

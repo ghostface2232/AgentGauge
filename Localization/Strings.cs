@@ -19,6 +19,7 @@ internal static class Strings
         ["Settings"]          = ["설정",             "Settings",          "設定"],
         ["Tooltip_Disconnect"] = ["연결 해제",        "Disconnect",        "接続解除"],
         ["Tooltip_Refresh"]   = ["새로고침",          "Refresh",           "更新"],
+        ["Status_RefreshIssue"] = ["갱신 실패",        "Refresh failed",    "更新失敗"],
         ["Tooltip_RefreshIssue"] = ["마지막 갱신 실패 · 이전 값을 표시 중", "Last refresh failed · showing previous data", "最終更新に失敗・以前のデータを表示中"],
         ["Tooltip_Back"]      = ["뒤로",             "Back",              "戻る"],
         ["AddService"]        = ["서비스 추가",        "Add service",       "サービスを追加"],
