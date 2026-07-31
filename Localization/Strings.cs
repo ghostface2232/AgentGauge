@@ -25,14 +25,14 @@ internal static class Strings
 
         // ── Global settings (toggles above the service list) ───────────────
         ["Settings_Notifications"] = ["알림",          "Notifications",     "通知"],
-        ["Settings_NotificationsDesc"] = ["한도 도달·초기화 시 알림", "Alert on limit reached and reset", "上限到達・リセット時に通知"],
-        ["Settings_StartOnBoot"]   = ["시작프로그램 등록", "Start on boot",   "スタートアップに登録"],
-        ["Settings_StartOnBootDesc"] = ["Windows 시작 시 자동 실행", "Launch automatically when Windows starts", "Windows起動時に自動実行"],
-        ["Settings_ViewMode"]      = ["보기 방식",        "View mode",         "表示方式"],
-        ["Settings_ViewModeDesc"]  = ["사용량 표시 방식 선택", "How usage is displayed", "使用量の表示方法を選択"],
-        ["ViewMode_Bar"]          = ["바 모드",          "Bar",               "バー"],
-        ["ViewMode_Gauge"]        = ["게이지 모드",       "Gauge",             "ゲージ"],
-        ["Tray_StartOnBoot"]  = ["시작프로그램 등록",   "Start on boot",     "スタートアップに登録"],
+        ["Settings_NotificationsDesc"] = ["사용량이 높아지거나 한도가 초기화되면 알림", "Alert on limit reached and reset", "上限到達・リセット時に通知"],
+        ["Settings_StartOnBoot"]   = ["Windows 시작 시 실행", "Start on boot",   "スタートアップに登録"],
+        ["Settings_StartOnBootDesc"] = ["Windows에 로그인하면 자동으로 실행", "Launch automatically when Windows starts", "Windows起動時に自動実行"],
+        ["Settings_ViewMode"]      = ["사용량 표시",        "View mode",         "表示方式"],
+        ["Settings_ViewModeDesc"]  = ["막대 또는 게이지로 표시", "How usage is displayed", "使用量の表示方法を選択"],
+        ["ViewMode_Bar"]          = ["막대",             "Bar",               "バー"],
+        ["ViewMode_Gauge"]        = ["게이지",           "Gauge",             "ゲージ"],
+        ["Tray_StartOnBoot"]  = ["Windows 시작 시 실행", "Start on boot",     "スタートアップに登録"],
         ["Tray_Exit"]         = ["종료",             "Exit",              "終了"],
 
         // ── Login button / auth card ───────────────────────────────────────
@@ -52,8 +52,8 @@ internal static class Strings
         ["Update_InstallFailed"] = ["업데이트 설치를 시작하지 못했습니다.", "Couldn't start the update installation.", "更新のインストールを開始できませんでした。"],
 
         // ── Usage view ─────────────────────────────────────────────────────
-        ["LastUpdated_Never"] = ["갱신 전",           "Not updated yet",   "未更新"],
-        ["LastUpdated_At"]    = ["{0} 갱신",          "Updated {0}",       "{0} 更新"],            // {0} = HH:mm
+        ["LastUpdated_Never"] = ["아직 갱신되지 않음",    "Not updated yet",   "未更新"],
+        ["LastUpdated_At"]    = ["마지막 갱신 {0}",      "Updated {0}",       "{0} 更新"],            // {0} = HH:mm
         ["Loading"]           = ["사용량을 불러오는 중…", "Loading usage…",   "使用量を読み込み中…"],
         ["Empty_FetchFailed"] = ["사용량 정보를 불러올 수 없습니다.\n설정에서 로그인 상태를 확인하세요.",
                                  "Couldn't load usage.\nCheck your sign-in status in settings.",
@@ -70,27 +70,27 @@ internal static class Strings
         ["Label_ModelQuota"]  = ["모델",             "Model",             "モデル"],
         // GitHub Copilot's per-quota window labels (its monthly chat / completions / premium).
         ["Label_Copilot_Chat"] = ["채팅",            "Chat",              "チャット"],
-        ["Label_Copilot_Completions"] = ["코드 완성", "Completions",      "コード補完"],
+        ["Label_Copilot_Completions"] = ["코드 자동 완성", "Completions",   "コード補完"],
         ["Label_Copilot_Premium"] = ["프리미엄 요청", "Premium requests", "プレミアム要求"],
 
         // ── Reset-time phrases ─────────────────────────────────────────────
         ["Reset_Done"]        = ["초기화됨",          "Reset",             "リセット済み"],
         ["Reset_Soon"]        = ["곧 초기화",         "Resetting soon",    "まもなくリセット"],
         ["Reset_Unknown"]     = ["초기화 시각을 확인할 수 없습니다", "Reset time unavailable", "リセット時刻を確認できません"],
-        ["Reset_InDays"]      = ["{0}일 후 ({1}) 초기화", "Resets in {0} days ({1})", "{0}日後（{1}）にリセット"], // {0}=n {1}=date
-        ["Reset_InDay"]       = ["{0}일 후 ({1}) 초기화", "Resets in {0} day ({1})",  "{0}日後（{1}）にリセット"], // singular (English)
+        ["Reset_InDays"]      = ["{0}일 후 초기화 ({1})", "Resets in {0} days ({1})", "{0}日後（{1}）にリセット"], // {0}=n {1}=date
+        ["Reset_InDay"]       = ["{0}일 후 초기화 ({1})", "Resets in {0} day ({1})",  "{0}日後（{1}）にリセット"], // singular (English)
         ["Reset_InHoursMinutes"] = ["{0}시간 {1}분 후 초기화", "Resets in {0}h {1}m", "{0}時間{1}分後にリセット"],
         ["Reset_InHours"]     = ["{0}시간 후 초기화",  "Resets in {0}h",    "{0}時間後にリセット"],
         ["Reset_InMinutes"]   = ["{0}분 후 초기화",    "Resets in {0}m",    "{0}分後にリセット"],
         ["DateFormat_MonthDay"] = ["M월 d일",         "MMM d",             "M月d日"],
-        ["Pace_Ahead"]        = ["균등 페이스보다 {0}%p 빠름", "Ahead of even pace by {0} pp", "均等ペースより{0}ポイント速い"],
+        ["Pace_FastDepletion"] = ["빠르게 소진 중",       "Depleting quickly", "急速に消費中"],
 
         // ── Notifications ──────────────────────────────────────────────────
-        ["Notif_ThresholdTitle"] = ["{0} · {1} 한도 {2}% 도달", "{0} · {2}% of {1} limit used", "{0} · {1} 上限{2}%に到達"], // {0}=tool {1}=label {2}=percent
-        ["Notif_ThresholdScopedTitle"] = ["{0} · {1} {2} 한도 {3}% 도달", "{0} · {3}% of {1} {2} limit used", "{0} · {1} {2} 上限{3}%に到達"], // {0}=tool {1}=scope {2}=label {3}=percent
+        ["Notif_ThresholdTitle"] = ["{0} · {1} 한도 {2}% 사용", "{0} · {2}% of {1} limit used", "{0} · {1} 上限{2}%に到達"], // {0}=tool {1}=label {2}=percent
+        ["Notif_ThresholdScopedTitle"] = ["{0} · {1} {2} 한도 {3}% 사용", "{0} · {3}% of {1} {2} limit used", "{0} · {1} {2} 上限{3}%に到達"], // {0}=tool {1}=scope {2}=label {3}=percent
         ["Notif_ResetTitle"]  = ["{0} · {1} 한도 초기화", "{0} · {1} limit reset", "{0} · {1} 上限リセット"],
         ["Notif_ResetScopedTitle"] = ["{0} · {1} {2} 한도 초기화", "{0} · {1} {2} limit reset", "{0} · {1} {2} 上限リセット"], // {0}=tool {1}=scope {2}=label
-        ["Notif_ResetMessage"] = ["현재 {0:0}%로 한도 초기화됨", "Reset — {0:0}% now available", "利用枠が{0:0}%にリセットされました"],
+        ["Notif_ResetMessage"] = ["한도가 초기화되어 현재 {0:0}% 남았습니다.", "Reset — {0:0}% now available", "利用枠が{0:0}%にリセットされました"],
 
         // ── Authentication state messages ──────────────────────────────────
         ["Auth_CliNotFound"]  = ["{0} CLI를 찾을 수 없습니다. CLI를 설치한 뒤 `{1}`를 실행하세요.",
@@ -107,7 +107,7 @@ internal static class Strings
         ["Auth_LoginBadExit"] = ["CLI 로그인이 완료되지 않았습니다. 종료 코드: {0}",
                                  "CLI sign-in didn't complete. Exit code: {0}",
                                  "CLIログインが完了しませんでした。終了コード: {0}"],
-        ["Auth_CredentialNotFound"] = ["CLI가 정상 종료됐지만 로그인 정보를 찾지 못했습니다. CLI에서 로그인을 확인하세요.",
+        ["Auth_CredentialNotFound"] = ["CLI가 정상 종료됐지만 로그인 정보를 찾지 못했습니다. CLI에서 로그인 상태를 확인하세요.",
                                  "The CLI exited normally but no sign-in was found. Check the sign-in in the CLI.",
                                  "CLIは正常に終了しましたが、ログイン情報が見つかりませんでした。CLIでログインを確認してください。"],
         ["Auth_Expired"]      = ["로그인이 만료되었거나 거부되었습니다. 다시 로그인하세요.",
@@ -116,7 +116,7 @@ internal static class Strings
         ["Auth_SignedInWithPlan"] = ["로그인됨 · {0}", "Signed in · {0}", "ログイン済み · {0}"],
         ["Auth_SignedIn"]     = ["로그인됨",          "Signed in",         "ログイン済み"],
         ["Auth_InvalidCredential"] = ["로그인 정보가 올바르지 않습니다.", "The sign-in information is invalid.", "ログイン情報が正しくありません。"],
-        ["Auth_Missing"]      = ["더 정확한 사용량 정보를 보려면 로그인해주세요.",
+        ["Auth_Missing"]      = ["사용량을 확인하려면 로그인해 주세요.",
                                  "Sign in to see more accurate usage.",
                                  "より正確な使用量を表示するにはログインしてください。"],
         // Antigravity has no Gauge-readable credential; describe the source instead of asking

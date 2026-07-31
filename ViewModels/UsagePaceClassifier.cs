@@ -39,8 +39,7 @@ public static class UsagePaceClassifier
             return (string.Empty, UsageLevel.Ok);
         }
 
-        var percentagePoints = Math.Max(1, (int)Math.Round(aheadRatio * 100, MidpointRounding.AwayFromZero));
         var level = aheadRatio >= DangerAheadRatio ? UsageLevel.Danger : UsageLevel.Caution;
-        return (Loc.Format("Pace_Ahead", percentagePoints), level);
+        return (Loc.Get("Pace_FastDepletion"), level);
     }
 }

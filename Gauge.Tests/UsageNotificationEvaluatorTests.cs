@@ -155,7 +155,7 @@ public sealed class UsageNotificationEvaluatorTests
 
         Assert.Single(reset);
         Assert.Equal(UsageNotificationKind.Reset, reset[0].Kind);
-        Assert.Equal("현재 98%로 한도 초기화됨", reset[0].Message);
+        Assert.Equal("한도가 초기화되어 현재 98% 남았습니다.", reset[0].Message);
     }
 
     [Fact]
