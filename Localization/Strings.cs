@@ -84,10 +84,7 @@ internal static class Strings
         ["Reset_InHours"]     = ["{0}시간 후 초기화",  "Resets in {0}h",    "{0}時間後にリセット"],
         ["Reset_InMinutes"]   = ["{0}분 후 초기화",    "Resets in {0}m",    "{0}分後にリセット"],
         ["DateFormat_MonthDay"] = ["M월 d일",         "MMM d",             "M月d日"],
-        ["Pace_DepletesSoon"] = ["곧 소진 예상", "May run out soon", "まもなく使い切る見込み"],
-        ["Pace_DepletesInMinutes"] = ["약 {0}분 후 소진 예상", "May run out in ~{0}m", "約{0}分後に使い切る見込み"],
-        ["Pace_DepletesInHoursMinutes"] = ["약 {0}시간 {1}분 후 소진 예상", "May run out in ~{0}h {1}m", "約{0}時間{1}分後に使い切る見込み"],
-        ["Pace_DepletesInDaysHours"] = ["약 {0}일 {1}시간 후 소진 예상", "May run out in ~{0}d {1}h", "約{0}日{1}時間後に使い切る見込み"],
+        ["Pace_FastDepletion"] = ["빠르게 소진 중", "Depleting quickly", "急速に消費中"],
 
         // ── Notifications ──────────────────────────────────────────────────
         ["Notif_ThresholdTitle"] = ["{0} · {1} 한도 {2}% 사용", "{0} · {2}% of {1} limit used", "{0} · {1} 上限{2}%に到達"], // {0}=tool {1}=label {2}=percent

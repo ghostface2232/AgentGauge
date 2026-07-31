@@ -8,13 +8,13 @@ public sealed class UsagePaceClassifierTests
     private static readonly DateTimeOffset Now = new(2026, 7, 30, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void AheadOfEvenPaceShowsProjectedExhaustion()
+    public void AheadOfEvenPaceShowsCompactWarning()
     {
         var window = Window(used: 0.60, elapsed: 0.25);
 
         var (text, level) = UsagePaceClassifier.ForRow(window, Now);
 
-        Assert.Equal("약 1일 4시간 후 소진 예상", text);
+        Assert.Equal("빠르게 소진 중", text);
         Assert.Equal(UsageLevel.Danger, level);
     }
 
@@ -31,7 +31,7 @@ public sealed class UsagePaceClassifierTests
     public void ModerateLeadUsesCautionLevel()
     {
         var (text, level) = UsagePaceClassifier.ForRow(Window(used: 0.42, elapsed: 0.25), Now);
-        Assert.Equal("약 2일 10시간 후 소진 예상", text);
+        Assert.Equal("빠르게 소진 중", text);
         Assert.Equal(UsageLevel.Caution, level);
     }
 
