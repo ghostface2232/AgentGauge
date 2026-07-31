@@ -234,6 +234,18 @@
                                                 Text="{Binding Plan}"
                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                 Visibility="{Binding HasPlan, Converter={StaticResource BoolToVis}}" />
+                                            <!-- Only stale last-good data gets a marker. Healthy cards
+                                                 remain unchanged; the tooltip/automation name carries
+                                                 the meaning so the dot is not color-only feedback. -->
+                                            <Border
+                                                Width="6"
+                                                Height="6"
+                                                VerticalAlignment="Center"
+                                                CornerRadius="3"
+                                                Background="{StaticResource UsageCautionBrush}"
+                                                AutomationProperties.Name="{loc:Localize Key=Tooltip_RefreshIssue}"
+                                                ToolTipService.ToolTip="{loc:Localize Key=Tooltip_RefreshIssue}"
+                                                Visibility="{Binding HasRefreshIssue, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
 
                                         <!-- The tool's windows, rendered as bars or gauges per the

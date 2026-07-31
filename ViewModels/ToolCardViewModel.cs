@@ -58,12 +58,22 @@ public sealed partial class ToolCardViewModel : ObservableObject
     [ObservableProperty]
     public partial bool HasAnyData { get; set; }
 
+    /// <summary>
+    /// True when this card is showing its last good snapshot because the latest refresh
+    /// attempt failed. The usage view represents this with one small status dot; healthy
+    /// cards stay visually unchanged.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool HasRefreshIssue { get; set; }
+
     /// <summary>Shown instead of rows when the tool has no windows.</summary>
     [ObservableProperty]
     public partial string StatusText { get; set; }
 
     public void Update(CachedUsage cached)
     {
+        HasRefreshIssue = cached.LastRefreshFailed;
+
         // Plan comes from the snapshot (retained across failed refreshes), so it stays
         // visible even when the current window data is unavailable.
         var plan = cached.Snapshot?.Plan;

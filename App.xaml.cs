@@ -62,7 +62,8 @@ public partial class App : Application
         _trayIcon.SetStartOnBootChecked(_startupService.IsEnabled());
 
         // Data pipeline: providers → UsageService (parallel + isolated) → coordinator
-        // (60s timer + cache + debounced forced refresh) → view model → UI/tray.
+        // (one-minute scheduler with provider-specific cadences + cache + debounced forced
+        // refresh) → view model → UI/tray.
         // Providers read each tool's real usage from its official OAuth usage API,
         // using the token the CLI already stores locally (read-only).
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };

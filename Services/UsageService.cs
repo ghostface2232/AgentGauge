@@ -40,11 +40,22 @@ public sealed class UsageService
         _isEnabled = isEnabled ?? (_ => true);
     }
 
+    /// <summary>The currently enabled providers, in catalog/registration order.</summary>
+    public IReadOnlyList<IUsageProvider> GetEnabledProviders()
+        => _providers.Where(provider => _isEnabled(provider.Tool)).ToList();
+
     public async Task<IReadOnlyList<ProviderSnapshotResult>> GetAllSnapshotsAsync(CancellationToken cancellationToken)
+        => await GetSnapshotsAsync(GetEnabledProviders(), cancellationToken);
+
+    /// <summary>
+    /// Queries the selected providers in parallel. The coordinator uses this for periodic
+    /// provider-specific cadences while forced refreshes still call every enabled provider.
+    /// </summary>
+    public async Task<IReadOnlyList<ProviderSnapshotResult>> GetSnapshotsAsync(
+        IEnumerable<IUsageProvider> providers,
+        CancellationToken cancellationToken)
     {
-        var tasks = _providers
-            .Where(provider => _isEnabled(provider.Tool))
-            .Select(provider => GetIsolatedAsync(provider, cancellationToken));
+        var tasks = providers.Select(provider => GetIsolatedAsync(provider, cancellationToken));
         return await Task.WhenAll(tasks);
     }
 

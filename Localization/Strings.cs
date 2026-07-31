@@ -19,6 +19,7 @@ internal static class Strings
         ["Settings"]          = ["설정",             "Settings",          "設定"],
         ["Tooltip_Disconnect"] = ["연결 해제",        "Disconnect",        "接続解除"],
         ["Tooltip_Refresh"]   = ["새로고침",          "Refresh",           "更新"],
+        ["Tooltip_RefreshIssue"] = ["마지막 갱신 실패 · 이전 값을 표시 중", "Last refresh failed · showing previous data", "最終更新に失敗・以前のデータを表示中"],
         ["Tooltip_Back"]      = ["뒤로",             "Back",              "戻る"],
         ["AddService"]        = ["서비스 추가",        "Add service",       "サービスを追加"],
         ["NoServicesToAdd"]   = ["추가할 서비스가 없습니다", "No services to add", "追加できるサービスがありません"],
@@ -83,7 +84,10 @@ internal static class Strings
         ["Reset_InHours"]     = ["{0}시간 후 초기화",  "Resets in {0}h",    "{0}時間後にリセット"],
         ["Reset_InMinutes"]   = ["{0}분 후 초기화",    "Resets in {0}m",    "{0}分後にリセット"],
         ["DateFormat_MonthDay"] = ["M월 d일",         "MMM d",             "M月d日"],
-        ["Pace_FastDepletion"] = ["빠르게 소진 중",       "Depleting quickly", "急速に消費中"],
+        ["Pace_DepletesSoon"] = ["곧 소진 예상", "May run out soon", "まもなく使い切る見込み"],
+        ["Pace_DepletesInMinutes"] = ["약 {0}분 후 소진 예상", "May run out in ~{0}m", "約{0}分後に使い切る見込み"],
+        ["Pace_DepletesInHoursMinutes"] = ["약 {0}시간 {1}분 후 소진 예상", "May run out in ~{0}h {1}m", "約{0}時間{1}分後に使い切る見込み"],
+        ["Pace_DepletesInDaysHours"] = ["약 {0}일 {1}시간 후 소진 예상", "May run out in ~{0}d {1}h", "約{0}日{1}時間後に使い切る見込み"],
 
         // ── Notifications ──────────────────────────────────────────────────
         ["Notif_ThresholdTitle"] = ["{0} · {1} 한도 {2}% 사용", "{0} · {2}% of {1} limit used", "{0} · {1} 上限{2}%に到達"], // {0}=tool {1}=label {2}=percent

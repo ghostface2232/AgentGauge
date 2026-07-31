@@ -135,8 +135,8 @@ The settings screen is a second view hosted **inside** the same popover window (
 
 ## Polling and refresh
 
-- A PeriodicTimer drives a 3-minute refresh of all providers. The cycle is deliberately slower than the per-tool work: most providers self-throttle below it (Claude caches for ~5 min) and the Antigravity delegate engine is spawned and torn down per read, so a slower cycle keeps that cold-start churn down. Opening the popover still forces an immediate fresh read, so the user always sees current data when they look.
-- On each cycle, call providers in parallel, each call isolated in try-catch.
+- A PeriodicTimer ticks once per minute as a scheduler, but refreshes only providers whose own cadence is due: Codex every 3 minutes, Claude/Cursor every 5, Antigravity every 10, and GitHub Copilot every 15. This keeps Codex responsive, respects Claude's ~5-minute network cache, and cuts unnecessary Antigravity delegate-engine launches and monthly Copilot reads. Opening the popover still forces an immediate fresh read of every enabled provider, so the user always sees current data when they look.
+- On each scheduler cycle, call the due providers in parallel, each call isolated in try-catch.
 - Opening the popover triggers one immediate forced refresh, debounced: skip if the last refresh was under 10s ago and show the cached value instead.
 - Cache the last successful snapshot. On failure, keep it and display it with a last-updated time.
 - The toggle guard and the refresh debounce must not conflict: tray left-click passes the toggle guard first; if it resolves to open, a debounced forced refresh then runs.

@@ -7,6 +7,17 @@ namespace Gauge.Tests;
 
 public sealed class UsageCoordinatorTests
 {
+    [Theory]
+    [InlineData(ToolKind.Codex, 3)]
+    [InlineData(ToolKind.ClaudeCode, 5)]
+    [InlineData(ToolKind.Cursor, 5)]
+    [InlineData(ToolKind.Antigravity, 10)]
+    [InlineData(ToolKind.GitHubCopilot, 15)]
+    public void BackgroundCadenceMatchesProviderCostAndWindowShape(ToolKind tool, int minutes)
+    {
+        Assert.Equal(TimeSpan.FromMinutes(minutes), UsageCoordinator.PeriodicIntervalFor(tool));
+    }
+
     [Fact]
     public async Task AuthenticationRefreshBypassesManualDebounce()
     {
@@ -143,6 +154,26 @@ public sealed class UsageCoordinatorTests
 
         var remaining = Assert.Single(state!.Tools);
         Assert.Equal("Claude Code", remaining.ToolName);
+    }
+
+    [Fact]
+    public async Task DisablingFinalToolPurgesCacheWithoutAProviderCall()
+    {
+        var provider = new StubProvider("Codex");
+        var enabled = new HashSet<ToolKind> { ToolKind.Codex };
+        using var coordinator = new UsageCoordinator(
+            new UsageService(new[] { provider }, enabled.Contains));
+        UsageState? state = null;
+        coordinator.Updated += (_, value) => state = value;
+
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+        Assert.Single(state!.Tools);
+
+        enabled.Clear();
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+
+        Assert.Empty(state!.Tools);
+        Assert.Equal(1, provider.CallCount);
     }
 
     [Fact]

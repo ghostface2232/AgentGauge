@@ -17,11 +17,9 @@ public enum RefreshReason
 /// <summary>
 /// Drives usage refreshes and owns the cache.
 ///
-/// - A <see cref="PeriodicTimer"/> refreshes every 3 minutes. Each cycle calls all
-///   providers in parallel, isolated per provider (via <see cref="UsageService"/>),
-///   so one tool's failure never blocks another's update. (Most providers self-throttle
-///   below this — e.g. Claude caches for 5 minutes — and the Antigravity delegate engine
-///   is spawned and torn down per read, so a slower cycle keeps that churn down.)
+/// - A one-minute scheduler tick refreshes only providers whose own cadence is due:
+///   Codex every 3 minutes, Claude/Cursor every 5, Antigravity every 10, and Copilot
+///   every 15. Due providers still run in parallel and remain failure-isolated.
 /// - Opening the popover or requesting a manual refresh calls <see cref="RefreshAsync"/>,
 ///   debounced: if a
 ///   refresh ran within the last 10s we skip the data source and just re-emit the
@@ -37,7 +35,7 @@ public enum RefreshReason
 /// </summary>
 public sealed class UsageCoordinator : IDisposable
 {
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan SchedulerTickInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ForcedRefreshDebounce = TimeSpan.FromSeconds(10);
 
     private readonly UsageService _usageService;
@@ -49,6 +47,7 @@ public sealed class UsageCoordinator : IDisposable
     private readonly object _cacheLock = new();
     private readonly Dictionary<string, CachedUsage> _cache = new();
     private readonly List<string> _toolOrder = new();
+    private readonly Dictionary<ToolKind, long> _lastProviderAttemptTicks = new();
 
     private long _lastRefreshStartedTick;
     private Task? _loopTask;
@@ -150,6 +149,7 @@ public sealed class UsageCoordinator : IDisposable
         try
         {
             await RefreshCoreAsync(
+                reason,
                 _cts.Token,
                 waitForExisting: reason is RefreshReason.AuthenticationChanged or RefreshReason.ToolsChanged);
         }
@@ -163,11 +163,11 @@ public sealed class UsageCoordinator : IDisposable
     {
         try
         {
-            await RefreshCoreAsync(cancellationToken); // immediate first load
-            using var timer = new PeriodicTimer(RefreshInterval);
+            await RefreshCoreAsync(RefreshReason.Periodic, cancellationToken); // immediate first load
+            using var timer = new PeriodicTimer(SchedulerTickInterval);
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
-                await RefreshCoreAsync(cancellationToken);
+                await RefreshCoreAsync(RefreshReason.Periodic, cancellationToken);
             }
         }
         catch (OperationCanceledException)
@@ -176,7 +176,10 @@ public sealed class UsageCoordinator : IDisposable
         }
     }
 
-    private async Task RefreshCoreAsync(CancellationToken cancellationToken, bool waitForExisting = false)
+    private async Task RefreshCoreAsync(
+        RefreshReason reason,
+        CancellationToken cancellationToken,
+        bool waitForExisting = false)
     {
         // Serialize cycles: if a refresh is already running, don't start another;
         // re-emit the current state so callers still get a fresh notification.
@@ -191,7 +194,39 @@ public sealed class UsageCoordinator : IDisposable
 
         try
         {
-            Interlocked.Exchange(ref _lastRefreshStartedTick, Environment.TickCount64);
+            var enabledProviders = _usageService.GetEnabledProviders();
+            var attemptTick = Environment.TickCount64;
+            var providersToRefresh = reason == RefreshReason.Periodic
+                ? enabledProviders.Where(provider => IsPeriodicRefreshDue(provider.Tool, attemptTick)).ToList()
+                : enabledProviders;
+
+            // A scheduler tick often has no due provider. It is not a refresh attempt and
+            // must not affect the 10-second user-action debounce.
+            if (providersToRefresh.Count == 0)
+            {
+                // Removing the final enabled tool also produces an empty batch. ToolsChanged
+                // must still purge and persist the old card even though there is nothing to fetch.
+                if (reason == RefreshReason.ToolsChanged)
+                {
+                    var remainingToolNames = enabledProviders.Select(provider => provider.ToolName).ToHashSet();
+                    var removedAnyTool = MergeIntoCache(
+                        Array.Empty<ProviderSnapshotResult>(),
+                        remainingToolNames);
+                    EmitState();
+                    if (removedAnyTool)
+                    {
+                        PersistSuccessfulSnapshots();
+                    }
+                }
+                return;
+            }
+
+            Interlocked.Exchange(ref _lastRefreshStartedTick, attemptTick);
+            foreach (var provider in providersToRefresh)
+            {
+                _lastProviderAttemptTicks[provider.Tool] = attemptTick;
+            }
+
             // Snapshot the cached capture-times before merging so a genuine live fetch can
             // be told apart from a re-served cache (see ReportAuthenticationOutcomes).
             Dictionary<string, DateTimeOffset?> priorCaptured;
@@ -199,8 +234,9 @@ public sealed class UsageCoordinator : IDisposable
             {
                 priorCaptured = _cache.ToDictionary(kv => kv.Key, kv => kv.Value.Snapshot?.CapturedAt);
             }
-            var results = await _usageService.GetAllSnapshotsAsync(cancellationToken);
-            var purgedTools = MergeIntoCache(results);
+            var results = await _usageService.GetSnapshotsAsync(providersToRefresh, cancellationToken);
+            var enabledToolNames = enabledProviders.Select(provider => provider.ToolName).ToHashSet();
+            var purgedTools = MergeIntoCache(results, enabledToolNames);
             ReportAuthenticationOutcomes(results, priorCaptured);
             EmitState();
             // Persist when at least one tool refreshed successfully, so an all-failed cycle
@@ -223,6 +259,23 @@ public sealed class UsageCoordinator : IDisposable
         await _refreshGate.WaitAsync(cancellationToken);
         return true;
     }
+
+    private bool IsPeriodicRefreshDue(ToolKind tool, long nowTick)
+        => !_lastProviderAttemptTicks.TryGetValue(tool, out var previous)
+            || nowTick - previous >= PeriodicIntervalFor(tool).TotalMilliseconds;
+
+    /// <summary>
+    /// Provider-specific background cadence. User-triggered and authentication/tool changes
+    /// bypass these intervals and still refresh every enabled provider immediately.
+    /// </summary>
+    internal static TimeSpan PeriodicIntervalFor(ToolKind tool) => tool switch
+    {
+        ToolKind.Codex => TimeSpan.FromMinutes(3),
+        ToolKind.ClaudeCode or ToolKind.Cursor => TimeSpan.FromMinutes(5),
+        ToolKind.Antigravity => TimeSpan.FromMinutes(10),
+        ToolKind.GitHubCopilot => TimeSpan.FromMinutes(15),
+        _ => TimeSpan.FromMinutes(5),
+    };
 
     private void ReportAuthenticationOutcomes(
         IReadOnlyList<ProviderSnapshotResult> results, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
@@ -271,18 +324,17 @@ public sealed class UsageCoordinator : IDisposable
     }
 
     /// <summary>Merges a refresh cycle's results into the cache; returns true if any stale tool was purged.</summary>
-    private bool MergeIntoCache(IReadOnlyList<ProviderSnapshotResult> results)
+    private bool MergeIntoCache(
+        IReadOnlyList<ProviderSnapshotResult> results,
+        IReadOnlySet<string> enabledToolNames)
     {
         lock (_cacheLock)
         {
-            // Drop tools no longer reported. UsageService returns exactly one result per
-            // ENABLED provider (success or failure), so a tool missing from the results
-            // was disabled (removed from the registry) — purge its cached card and order
-            // entry so it disappears from the UI. (Failed-but-enabled tools still appear
-            // here as error results and are kept below.)
-            var present = new HashSet<string>(results.Select(r => r.ToolName));
-            var staleKeys = _cache.Keys.Where(name => !present.Contains(name)).ToList();
-            _toolOrder.RemoveAll(name => !present.Contains(name));
+            // Periodic cycles may query only a subset of enabled providers, so absence from
+            // this result batch does not mean removal. The registry-backed enabled set is
+            // the authority for purging cards.
+            var staleKeys = _cache.Keys.Where(name => !enabledToolNames.Contains(name)).ToList();
+            _toolOrder.RemoveAll(name => !enabledToolNames.Contains(name));
             foreach (var stale in staleKeys)
             {
                 _cache.Remove(stale);

@@ -52,6 +52,21 @@ public sealed class ToolCardViewModelTests
     }
 
     [Fact]
+    public void RefreshIssueDotOnlyTracksFailedLastAttempt()
+    {
+        var healthy = Cached("Claude Code", Window(null, null, UsageWindowType.FiveHour));
+        var card = new ToolCardViewModel(healthy);
+
+        Assert.False(card.HasRefreshIssue);
+
+        card.Update(healthy with { LastRefreshFailed = true });
+        Assert.True(card.HasRefreshIssue);
+
+        card.Update(healthy);
+        Assert.False(card.HasRefreshIssue);
+    }
+
+    [Fact]
     public void GaugeRowsCarryFamilyLabelOnEveryWindow()
     {
         // Unlike the bar layout's first-row-only GroupHeader, each gauge is self-labeled
