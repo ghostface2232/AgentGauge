@@ -35,6 +35,22 @@ public sealed class PopoverXamlContractTests
         }
     }
 
+    [Fact]
+    public void NotificationKindTogglesAreDisabledWithTheMasterSwitch()
+    {
+        var document = XDocument.Load(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
+        var xaml = document.Root!.Name.Namespace;
+
+        foreach (var setting in new[] { "NotifyThresholds", "NotifyResets" })
+        {
+            var toggle = document.Descendants(xaml + "ToggleSwitch").Single(element =>
+                (string?)element.Attribute("IsOn") == $"{{Binding Global.{setting}, Mode=TwoWay}}");
+            Assert.Equal(
+                "{Binding Global.NotificationsEnabled}",
+                (string?)toggle.Attribute("IsEnabled"));
+        }
+    }
+
     private static string RepoRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

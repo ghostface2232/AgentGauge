@@ -594,6 +594,7 @@
                                 </StackPanel>
                                 <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
                                               MinWidth="0" OnContent="" OffContent=""
+                                              IsEnabled="{Binding Global.NotificationsEnabled}"
                                               IsOn="{Binding Global.NotifyThresholds, Mode=TwoWay}" />
                             </Grid>
                             <Grid MinHeight="40" Margin="12,0,0,0" ColumnSpacing="12"
@@ -612,6 +613,7 @@
                                 </StackPanel>
                                 <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
                                               MinWidth="0" OnContent="" OffContent=""
+                                              IsEnabled="{Binding Global.NotificationsEnabled}"
                                               IsOn="{Binding Global.NotifyResets, Mode=TwoWay}" />
                             </Grid>
                             <Border Height="1" Margin="0,2"
