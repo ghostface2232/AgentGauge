@@ -35,7 +35,6 @@
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
             <conv:PercentToGridLengthConverter x:Key="PercentToGridLength" />
             <conv:EmptyStringToNullConverter x:Key="EmptyToNull" />
-            <conv:BoolToDimOpacityConverter x:Key="BoolToDimOpacity" />
             <Style x:Key="BorderlessIconButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
@@ -557,65 +556,62 @@
                     <Border CornerRadius="8"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                            Padding="14,2">
+                            Padding="14,4">
                         <StackPanel>
-                            <Grid MinHeight="48" ColumnSpacing="12">
+                            <!-- Keep the disclosure row in the same visual grammar as every other
+                                 setting: one flat 48dip row with a right-edge chevron. Notification
+                                 kinds own the switches; the parent row only discloses those choices. -->
+                            <Grid MinHeight="48" ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="40" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
-                                    <TextBlock Text="{loc:Localize Key=Settings_Notifications}"
-                                               Style="{StaticResource BodyTextBlockStyle}" />
-                                    <TextBlock Text="{loc:Localize Key=Settings_NotificationsDesc}"
-                                               Opacity="0.6" TextWrapping="Wrap"
-                                               Style="{StaticResource CaptionTextBlockStyle}" />
-                                </StackPanel>
-                                <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
-                                              MinWidth="0" OnContent="" OffContent=""
-                                              IsOn="{Binding Global.NotificationsEnabled, Mode=TwoWay}" />
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_Notifications}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <Button x:Name="NotificationOptionsButton" Grid.Column="1"
+                                        Width="40" Height="40" Padding="8"
+                                        HorizontalAlignment="Right" VerticalAlignment="Center"
+                                        Style="{StaticResource BorderlessIconButtonStyle}"
+                                        Click="OnNotificationOptionsClicked"
+                                        AutomationProperties.Name="{loc:Localize Key=Settings_Notifications}">
+                                    <FontIcon x:Name="NotificationOptionsGlyph"
+                                              Glyph="&#xE70D;" FontSize="12" />
+                                </Button>
                             </Grid>
-                            <!-- Per-kind notification toggles, indented under the master switch
-                                 and inert while it is off. Two kinds only — per-tool matrices
-                                 are deliberately not offered (settings density is a feature). -->
-                            <Grid MinHeight="40" Margin="12,0,0,0" ColumnSpacing="12"
-                                  IsHitTestVisible="{Binding Global.NotificationsEnabled}"
-                                  Opacity="{Binding Global.NotificationsEnabled, Converter={StaticResource BoolToDimOpacity}}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
-                                    <TextBlock Text="{loc:Localize Key=Settings_NotifyThresholds}"
-                                               Style="{StaticResource BodyTextBlockStyle}" />
-                                    <TextBlock Text="{loc:Localize Key=Settings_NotifyThresholdsDesc}"
-                                               Opacity="0.6" TextWrapping="Wrap"
-                                               Style="{StaticResource CaptionTextBlockStyle}" />
+                            <!-- Per-kind notification toggles remain configurable while the tray's
+                                 global pause is off. Two kinds only — per-tool matrices are
+                                 deliberately not offered (settings density is a feature). -->
+                            <StackPanel x:Name="NotificationKindRows" Visibility="Collapsed">
+                                <Border Height="1" Margin="0,2"
+                                        Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                                <StackPanel Margin="12,0,0,0">
+                                    <Grid MinHeight="48" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                                   Text="{loc:Localize Key=Settings_NotifyThresholds}"
+                                                   Style="{StaticResource BodyTextBlockStyle}" />
+                                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                                      MinWidth="0" OnContent="" OffContent=""
+                                                      IsOn="{Binding Global.NotifyThresholds, Mode=TwoWay}" />
+                                    </Grid>
+                                    <Grid MinHeight="48" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                                   Text="{loc:Localize Key=Settings_NotifyResets}"
+                                                   Style="{StaticResource BodyTextBlockStyle}" />
+                                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                                      MinWidth="0" OnContent="" OffContent=""
+                                                      IsOn="{Binding Global.NotifyResets, Mode=TwoWay}" />
+                                    </Grid>
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
-                                              MinWidth="0" OnContent="" OffContent=""
-                                              IsEnabled="{Binding Global.NotificationsEnabled}"
-                                              IsOn="{Binding Global.NotifyThresholds, Mode=TwoWay}" />
-                            </Grid>
-                            <Grid MinHeight="40" Margin="12,0,0,0" ColumnSpacing="12"
-                                  IsHitTestVisible="{Binding Global.NotificationsEnabled}"
-                                  Opacity="{Binding Global.NotificationsEnabled, Converter={StaticResource BoolToDimOpacity}}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
-                                    <TextBlock Text="{loc:Localize Key=Settings_NotifyResets}"
-                                               Style="{StaticResource BodyTextBlockStyle}" />
-                                    <TextBlock Text="{loc:Localize Key=Settings_NotifyResetsDesc}"
-                                               Opacity="0.6" TextWrapping="Wrap"
-                                               Style="{StaticResource CaptionTextBlockStyle}" />
-                                </StackPanel>
-                                <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
-                                              MinWidth="0" OnContent="" OffContent=""
-                                              IsEnabled="{Binding Global.NotificationsEnabled}"
-                                              IsOn="{Binding Global.NotifyResets, Mode=TwoWay}" />
-                            </Grid>
+                            </StackPanel>
                             <Border Height="1" Margin="0,2"
                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                             <Grid MinHeight="48" ColumnSpacing="12">
@@ -623,13 +619,9 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
-                                    <TextBlock Text="{loc:Localize Key=Settings_StartOnBoot}"
-                                               Style="{StaticResource BodyTextBlockStyle}" />
-                                    <TextBlock Text="{loc:Localize Key=Settings_StartOnBootDesc}"
-                                               Opacity="0.6" TextWrapping="Wrap"
-                                               Style="{StaticResource CaptionTextBlockStyle}" />
-                                </StackPanel>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_StartOnBoot}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
                                 <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
                                               MinWidth="0" OnContent="" OffContent=""
                                               IsOn="{Binding Global.StartOnBoot, Mode=TwoWay}" />
@@ -643,13 +635,9 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
-                                    <TextBlock Text="{loc:Localize Key=Settings_ViewMode}"
-                                               Style="{StaticResource BodyTextBlockStyle}" />
-                                    <TextBlock Text="{loc:Localize Key=Settings_ViewModeDesc}"
-                                               Opacity="0.6" TextWrapping="Wrap"
-                                               Style="{StaticResource CaptionTextBlockStyle}" />
-                                </StackPanel>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_ViewMode}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
                                           ItemsSource="{Binding Global.ViewModeOptions}"
                                           SelectedIndex="{Binding Global.ViewModeIndex, Mode=TwoWay}" />
@@ -665,13 +653,9 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
-                                    <TextBlock Text="{loc:Localize Key=Settings_Language}"
-                                               Style="{StaticResource BodyTextBlockStyle}" />
-                                    <TextBlock Text="{loc:Localize Key=Settings_LanguageDesc}"
-                                               Opacity="0.6" TextWrapping="Wrap"
-                                               Style="{StaticResource CaptionTextBlockStyle}" />
-                                </StackPanel>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_Language}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
                                           ItemsSource="{Binding Global.LanguageOptions}"
                                           SelectedIndex="{Binding Global.LanguageIndex, Mode=TwoWay}" />

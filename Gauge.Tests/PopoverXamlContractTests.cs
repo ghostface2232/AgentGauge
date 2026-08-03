@@ -36,7 +36,7 @@ public sealed class PopoverXamlContractTests
     }
 
     [Fact]
-    public void NotificationKindTogglesAreDisabledWithTheMasterSwitch()
+    public void NotificationKindTogglesRemainConfigurableWhileGloballyPaused()
     {
         var document = XDocument.Load(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
         var xaml = document.Root!.Name.Namespace;
@@ -45,9 +45,68 @@ public sealed class PopoverXamlContractTests
         {
             var toggle = document.Descendants(xaml + "ToggleSwitch").Single(element =>
                 (string?)element.Attribute("IsOn") == $"{{Binding Global.{setting}, Mode=TwoWay}}");
-            Assert.Equal(
-                "{Binding Global.NotificationsEnabled}",
-                (string?)toggle.Attribute("IsEnabled"));
+            Assert.Null(toggle.Attribute("IsEnabled"));
+            Assert.Null(toggle.Parent!.Attribute("IsHitTestVisible"));
+            Assert.Null(toggle.Parent!.Attribute("Opacity"));
+        }
+    }
+
+    [Fact]
+    public void GlobalSettingsRowsUseSingleLabelsAndConsistentHeight()
+    {
+        var document = XDocument.Load(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
+        var xaml = document.Root!.Name.Namespace;
+        var bindings = new[]
+        {
+            "{Binding Global.NotifyThresholds, Mode=TwoWay}",
+            "{Binding Global.NotifyResets, Mode=TwoWay}",
+            "{Binding Global.StartOnBoot, Mode=TwoWay}",
+            "{Binding Global.ViewModeIndex, Mode=TwoWay}",
+            "{Binding Global.LanguageIndex, Mode=TwoWay}",
+        };
+
+        XElement? firstRow = null;
+        foreach (var binding in bindings)
+        {
+            var control = document.Descendants().Single(element =>
+                element.Attributes().Any(attribute => attribute.Value == binding));
+            var row = control.Parent!;
+            firstRow ??= row;
+
+            Assert.Equal("48", (string?)row.Attribute("MinHeight"));
+            Assert.Single(row.Elements(xaml + "TextBlock"));
+            Assert.DoesNotContain(row.Descendants(xaml + "TextBlock"), text =>
+                (string?)text.Attribute("Style") == "{StaticResource CaptionTextBlockStyle}");
+        }
+
+        var card = firstRow!.Ancestors(xaml + "Border").First();
+        Assert.Equal("14,4", (string?)card.Attribute("Padding"));
+    }
+
+    [Fact]
+    public void NotificationKindsUseAnInlineDisclosureRow()
+    {
+        var document = XDocument.Load(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
+        var xaml = document.Root!.Name.Namespace;
+        var disclosureButton = document.Descendants(xaml + "Button").Single(element =>
+            (string?)element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2006/xaml"))
+                == "NotificationOptionsButton");
+        var nestedRows = document.Descendants(xaml + "StackPanel").Single(element =>
+            (string?)element.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2006/xaml"))
+                == "NotificationKindRows");
+
+        Assert.DoesNotContain(document.Descendants(xaml + "Expander"), _ => true);
+        Assert.Equal("40", (string?)disclosureButton.Attribute("Width"));
+        Assert.Equal("40", (string?)disclosureButton.Attribute("Height"));
+        Assert.Equal("Collapsed", (string?)nestedRows.Attribute("Visibility"));
+        var masterRow = disclosureButton.Parent!;
+        Assert.Equal("48", (string?)masterRow.Attribute("MinHeight"));
+        Assert.Single(masterRow.Elements(xaml + "TextBlock"));
+        Assert.DoesNotContain(masterRow.Elements(xaml + "ToggleSwitch"), _ => true);
+        foreach (var setting in new[] { "NotifyThresholds", "NotifyResets" })
+        {
+            Assert.Contains(nestedRows.Descendants(xaml + "ToggleSwitch"), element =>
+                (string?)element.Attribute("IsOn") == $"{{Binding Global.{setting}, Mode=TwoWay}}");
         }
     }
 

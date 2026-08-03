@@ -57,6 +57,7 @@ public sealed partial class PopoverWindow : Window
     private readonly NativeMethods.SUBCLASSPROC _windowSubclassProc;
     private bool _isShown;
     private long _lastHiddenAtTick;
+    private bool _notificationOptionsExpanded;
 
     // Target monitor captured when the popover opens; reused for content-driven
     // resizes so the popover stays anchored even if the cursor later moves away.
@@ -484,6 +485,15 @@ public sealed partial class PopoverWindow : Window
             RootBorder, SettingsBorder, UsageViewTransform, SettingsViewTransform, direction: 1);
         SettingsOpened?.Invoke(this, EventArgs.Empty);
         RootHost.DispatcherQueue.TryEnqueue(() => _settingsAutoHide?.Reveal());
+    }
+
+    private void OnNotificationOptionsClicked(object sender, RoutedEventArgs e)
+    {
+        _notificationOptionsExpanded = !_notificationOptionsExpanded;
+        NotificationKindRows.Visibility = _notificationOptionsExpanded
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        NotificationOptionsGlyph.Glyph = _notificationOptionsExpanded ? "\uE70E" : "\uE70D";
     }
 
     private void OnAddServiceClicked(object sender, RoutedEventArgs e)

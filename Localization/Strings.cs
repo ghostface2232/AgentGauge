@@ -27,11 +27,8 @@ internal static class Strings
 
         // ── Global settings (toggles above the service list) ───────────────
         ["Settings_Notifications"] = ["알림",          "Notifications",     "通知"],
-        ["Settings_NotificationsDesc"] = ["사용량이 높아지거나 한도가 초기화되면 알림", "Alert on limit reached and reset", "上限到達・リセット時に通知"],
         ["Settings_StartOnBoot"]   = ["Windows 시작 시 실행", "Start on boot",   "スタートアップに登録"],
-        ["Settings_StartOnBootDesc"] = ["Windows에 로그인하면 자동으로 실행", "Launch automatically when Windows starts", "Windows起動時に自動実行"],
         ["Settings_ViewMode"]      = ["사용량 표시",        "View mode",         "表示方式"],
-        ["Settings_ViewModeDesc"]  = ["막대 또는 게이지로 표시", "How usage is displayed", "使用量の表示方法を選択"],
         ["ViewMode_Bar"]          = ["막대",             "Bar",               "バー"],
         ["ViewMode_Gauge"]        = ["게이지",           "Gauge",             "ゲージ"],
         ["Tray_StartOnBoot"]  = ["Windows 시작 시 실행", "Start on boot",     "スタートアップに登録"],
@@ -94,12 +91,9 @@ internal static class Strings
         ["Eta_InMinutes"]     = ["{0}분 후 소진 예상",        "Runs out in ~{0}m",     "{0}分後に使い切る見込み"],
         // Per-kind notification toggles (settings, under the master notifications switch).
         ["Settings_NotifyThresholds"] = ["한도 도달 알림", "Threshold alerts", "上限到達の通知"],
-        ["Settings_NotifyThresholdsDesc"] = ["사용량이 70%/90%에 도달하면 알림", "When usage reaches 70%/90%", "使用量が70%/90%に達したとき"],
         ["Settings_NotifyResets"] = ["초기화 알림", "Reset alerts", "リセットの通知"],
-        ["Settings_NotifyResetsDesc"] = ["많이 사용한 한도가 초기화되면 알림", "When a heavily used limit resets", "多く使った上限がリセットされたとき"],
         // In-app language switch (applies via automatic relaunch).
         ["Settings_Language"] = ["언어", "Language", "言語"],
-        ["Settings_LanguageDesc"] = ["변경하면 앱이 자동으로 다시 시작됩니다", "Changing this restarts the app", "変更するとアプリが自動的に再起動します"],
 
         // ── Notifications ──────────────────────────────────────────────────
         ["Notif_ThresholdTitle"] = ["{0} · {1} 한도 {2}% 사용", "{0} · {2}% of {1} limit used", "{0} · {1} 上限{2}%に到達"], // {0}=tool {1}=label {2}=percent
