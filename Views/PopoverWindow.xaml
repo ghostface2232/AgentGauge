@@ -431,6 +431,14 @@
                                                                             Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}}"
                                                                             Style="{StaticResource CaptionTextBlockStyle}"
                                                                             Visibility="{Binding HasPaceWarning, Converter={StaticResource BoolToVis}}" />
+                                                                        <TextBlock
+                                                                            HorizontalAlignment="Center"
+                                                                            TextAlignment="Center"
+                                                                            TextWrapping="Wrap"
+                                                                            Opacity="0.7"
+                                                                            Text="{Binding EtaText}"
+                                                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                                                            Visibility="{Binding HasEta, Converter={StaticResource BoolToVis}}" />
                                                                     </StackPanel>
                                                                 </DataTemplate>
                                                             </ItemsRepeater.ItemTemplate>
