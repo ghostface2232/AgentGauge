@@ -323,21 +323,23 @@
                                                         </Grid>
                                                         <StackPanel
                                                             Margin="54,0,0,0"
-                                                            Orientation="Horizontal"
-                                                            Spacing="8">
+                                                            Spacing="2">
                                                             <TextBlock
                                                                 Opacity="0.7"
                                                                 Text="{Binding ResetText}"
+                                                                TextWrapping="Wrap"
                                                                 Style="{StaticResource CaptionTextBlockStyle}" />
                                                             <!-- Absolute counts (e.g. "128 / 300") when the
                                                                  provider reports them; bar mode only. -->
                                                             <TextBlock
                                                                 Opacity="0.55"
                                                                 Text="{Binding CountsText}"
+                                                                TextWrapping="Wrap"
                                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                                 Visibility="{Binding HasCounts, Converter={StaticResource BoolToVis}}" />
                                                             <TextBlock
                                                                 Text="{Binding PaceText}"
+                                                                TextWrapping="Wrap"
                                                                 Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}}"
                                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                                 Visibility="{Binding HasPaceWarning, Converter={StaticResource BoolToVis}}" />
@@ -347,6 +349,7 @@
                                                             <TextBlock
                                                                 Opacity="0.7"
                                                                 Text="{Binding EtaText}"
+                                                                TextWrapping="Wrap"
                                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                                 Visibility="{Binding HasEta, Converter={StaticResource BoolToVis}}" />
                                                         </StackPanel>
