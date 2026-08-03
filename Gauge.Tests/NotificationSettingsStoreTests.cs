@@ -6,7 +6,7 @@ namespace Gauge.Tests;
 
 /// <summary>
 /// Persistence validation for <see cref="NotificationSettingsStore"/>: an absent/malformed
-/// file defaults to enabled, and saving the flag must not clobber other keys sharing
+/// file defaults every flag to enabled, and saving must not clobber other keys sharing
 /// <c>settings.json</c> (the tool registration and UI language).
 /// </summary>
 public sealed class NotificationSettingsStoreTests : IDisposable
@@ -14,24 +14,37 @@ public sealed class NotificationSettingsStoreTests : IDisposable
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "GaugeTests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void MissingFileDefaultsToEnabled()
-        => Assert.True(new NotificationSettingsStore(() => _dir).Load());
+    public void MissingFileDefaultsToAllEnabled()
+        => Assert.Equal(NotificationPreferences.Default, new NotificationSettingsStore(() => _dir).Load());
 
     [Fact]
-    public void MalformedJsonDefaultsToEnabled()
+    public void MalformedJsonDefaultsToAllEnabled()
     {
         WriteSettings("{ not valid json");
-        Assert.True(new NotificationSettingsStore(() => _dir).Load());
+        Assert.Equal(NotificationPreferences.Default, new NotificationSettingsStore(() => _dir).Load());
+    }
+
+    [Fact]
+    public void FileFromBeforeKindTogglesReadsKindsAsEnabled()
+    {
+        // A settings file written by an older build knows only the master flag; the new
+        // per-kind keys must read as enabled, keeping the prior behavior.
+        WriteSettings("""{ "NotificationsEnabled": false }""");
+        var loaded = new NotificationSettingsStore(() => _dir).Load();
+        Assert.False(loaded.Enabled);
+        Assert.True(loaded.Thresholds);
+        Assert.True(loaded.Resets);
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void SaveThenLoadRoundTrips(bool enabled)
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, false)]
+    public void SaveThenLoadRoundTrips(bool enabled, bool thresholds, bool resets)
     {
         var store = new NotificationSettingsStore(() => _dir);
-        store.Save(enabled);
-        Assert.Equal(enabled, store.Load());
+        store.Save(new NotificationPreferences(enabled, thresholds, resets));
+        Assert.Equal(new NotificationPreferences(enabled, thresholds, resets), store.Load());
     }
 
     [Fact]
@@ -39,10 +52,10 @@ public sealed class NotificationSettingsStoreTests : IDisposable
     {
         WriteSettings("""{ "EnabledTools": ["Cursor"], "Language": "ja" }""");
 
-        new NotificationSettingsStore(() => _dir).Save(false);
+        new NotificationSettingsStore(() => _dir).Save(NotificationPreferences.Default with { Enabled = false });
 
-        // The notifications flag persisted, and the sibling keys survived the round-trip.
-        Assert.False(new NotificationSettingsStore(() => _dir).Load());
+        // The notifications flags persisted, and the sibling keys survived the round-trip.
+        Assert.False(new NotificationSettingsStore(() => _dir).Load().Enabled);
         Assert.Equal(AppLanguage.Japanese, LanguageService.InitializeFromSettings(_dir));
         Assert.Equal(new[] { ToolKind.Cursor }, new ToolRegistryStore(() => _dir).Load());
     }

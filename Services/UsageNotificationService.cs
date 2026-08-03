@@ -9,7 +9,7 @@ namespace Gauge.Services;
 public sealed class UsageNotificationService : IDisposable
 {
     private readonly UsageNotificationEvaluator _evaluator = new();
-    private bool _enabled = true;
+    private NotificationPreferences _preferences = NotificationPreferences.Default;
     private bool _disposed;
 
     public UsageNotificationService()
@@ -39,28 +39,43 @@ public sealed class UsageNotificationService : IDisposable
     }
 
     /// <summary>
-    /// Turns usage notifications on or off (the global settings toggle). While off,
-    /// <see cref="Process"/> is a no-op. Re-arming resets the evaluator baseline so
+    /// Applies the notification preferences. While the master switch is off,
+    /// <see cref="Process"/> is a no-op; re-arming it resets the evaluator baseline so
     /// flipping back on never replays alerts for thresholds crossed while silenced.
+    /// Kind toggles only filter presentation — detection keeps running (and consumes
+    /// crossings) so re-enabling a kind never replays stale alerts either.
     /// </summary>
-    public void SetEnabled(bool enabled)
+    public void SetPreferences(NotificationPreferences preferences)
     {
-        var wasEnabled = _enabled;
-        _enabled = enabled;
-        if (enabled && !wasEnabled)
+        var wasEnabled = _preferences.Enabled;
+        _preferences = preferences;
+        if (preferences.Enabled && !wasEnabled)
         {
             _evaluator.ResetBaseline();
         }
     }
 
+    /// <summary>Flips only the master switch (the tray-menu toggle path).</summary>
+    public void SetEnabled(bool enabled) => SetPreferences(_preferences with { Enabled = enabled });
+
     public void Process(UsageState state)
     {
-        if (!_enabled) return;
+        if (!_preferences.Enabled) return;
         foreach (var notification in _evaluator.Evaluate(state, DateTimeOffset.Now))
         {
-            Show(notification);
+            if (ShouldShow(notification.Kind))
+            {
+                Show(notification);
+            }
         }
     }
+
+    private bool ShouldShow(UsageNotificationKind kind) => kind switch
+    {
+        UsageNotificationKind.Threshold => _preferences.Thresholds,
+        UsageNotificationKind.Reset => _preferences.Resets,
+        _ => true,
+    };
 
     /// <summary>Developer visual QA: one toast of every alert kind.</summary>
     public void ShowDemoSequence()

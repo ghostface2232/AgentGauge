@@ -41,6 +41,7 @@ public sealed class UsageCoordinator : IDisposable
     private readonly UsageService _usageService;
     private readonly DispatcherQueue? _dispatcher;
     private readonly IUsageCachePersistence? _persistence;
+    private readonly IUsageHistoryRecorder? _history;
 
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly CancellationTokenSource _cts = new();
@@ -66,11 +67,13 @@ public sealed class UsageCoordinator : IDisposable
     public UsageCoordinator(
         UsageService usageService,
         DispatcherQueue? dispatcher = null,
-        IUsageCachePersistence? persistence = null)
+        IUsageCachePersistence? persistence = null,
+        IUsageHistoryRecorder? history = null)
     {
         _usageService = usageService;
         _dispatcher = dispatcher;
         _persistence = persistence;
+        _history = history;
         RehydrateFromDisk();
     }
 
@@ -238,6 +241,7 @@ public sealed class UsageCoordinator : IDisposable
             var enabledToolNames = enabledProviders.Select(provider => provider.ToolName).ToHashSet();
             var purgedTools = MergeIntoCache(results, enabledToolNames);
             ReportAuthenticationOutcomes(results, priorCaptured);
+            RecordHistory(results, priorCaptured);
             EmitState();
             // Persist when at least one tool refreshed successfully, so an all-failed cycle
             // never overwrites the on-disk last-known value. Also persist when a tool was
@@ -314,6 +318,28 @@ public sealed class UsageCoordinator : IDisposable
         return !priorCaptured.TryGetValue(result.ToolName, out var prior)
             || prior is null
             || snapshot.CapturedAt > prior.Value;
+    }
+
+    /// <summary>
+    /// Appends genuinely live readings to the history store. The same live-fetch gate as
+    /// authentication recovery applies: a provider re-serving its cached snapshot during a
+    /// cooldown/429 reuses the prior <c>CapturedAt</c> and must not produce history rows,
+    /// or trend math would see a flat line of duplicates.
+    /// </summary>
+    private void RecordHistory(
+        IReadOnlyList<ProviderSnapshotResult> results, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
+    {
+        if (_history is null)
+        {
+            return;
+        }
+        foreach (var result in results)
+        {
+            if (IsLiveServerSuccess(result, priorCaptured))
+            {
+                _history.Record(result.Snapshot!);
+            }
+        }
     }
 
     private void Raise(EventHandler<ToolKind>? handler, ToolKind tool)

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Gauge.Localization;
 using Gauge.Models;
+using Gauge.Services;
 
 namespace Gauge.ViewModels;
 
@@ -13,8 +14,12 @@ namespace Gauge.ViewModels;
 /// </summary>
 public sealed partial class ToolCardViewModel : ObservableObject
 {
-    public ToolCardViewModel(CachedUsage cached)
+    /// <summary>Recent recorded readings for the ETA projection; null in tests / when absent.</summary>
+    private readonly IUsageHistorySource? _history;
+
+    public ToolCardViewModel(CachedUsage cached, IUsageHistorySource? history = null)
     {
+        _history = history;
         ToolName = cached.ToolName;
         StatusText = string.Empty;
         Plan = string.Empty;
@@ -109,12 +114,19 @@ public sealed partial class ToolCardViewModel : ObservableObject
             var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
-                Windows.Insert(Math.Min(index, Windows.Count), new UsageWindowRowViewModel(window));
+                existing = new UsageWindowRowViewModel(window);
+                Windows.Insert(Math.Min(index, Windows.Count), existing);
             }
             else
             {
                 existing.Update(window);
             }
+            // ETA from the recorded burn rate. GetRecent is memory-backed after its first
+            // read, so this stays cheap on the UI thread.
+            existing.EtaText = _history is null
+                ? string.Empty
+                : UsageEtaClassifier.ForRow(
+                    window, _history.GetRecent(ToolName, window.Key, UsageEtaClassifier.Lookback));
         }
 
         AssignGroupHeaders(windows);

@@ -19,6 +19,8 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
         PercentText = string.Empty;
         PercentNumber = string.Empty;
         ResetText = string.Empty;
+        CountsText = string.Empty;
+        EtaText = string.Empty;
         PaceText = string.Empty;
         Update(window);
     }
@@ -77,6 +79,28 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     [ObservableProperty]
     public partial string ResetText { get; set; }
 
+    /// <summary>
+    /// Absolute counts behind the percent (e.g. "128 / 300" premium requests), shown as a
+    /// dimmed caption in bar mode when the provider reported them. Empty otherwise — most
+    /// APIs expose percent only, and the row must never fabricate a denominator.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCounts))]
+    public partial string CountsText { get; set; }
+
+    public bool HasCounts => !string.IsNullOrEmpty(CountsText);
+
+    /// <summary>
+    /// Projected exhaustion caption from the measured recent burn rate (e.g. "2시간 후 소진
+    /// 예상"), set by the owning card from the usage history. Empty when the projection has
+    /// no trustworthy basis or exhaustion lands after the reset.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasEta))]
+    public partial string EtaText { get; set; }
+
+    public bool HasEta => !string.IsNullOrEmpty(EtaText);
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasPaceWarning))]
     public partial string PaceText { get; set; }
@@ -98,6 +122,10 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
         PercentNumber = $"{window.UsedRatio * 100:0}";
         Level = UsageLevelClassifier.Classify(window.UsedRatio);
         ResetText = ResetTimeFormatter.ForRow(window.ResetTime);
+        // Loc.Culture (not the ambient culture) for deterministic digit grouping.
+        CountsText = window is { UsedTokens: { } used, LimitTokens: { } limit }
+            ? string.Format(Loc.Culture, "{0:N0} / {1:N0}", used, limit)
+            : string.Empty;
         (PaceText, PaceLevel) = UsagePaceClassifier.ForRow(window);
     }
 }

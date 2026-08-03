@@ -135,6 +135,17 @@ public sealed class GitHubCopilotProvider : IUsageProvider
                 continue;
             }
 
+            // Absolute counts ("128 / 300 requests") when the response carries them. These are
+            // request counts, not tokens; the model's UsedTokens/LimitTokens are generic
+            // counters. Both fields are required — remaining alone can't produce a denominator.
+            long? usedCount = null, limitCount = null;
+            if (snap.GetDoubleOrNull("entitlement") is { } entitlement && entitlement > 0
+                && snap.GetDoubleOrNull("remaining") is { } remaining)
+            {
+                limitCount = (long)Math.Round(entitlement);
+                usedCount = (long)Math.Round(Math.Clamp(entitlement - remaining, 0, entitlement));
+            }
+
             windows.Add(new UsageWindow
             {
                 Type = UsageWindowType.BillingCycle,
@@ -144,6 +155,8 @@ public sealed class GitHubCopilotProvider : IUsageProvider
                 Label = QuotaLabel(quota.Name),
                 UsedRatio = used,
                 ResetTime = reset,
+                UsedTokens = usedCount,
+                LimitTokens = limitCount,
             });
         }
         return windows;

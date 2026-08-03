@@ -49,7 +49,7 @@ public sealed class ViewModeSettingsStoreTests : IDisposable
         new ViewModeSettingsStore(() => _dir).Save(UsageViewMode.Gauge);
 
         Assert.Equal(UsageViewMode.Gauge, new ViewModeSettingsStore(() => _dir).Load());
-        Assert.False(new NotificationSettingsStore(() => _dir).Load());
+        Assert.False(new NotificationSettingsStore(() => _dir).Load().Enabled);
         Assert.Equal(AppLanguage.Japanese, LanguageService.InitializeFromSettings(_dir));
         Assert.Equal(new[] { ToolKind.Cursor }, new ToolRegistryStore(() => _dir).Load());
     }

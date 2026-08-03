@@ -68,6 +68,12 @@ public sealed class UsageService
         }
         catch (Exception ex)
         {
+            // Auth-required and cancellation are expected flows, not diagnostics events.
+            // Log type + message only — never tokens, credential URLs, or CLI output.
+            if (ex is not (AuthenticationRequiredException or OperationCanceledException))
+            {
+                DiagnosticsLog.Write("provider", $"{provider.ToolName} refresh failed: {ex.GetType().Name}: {ex.Message}");
+            }
             return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Error = ex };
         }
     }

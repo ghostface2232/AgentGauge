@@ -55,28 +55,33 @@ public sealed class ClaudeProvider : IUsageProvider
     private static readonly TimeSpan MinFetchInterval = TimeSpan.FromMinutes(5);
 
     // 429 backoff (no Retry-After is sent, so we pick our own schedule): doubles per
-    // consecutive 429 up to the cap.
-    private static readonly TimeSpan BaseCooldown = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan MaxCooldown = TimeSpan.FromMinutes(30);
+    // consecutive 429 up to the cap — 2, 4, 8, 16, 30(cap), 30, … minutes.
+    private static readonly BackoffPolicy Backoff = new(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(30));
 
     private readonly HttpClient _http;
     private readonly ICredentialSource _credentials;
     private readonly IDelegatedTokenRefresher? _refresher;
+    private readonly TimeProvider _time;
 
     // Only ever accessed from the coordinator's serialized refresh (one call at a
     // time), so no locking is needed.
     private UsageSnapshot? _lastSnapshot;
-    private long _lastSuccessTick;
-    private long _cooldownUntilTick;
+    private DateTimeOffset? _lastSuccessAt;
+    private DateTimeOffset? _cooldownUntil;
     private int _consecutive429;
     private string? _credentialFingerprint;
     private bool _credentialFingerprintInitialized;
 
-    public ClaudeProvider(HttpClient http, ICredentialSource credentials, IDelegatedTokenRefresher? refresher = null)
+    public ClaudeProvider(
+        HttpClient http,
+        ICredentialSource credentials,
+        IDelegatedTokenRefresher? refresher = null,
+        TimeProvider? time = null)
     {
         _http = http;
         _credentials = credentials;
         _refresher = refresher;
+        _time = time ?? TimeProvider.System;
     }
 
     public ToolKind Tool => ToolKind.ClaudeCode;
@@ -98,7 +103,7 @@ public sealed class ClaudeProvider : IUsageProvider
         }
 
         var credentials = credentialResult.Credential;
-        var now = Environment.TickCount64;
+        var now = _time.GetUtcNow();
 
         // A CLI re-login/account switch must not serve the prior account's 5-minute
         // cache. Keep only a one-way fingerprint, never the token itself.
@@ -108,8 +113,8 @@ public sealed class ClaudeProvider : IUsageProvider
         if (_credentialFingerprintInitialized && !StringComparer.Ordinal.Equals(_credentialFingerprint, fingerprint))
         {
             _lastSnapshot = null;
-            _lastSuccessTick = 0;
-            _cooldownUntilTick = 0;
+            _lastSuccessAt = null;
+            _cooldownUntil = null;
             _consecutive429 = 0;
         }
         _credentialFingerprint = fingerprint;
@@ -123,8 +128,8 @@ public sealed class ClaudeProvider : IUsageProvider
         // Serve the cached snapshot without a network call when we fetched recently or
         // are in a 429 cooldown. Refresh the (cheap, file-based) plan label so a plan
         // change still shows promptly.
-        var inCooldown = _cooldownUntilTick != 0 && now < _cooldownUntilTick;
-        var fetchedRecently = _lastSuccessTick != 0 && now - _lastSuccessTick < MinFetchInterval.TotalMilliseconds;
+        var inCooldown = _cooldownUntil is { } cooldownUntil && now < cooldownUntil;
+        var fetchedRecently = _lastSuccessAt is { } lastSuccess && now - lastSuccess < MinFetchInterval;
         if (_lastSnapshot is not null && (inCooldown || fetchedRecently))
         {
             return _lastSnapshot with { Plan = credentials?.Plan ?? _lastSnapshot.Plan };
@@ -150,9 +155,9 @@ public sealed class ClaudeProvider : IUsageProvider
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
         {
             _consecutive429++;
-            var cooldown = NextCooldown(_consecutive429);
-            _cooldownUntilTick = Environment.TickCount64 + (long)cooldown.TotalMilliseconds;
-            Debug.WriteLine($"[Gauge] ClaudeProvider 429 (x{_consecutive429}); backing off {cooldown.TotalMinutes:0}m");
+            var cooldown = Backoff.ForAttempt(_consecutive429);
+            _cooldownUntil = _time.GetUtcNow() + cooldown;
+            Debug.WriteLine($"[Gauge] ClaudeProvider 429 (x{_consecutive429}); backing off {cooldown.TotalMinutes.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}m");
 
             // Keep showing the last good value if we have one; only surface a failure
             // on a cold start with nothing cached.
@@ -199,24 +204,16 @@ public sealed class ClaudeProvider : IUsageProvider
     private UsageSnapshot RecordSuccess(List<UsageWindow> windows, string? plan)
     {
         _consecutive429 = 0;
-        _cooldownUntilTick = 0;
-        _lastSuccessTick = Environment.TickCount64;
+        _cooldownUntil = null;
+        _lastSuccessAt = _time.GetUtcNow();
         _lastSnapshot = new UsageSnapshot
         {
             ToolName = ToolName,
             Plan = plan,
             Windows = windows,
-            CapturedAt = DateTimeOffset.Now,
+            CapturedAt = _time.GetUtcNow(),
         };
         return _lastSnapshot;
-    }
-
-    private static TimeSpan NextCooldown(int consecutive429)
-    {
-        // 2, 4, 8, 16, 30(cap), 30, … minutes.
-        var shift = Math.Min(consecutive429 - 1, 4);
-        var ticks = Math.Min(MaxCooldown.Ticks, BaseCooldown.Ticks * (1L << shift));
-        return TimeSpan.FromTicks(ticks);
     }
 
     private async Task<List<UsageWindow>> FetchWindowsAsync(string token, CancellationToken cancellationToken)

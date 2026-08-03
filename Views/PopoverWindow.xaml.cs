@@ -403,32 +403,26 @@ public sealed partial class PopoverWindow : Window
 
     private void PositionAndResize(double contentHeightDip)
     {
-        if (contentHeightDip <= 0)
-        {
-            contentHeightDip = PopoverHeightDip; // fallback before first layout
-        }
-
-        // WorkArea is physical pixels; convert DIP sizes with the captured DPI.
-        var width = (int)Math.Round(PopoverWidthDip * _scale);
-        var margin = (int)Math.Round(EdgeMarginDip * _scale);
-        var maxHeight = Math.Min(
-            _workArea.Height - (margin * 2),
-            (int)Math.Round(MaxPopoverHeightDip * _scale));
-        var height = Math.Min(
-            (int)Math.Ceiling((contentHeightDip + ContentHeightSafetyDip) * _scale),
-            maxHeight);
-
-        var x = _workArea.X + _workArea.Width - width - margin;
-        var y = _workArea.Y + _workArea.Height - height - margin;
+        // WorkArea is physical pixels; the pure helper converts DIP sizes with the
+        // captured DPI (see PopoverPlacement for the unit-tested math).
+        var rect = PopoverPlacement.BottomRight(
+            new PopoverPlacement.Rect(_workArea.X, _workArea.Y, _workArea.Width, _workArea.Height),
+            _scale,
+            contentHeightDip,
+            PopoverWidthDip,
+            MaxPopoverHeightDip,
+            EdgeMarginDip,
+            PopoverHeightDip,
+            ContentHeightSafetyDip);
 
         // Skip if unchanged to avoid relayout churn from SizeChanged.
-        if (AppWindow.Size.Width == width && AppWindow.Size.Height == height
-            && AppWindow.Position.X == x && AppWindow.Position.Y == y)
+        if (AppWindow.Size.Width == rect.Width && AppWindow.Size.Height == rect.Height
+            && AppWindow.Position.X == rect.X && AppWindow.Position.Y == rect.Y)
         {
             return;
         }
 
-        AppWindow.MoveAndResize(new RectInt32(x, y, width, height));
+        AppWindow.MoveAndResize(new RectInt32(rect.X, rect.Y, rect.Width, rect.Height));
     }
 
     private void PlayShowAnimation()

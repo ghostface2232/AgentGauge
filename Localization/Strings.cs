@@ -86,6 +86,20 @@ internal static class Strings
         ["Reset_InMinutes"]   = ["{0}분 후 초기화",    "Resets in {0}m",    "{0}分後にリセット"],
         ["DateFormat_MonthDay"] = ["M월 d일",         "MMM d",             "M月d日"],
         ["Pace_FastDepletion"] = ["빠르게 소진 중", "Depleting quickly", "急速に消費中"],
+        // ETA-to-exhaustion captions (from the measured recent burn rate; see UsageEtaClassifier).
+        ["Eta_InDays"]        = ["{0}일 후 소진 예상",       "Runs out in ~{0} days", "{0}日後に使い切る見込み"],
+        ["Eta_InDay"]         = ["{0}일 후 소진 예상",       "Runs out in ~{0} day",  "{0}日後に使い切る見込み"], // singular (English)
+        ["Eta_InHoursMinutes"] = ["{0}시간 {1}분 후 소진 예상", "Runs out in ~{0}h {1}m", "{0}時間{1}分後に使い切る見込み"],
+        ["Eta_InHours"]       = ["{0}시간 후 소진 예상",      "Runs out in ~{0}h",     "{0}時間後に使い切る見込み"],
+        ["Eta_InMinutes"]     = ["{0}분 후 소진 예상",        "Runs out in ~{0}m",     "{0}分後に使い切る見込み"],
+        // Per-kind notification toggles (settings, under the master notifications switch).
+        ["Settings_NotifyThresholds"] = ["한도 도달 알림", "Threshold alerts", "上限到達の通知"],
+        ["Settings_NotifyThresholdsDesc"] = ["사용량이 70%/90%에 도달하면 알림", "When usage reaches 70%/90%", "使用量が70%/90%に達したとき"],
+        ["Settings_NotifyResets"] = ["초기화 알림", "Reset alerts", "リセットの通知"],
+        ["Settings_NotifyResetsDesc"] = ["많이 사용한 한도가 초기화되면 알림", "When a heavily used limit resets", "多く使った上限がリセットされたとき"],
+        // In-app language switch (applies via automatic relaunch).
+        ["Settings_Language"] = ["언어", "Language", "言語"],
+        ["Settings_LanguageDesc"] = ["변경하면 앱이 자동으로 다시 시작됩니다", "Changing this restarts the app", "変更するとアプリが自動的に再起動します"],
 
         // ── Notifications ──────────────────────────────────────────────────
         ["Notif_ThresholdTitle"] = ["{0} · {1} 한도 {2}% 사용", "{0} · {2}% of {1} limit used", "{0} · {1} 上限{2}%に到達"], // {0}=tool {1}=label {2}=percent

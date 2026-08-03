@@ -15,6 +15,12 @@ internal sealed class AppSettingsDto
     /// <summary>Whether usage notifications are shown. Null (absent) reads as enabled.</summary>
     public bool? NotificationsEnabled { get; set; }
 
+    /// <summary>Whether threshold-crossing alerts are shown. Null (absent) reads as enabled.</summary>
+    public bool? NotifyThresholds { get; set; }
+
+    /// <summary>Whether quota-reset alerts are shown. Null (absent) reads as enabled.</summary>
+    public bool? NotifyResets { get; set; }
+
     /// <summary>Card view mode ("bar" / "gauge"). Null (absent) reads as the bar layout.</summary>
     public string? ViewMode { get; set; }
 

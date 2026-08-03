@@ -53,4 +53,25 @@ public sealed class LanguageServiceTests
         Assert.True(AppLanguageExtensions.TryParseCode(code, out var parsed));
         Assert.Equal(language, parsed);
     }
+
+    [Fact]
+    public void SaveOverridePersistsChoiceAndWinsOnNextResolve()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "GaugeLangTest_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // First run persists whatever the host OS culture resolves to (varies by CI
+            // machine); the in-app override must then win regardless.
+            var detected = LanguageService.InitializeFromSettings(dir);
+            var other = detected == AppLanguage.Japanese ? AppLanguage.English : AppLanguage.Japanese;
+
+            LanguageService.SaveOverride(other, dir);
+
+            Assert.Equal(other, LanguageService.InitializeFromSettings(dir));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
 }

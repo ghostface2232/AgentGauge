@@ -10,8 +10,9 @@ namespace Gauge.Tests;
 /// JSON-schema tolerance and credential/auth handling for <see cref="ClaudeProvider"/>.
 /// The throttle/cache (2 calls → 1 network hit), account-switch invalidation, and the
 /// 401→auth-required path are already covered by <see cref="ProviderCredentialSwitchTests"/>,
-/// so they are not repeated here. The time-dependent 429 escalation/cooldown-expiry is not
-/// unit-testable without injecting a clock into the provider (see plan's deferred section).
+/// and the time-dependent 429 escalation/cooldown-expiry by
+/// <see cref="ClaudeProviderBackoffTests"/> (via the injected clock), so neither is
+/// repeated here.
 /// </summary>
 public sealed class ClaudeProviderTests
 {

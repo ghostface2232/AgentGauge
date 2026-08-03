@@ -277,14 +277,10 @@ public sealed class TrayIconService : IDisposable
         if (!NativeMethods.GetMonitorInfo(monitor, ref info)) return;
 
         var work = info.rcWork;
-        var width = rect.right - rect.left;
-        var height = rect.bottom - rect.top;
-        var top = work.bottom - MenuBottomMargin - height;
-        var left = cursor.X - (width / 2);
-        if (left + width > work.right - MenuSideMargin)
-            left = work.right - MenuSideMargin - width;
-        if (left < work.left + MenuSideMargin)
-            left = work.left + MenuSideMargin;
+        var (left, top) = Views.PopoverPlacement.MenuAboveTray(
+            work.left, work.right, work.bottom,
+            rect.right - rect.left, rect.bottom - rect.top,
+            cursor.X, MenuBottomMargin, MenuSideMargin);
 
         _ = NativeMethods.SetWindowPos(
             hwnd, IntPtr.Zero, left, top, 0, 0,

@@ -19,10 +19,12 @@ public sealed partial class UsageViewModel : ObservableObject
     /// either surface shows on the other. Optional so tests can construct the VM standalone
     /// (cards then keep the order the coordinator supplies).</summary>
     private readonly ToolRegistry? _registry;
+    private readonly IUsageHistorySource? _history;
 
-    public UsageViewModel(ToolRegistry? registry = null)
+    public UsageViewModel(ToolRegistry? registry = null, IUsageHistorySource? history = null)
     {
         _registry = registry;
+        _history = history;
         // A reorder elsewhere (the settings screen) re-sorts the cards in place — no re-fetch.
         if (_registry is not null)
         {
@@ -216,7 +218,7 @@ public sealed partial class UsageViewModel : ObservableObject
             var existing = Cards.FirstOrDefault(c => c.ToolName == tool.ToolName);
             if (existing is null)
             {
-                Cards.Add(new ToolCardViewModel(tool) { ViewMode = ViewMode });
+                Cards.Add(new ToolCardViewModel(tool, _history) { ViewMode = ViewMode });
             }
             else
             {

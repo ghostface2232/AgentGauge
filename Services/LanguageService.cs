@@ -4,10 +4,13 @@ using Gauge.Localization;
 namespace Gauge.Services;
 
 /// <summary>
-/// Decides the app's UI language and persists the choice. There is no in-app language
-/// switch: the first launch detects the language from the OS display language, stores it
-/// in settings.json, and every later launch reuses the stored value. A portable/updated
-/// launch with no stored value simply re-detects (deterministically the same result).
+/// Decides the app's UI language and persists the choice. The first launch detects the
+/// language from the OS display language and stores it in settings.json; every later
+/// launch reuses the stored value. The in-app language switch persists an override via
+/// <see cref="SaveOverride"/> and then relaunches the app — the language stays fixed for
+/// a process lifetime, so XAML's parse-time string resolution never needs re-localizing.
+/// A portable/updated launch with no stored value simply re-detects (deterministically
+/// the same result).
 /// </summary>
 public static class LanguageService
 {
@@ -50,4 +53,12 @@ public static class LanguageService
 
         return language;
     }
+
+    /// <summary>
+    /// Persists an explicit user language choice (the in-app switch). Takes effect on the
+    /// next launch; the caller is responsible for relaunching.
+    /// </summary>
+    public static void SaveOverride(AppLanguage language, string? directory = null)
+        => AppSettingsFile.Save(
+            directory ?? AppSettingsFile.DefaultDirectory, dto => dto.Language = language.ToCode());
 }

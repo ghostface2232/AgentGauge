@@ -62,6 +62,30 @@ public sealed class GitHubCopilotProviderTests
     }
 
     [Fact]
+    public async Task PopulatesAbsoluteCountsFromEntitlementAndRemaining()
+    {
+        const string json = """
+        { "quota_snapshots": { "premium_interactions": { "has_quota": true, "unlimited": false, "percent_remaining": 57.4, "remaining": 172, "entitlement": 300 } } }
+        """;
+        var window = Assert.Single((await Snapshot(json)).Windows);
+        Assert.Equal(128, window.UsedTokens);
+        Assert.Equal(300, window.LimitTokens);
+    }
+
+    [Fact]
+    public async Task CountsStayNullWithoutBothFields()
+    {
+        // percent_remaining alone yields a ratio but no denominator — the counts caption
+        // must stay hidden rather than fabricate numbers.
+        const string json = """
+        { "quota_snapshots": { "chat": { "percent_remaining": 25.0, "has_quota": true, "unlimited": false } } }
+        """;
+        var window = Assert.Single((await Snapshot(json)).Windows);
+        Assert.Null(window.UsedTokens);
+        Assert.Null(window.LimitTokens);
+    }
+
+    [Fact]
     public async Task SkipsQuotaWithEntitlementButNoRemaining()
     {
         // Partial response / schema drift: entitlement present, remaining absent. Must NOT be

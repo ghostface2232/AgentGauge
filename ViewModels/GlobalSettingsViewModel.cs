@@ -18,16 +18,20 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 {
     private bool _suspendSideEffects;
 
-    public GlobalSettingsViewModel(bool notificationsEnabled, bool startOnBoot, UsageViewMode viewMode)
+    public GlobalSettingsViewModel(NotificationPreferences notifications, bool startOnBoot, UsageViewMode viewMode)
     {
-        SyncFromSystem(notificationsEnabled, startOnBoot);
+        SyncFromSystem(notifications, startOnBoot);
         _suspendSideEffects = true;
         ViewModeIndex = (int)viewMode;
+        LanguageIndex = (int)Loc.Current;
         _suspendSideEffects = false;
     }
 
     /// <summary>Raised when the user flips the notifications toggle (not on a programmatic sync).</summary>
     public event EventHandler<bool>? NotificationsToggleRequested;
+
+    /// <summary>Raised when the user flips a per-kind notification toggle (not on a programmatic sync).</summary>
+    public event EventHandler<(UsageNotificationKind Kind, bool Enabled)>? NotificationKindToggleRequested;
 
     /// <summary>Raised when the user flips the start-on-boot toggle (not on a programmatic sync).</summary>
     public event EventHandler<bool>? StartOnBootToggleRequested;
@@ -35,7 +39,15 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     /// <summary>Raised when the user picks a different card view mode (not on a programmatic sync).</summary>
     public event EventHandler<UsageViewMode>? ViewModeChangeRequested;
 
+    /// <summary>Raised when the user picks a different UI language (not on a programmatic sync).</summary>
+    public event EventHandler<AppLanguage>? LanguageChangeRequested;
+
     [ObservableProperty] public partial bool NotificationsEnabled { get; set; }
+
+    /// <summary>Per-kind toggles, active only while the master switch is on.</summary>
+    [ObservableProperty] public partial bool NotifyThresholds { get; set; }
+    [ObservableProperty] public partial bool NotifyResets { get; set; }
+
     [ObservableProperty] public partial bool StartOnBoot { get; set; }
 
     /// <summary>
@@ -48,16 +60,49 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     public IReadOnlyList<string> ViewModeOptions { get; } =
         [Loc.Get("ViewMode_Bar"), Loc.Get("ViewMode_Gauge")];
 
+    /// <summary>
+    /// Selected UI language as a ComboBox index matching the <see cref="AppLanguage"/> enum
+    /// values. Choosing a different language persists it and relaunches the app.
+    /// </summary>
+    [ObservableProperty] public partial int LanguageIndex { get; set; }
+
+    /// <summary>
+    /// Language names in <see cref="AppLanguage"/> order, each in its own language (the
+    /// standard convention for language pickers), so no localization column is needed.
+    /// </summary>
+    public IReadOnlyList<string> LanguageOptions { get; } = ["한국어", "English", "日本語"];
+
     partial void OnViewModeIndexChanged(int value)
     {
         if (_suspendSideEffects) return;
         ViewModeChangeRequested?.Invoke(this, value == (int)UsageViewMode.Gauge ? UsageViewMode.Gauge : UsageViewMode.Bar);
     }
 
+    partial void OnLanguageIndexChanged(int value)
+    {
+        if (_suspendSideEffects) return;
+        if (value is >= 0 and <= (int)AppLanguage.Japanese)
+        {
+            LanguageChangeRequested?.Invoke(this, (AppLanguage)value);
+        }
+    }
+
     partial void OnNotificationsEnabledChanged(bool value)
     {
         if (_suspendSideEffects) return;
         NotificationsToggleRequested?.Invoke(this, value);
+    }
+
+    partial void OnNotifyThresholdsChanged(bool value)
+    {
+        if (_suspendSideEffects) return;
+        NotificationKindToggleRequested?.Invoke(this, (UsageNotificationKind.Threshold, value));
+    }
+
+    partial void OnNotifyResetsChanged(bool value)
+    {
+        if (_suspendSideEffects) return;
+        NotificationKindToggleRequested?.Invoke(this, (UsageNotificationKind.Reset, value));
     }
 
     partial void OnStartOnBootChanged(bool value)
@@ -83,14 +128,16 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Reflects the real state of both toggles without raising their events — used at
+    /// Reflects the real state of the toggles without raising their events — used at
     /// construction and whenever the settings panel reopens, so a change made elsewhere
     /// (e.g. the tray menu flipping start-on-boot) shows up correctly.
     /// </summary>
-    public void SyncFromSystem(bool notificationsEnabled, bool startOnBoot)
+    public void SyncFromSystem(NotificationPreferences notifications, bool startOnBoot)
     {
         _suspendSideEffects = true;
-        NotificationsEnabled = notificationsEnabled;
+        NotificationsEnabled = notifications.Enabled;
+        NotifyThresholds = notifications.Thresholds;
+        NotifyResets = notifications.Resets;
         StartOnBoot = startOnBoot;
         _suspendSideEffects = false;
     }

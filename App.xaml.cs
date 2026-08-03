@@ -7,6 +7,7 @@ using Gauge.ViewModels;
 using Gauge.Views;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.Win32;
 
 namespace Gauge;
 
@@ -32,10 +33,19 @@ public partial class App : Application
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
+    private UsageHistoryStore? _historyStore;
 
     public App()
     {
         InitializeComponent();
+        // Last-chance diagnostics for crashes a tray-only app would otherwise swallow
+        // invisibly. Types and messages only — never tokens or CLI output.
+        UnhandledException += (_, e) =>
+            DiagnosticsLog.Write("app", $"Unhandled: {e.Exception?.GetType().Name}: {e.Message}");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            DiagnosticsLog.Write("app", $"Unhandled (domain): {(e.ExceptionObject as Exception)?.GetType().Name}: {(e.ExceptionObject as Exception)?.Message}");
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+            DiagnosticsLog.Write("app", $"Unobserved task: {e.Exception.GetBaseException().GetType().Name}: {e.Exception.GetBaseException().Message}");
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -128,14 +138,16 @@ public partial class App : Application
         // applies/reconciles the change (see OnGlobal* handlers below). The initial state
         // comes from the persisted notifications flag and the real Run-key startup state.
         _notificationSettingsStore = new NotificationSettingsStore();
-        var notificationsEnabled = _notificationSettingsStore.Load();
-        _trayIcon.SetNotificationsChecked(notificationsEnabled);
+        var notificationPreferences = _notificationSettingsStore.Load();
+        _trayIcon.SetNotificationsChecked(notificationPreferences.Enabled);
         _viewModeSettingsStore = new ViewModeSettingsStore();
         var viewMode = _viewModeSettingsStore.Load();
-        var globalSettings = new GlobalSettingsViewModel(notificationsEnabled, _startupService.IsEnabled(), viewMode);
+        var globalSettings = new GlobalSettingsViewModel(notificationPreferences, _startupService.IsEnabled(), viewMode);
         globalSettings.NotificationsToggleRequested += OnGlobalNotificationsToggled;
+        globalSettings.NotificationKindToggleRequested += OnGlobalNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
+        globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
 
         _updateService = new UpdateService();
         _settingsViewModel = new SettingsViewModel(_toolRegistry, _authentication, _updateService, globalSettings);
@@ -147,15 +159,18 @@ public partial class App : Application
         // an available update; applying it stays a deliberate one-click action.
         _ = _settingsViewModel.Update.CheckInBackgroundAsync();
 
-        _viewModel = new UsageViewModel(_toolRegistry);
+        // History is additive analytics beside the last-known cache: live readings are
+        // appended so trend/ETA features have data; a broken history DB never blocks startup.
+        _historyStore = new UsageHistoryStore();
+        _viewModel = new UsageViewModel(_toolRegistry, _historyStore);
         _viewModel.SetViewMode(viewMode);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
 
         _coordinator = new UsageCoordinator(
-            usageService, DispatcherQueue.GetForCurrentThread(), new UsageCacheStore());
+            usageService, DispatcherQueue.GetForCurrentThread(), new UsageCacheStore(), _historyStore);
         _notificationService = new UsageNotificationService();
-        _notificationService.SetEnabled(notificationsEnabled);
+        _notificationService.SetPreferences(notificationPreferences);
         _coordinator.Updated += OnUsageUpdated;
         _coordinator.AuthenticationRequired += OnAuthenticationRequired;
         _coordinator.AuthenticationRecovered += OnAuthenticationRecovered;
@@ -168,6 +183,11 @@ public partial class App : Application
         _popover.Opened += OnPopoverOpened;
 
         _coordinator.Start();
+        // Waking from sleep or unlocking the session can land anywhere in the providers'
+        // cadences, so the popover would otherwise show data as stale as the longest
+        // interval. One forced (debounced) refresh brings every card current on wake.
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.SessionSwitch += OnSessionSwitch;
         // Unpackaged WinUI launches do not reliably copy ordinary EXE arguments into
         // LaunchActivatedEventArgs.Arguments. Read the actual process command line so
         // the developer visual-QA switches work when launched from PowerShell/Explorer.
@@ -177,10 +197,12 @@ public partial class App : Application
             _notificationService.ShowDemoSequence();
         }
 
-        // Post-update relaunch: the silent installer (now fully hidden) passes --updated
-        // so we open the window once. Otherwise the app would relaunch straight to the
-        // tray and the user couldn't tell the update had applied.
-        if (commandLine.Contains("--updated", StringComparer.OrdinalIgnoreCase))
+        // Post-update relaunch (--updated, passed by the silent installer) and the
+        // language-switch relaunch (--language-changed) both open the window once.
+        // Otherwise the app would relaunch straight to the tray and the user couldn't
+        // tell the update/new language had applied.
+        if (commandLine.Contains("--updated", StringComparer.OrdinalIgnoreCase)
+            || commandLine.Contains("--language-changed", StringComparer.OrdinalIgnoreCase))
         {
             _popover.Show();
         }
@@ -243,7 +265,7 @@ public partial class App : Application
         // Reflect any state changed while the panel was closed — notably start-on-boot,
         // which the tray menu can also flip — before showing the toggles.
         _settingsViewModel.Global.SyncFromSystem(
-            _notificationSettingsStore?.Load() ?? true,
+            _notificationSettingsStore?.Load() ?? NotificationPreferences.Default,
             _startupService?.IsEnabled() ?? false);
         _ = _settingsViewModel.RefreshAsync();
     }
@@ -265,8 +287,33 @@ public partial class App : Application
 
     private void ApplyNotificationsEnabled(bool enabled)
     {
-        _notificationSettingsStore?.Save(enabled);
-        _notificationService?.SetEnabled(enabled);
+        MutateNotificationPreferences(current => current with { Enabled = enabled });
+    }
+
+    private void OnGlobalNotificationKindToggled(object? sender, (UsageNotificationKind Kind, bool Enabled) change)
+    {
+        MutateNotificationPreferences(current => change.Kind switch
+        {
+            UsageNotificationKind.Threshold => current with { Thresholds = change.Enabled },
+            UsageNotificationKind.Reset => current with { Resets = change.Enabled },
+            _ => current,
+        });
+    }
+
+    /// <summary>
+    /// Preferences live in settings.json; read-modify-write through the store so a toggle
+    /// flipped on one surface (tray master switch vs settings kind toggles) never clobbers
+    /// the others.
+    /// </summary>
+    private void MutateNotificationPreferences(Func<NotificationPreferences, NotificationPreferences> mutate)
+    {
+        if (_notificationSettingsStore is null)
+        {
+            return;
+        }
+        var updated = mutate(_notificationSettingsStore.Load());
+        _notificationSettingsStore.Save(updated);
+        _notificationService?.SetPreferences(updated);
     }
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)
@@ -276,6 +323,25 @@ public partial class App : Application
         // Bar and gauge cards differ in height; re-measure so the popover resizes to fit
         // (a no-op while the settings view is up — returning to usage re-measures anyway).
         _popover?.RefreshUsageLayout();
+    }
+
+    private void OnGlobalLanguageChanged(object? sender, AppLanguage language)
+    {
+        if (language == Loc.Current)
+        {
+            return;
+        }
+        // The UI language is fixed per process lifetime (XAML strings resolve at parse
+        // time), so applying a new language means: persist the override, then restart.
+        LanguageService.SaveOverride(language);
+        DisposePipeline();
+        // AppInstance.Restart terminates this process and relaunches it with the given
+        // arguments — after termination, so the single-instance key is free when the new
+        // instance registers. It returns only on failure; the pipeline is already torn
+        // down then, so exit — the persisted language applies on the next manual launch.
+        var reason = Microsoft.Windows.AppLifecycle.AppInstance.Restart("--language-changed");
+        System.Diagnostics.Debug.WriteLine($"[Gauge] language restart failed: {reason}");
+        Exit();
     }
 
     private void OnGlobalStartOnBootToggled(object? sender, bool enabled)
@@ -318,6 +384,34 @@ public partial class App : Application
         _settingsViewModel?.Global.SetStartOnBoot(actual);
     }
 
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == PowerModes.Resume)
+        {
+            RefreshAfterWake();
+        }
+    }
+
+    private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
+    {
+        if (e.Reason == SessionSwitchReason.SessionUnlock)
+        {
+            RefreshAfterWake();
+        }
+    }
+
+    private async void RefreshAfterWake()
+    {
+        // The network stack often needs a moment after resume; refreshing instantly would
+        // just fail and wait out each provider's full interval. The short delay also lets
+        // a resume-then-unlock sequence collapse into one fetch via the 10s debounce.
+        await Task.Delay(TimeSpan.FromSeconds(5));
+        if (_coordinator is { } coordinator)
+        {
+            await coordinator.RefreshAsync(RefreshReason.Manual);
+        }
+    }
+
     private void OnTrayExitRequested(object? sender, EventArgs e) => ShutdownAndExit();
 
     // The installer has launched; exit so it can replace the locked files and
@@ -326,9 +420,22 @@ public partial class App : Application
 
     private void ShutdownAndExit()
     {
-        // Stop the timer and cancel any in-flight usage calls first, then
-        // remove the tray icon (which also restores the foreground-lock setting and
-        // unsubscribes the theme listener), then quit.
+        DisposePipeline();
+        Exit();
+    }
+
+    /// <summary>
+    /// Tears down the data pipeline and tray surface: stop the timer and cancel any
+    /// in-flight usage calls first, then remove the tray icon (which also restores the
+    /// foreground-lock setting and unsubscribes the theme listener). Shared by the normal
+    /// exit and the language-switch restart.
+    /// </summary>
+    private void DisposePipeline()
+    {
+        // SystemEvents handlers are static-rooted; unhooking prevents a leak-style hold
+        // on this App instance during the teardown window.
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
         _coordinator?.Dispose();
         _coordinator = null;
         // After the coordinator has stopped (no refresh in flight), tear down any delegate
@@ -337,10 +444,11 @@ public partial class App : Application
         _antigravityProvider = null;
         _notificationService?.Dispose();
         _notificationService = null;
+        _historyStore?.Dispose();
+        _historyStore = null;
         _trayIcon?.Dispose();
         _trayIcon = null;
         _httpClient?.Dispose();
         _httpClient = null;
-        Exit();
     }
 }

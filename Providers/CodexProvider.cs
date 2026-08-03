@@ -81,7 +81,7 @@ public sealed class CodexProvider : IUsageProvider
         }
 
         // wham/usage is the same endpoint the Codex CLI itself polls every 60s, so our
-        // 60s cadence needs no extra throttling. Let fetch failures (network/429)
+        // 3-minute cadence needs no extra throttling. Let fetch failures (network/429)
         // propagate rather than swallowing them into an empty success — that way the
         // coordinator keeps the last good snapshot instead of clearing the card.
         try

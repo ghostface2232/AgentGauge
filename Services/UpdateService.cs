@@ -17,6 +17,13 @@ public sealed record GitHubRelease(Version Version, string TagName, string Downl
 
 public sealed record UpdateCheckResult(UpdateStatus Status, Version CurrentVersion, GitHubRelease? Release);
 
+/// <summary>Launches the downloaded installer; a seam so launch failure is testable.</summary>
+public interface IInstallerLauncher
+{
+    /// <summary>Starts the installer process; returns false when it could not be started.</summary>
+    bool Launch(string installerPath, string arguments);
+}
+
 /// <summary>
 /// Checks GitHub Releases for a newer build and applies it by downloading the
 /// per-user installer and launching it silently. The installer closes the running
@@ -33,15 +40,17 @@ public sealed class UpdateService
 
     private readonly HttpClient _http;
     private readonly Version _currentVersion;
+    private readonly IInstallerLauncher _launcher;
 
-    public UpdateService()
+    public UpdateService(HttpClient? http = null, Version? currentVersion = null, IInstallerLauncher? launcher = null)
     {
         // Dedicated client: GitHub requires a User-Agent, and a 60 MB installer
         // download needs a longer timeout than the usage HttpClient allows.
-        _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        _http = http ?? new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("Gauge-Updater");
         _http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-        _currentVersion = Normalize(Assembly.GetExecutingAssembly().GetName().Version);
+        _currentVersion = Normalize(currentVersion ?? Assembly.GetExecutingAssembly().GetName().Version);
+        _launcher = launcher ?? new ProcessInstallerLauncher();
     }
 
     public Version CurrentVersion => _currentVersion;
@@ -112,13 +121,7 @@ public sealed class UpdateService
             // /VERYSILENT hides the installer UI entirely (no progress window); the
             // in-app ring spinner stands in for it. CloseApplications=yes closes the
             // running app, and the WizardSilent [Run] entry relaunches it afterwards.
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = installer,
-                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
-                UseShellExecute = false,
-            });
-            return true;
+            return _launcher.Launch(installer, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART");
         }
         catch (Exception ex)
         {
@@ -130,7 +133,7 @@ public sealed class UpdateService
     private static Version Normalize(Version? v) =>
         v is null ? new Version(0, 0, 0) : new Version(v.Major, Math.Max(v.Minor, 0), Math.Max(v.Build, 0));
 
-    private static bool TryParseVersion(string tag, out Version version)
+    internal static bool TryParseVersion(string tag, out Version version)
     {
         var trimmed = tag.TrimStart('v', 'V').Trim();
         // Drop any pre-release suffix (e.g. "0.2.0-beta.1").
@@ -145,5 +148,16 @@ public sealed class UpdateService
 
         version = new Version(0, 0, 0);
         return false;
+    }
+
+    private sealed class ProcessInstallerLauncher : IInstallerLauncher
+    {
+        public bool Launch(string installerPath, string arguments)
+            => Process.Start(new ProcessStartInfo
+            {
+                FileName = installerPath,
+                Arguments = arguments,
+                UseShellExecute = false,
+            }) is not null;
     }
 }
