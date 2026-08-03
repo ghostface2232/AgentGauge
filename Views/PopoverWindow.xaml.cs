@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Foundation;
 using Windows.Graphics;
+using Windows.UI.ViewManagement;
 using WinRT.Interop;
 
 namespace Gauge.Views;
@@ -48,6 +49,11 @@ public sealed partial class PopoverWindow : Window
     private const double SlideOffsetY = 24;       // start offset below final position
     private const int SlideDurationMs = 180;      // 150–200ms feels right
 
+    // --- Notification disclosure animation ---
+    private const int NotificationExpandDurationMs = 180;
+    private const int NotificationCollapseDurationMs = 140;
+    private const double NotificationSlideOffsetY = 6;
+
     // --- Toggle guard ---
     // A tray click that deactivates+hides the popover lands here first; any reopen
     // within this window is treated as a toggle-close and ignored.
@@ -55,9 +61,11 @@ public sealed partial class PopoverWindow : Window
 
     private readonly nint _hwnd;
     private readonly NativeMethods.SUBCLASSPROC _windowSubclassProc;
+    private readonly UISettings _uiSettings = new();
     private bool _isShown;
     private long _lastHiddenAtTick;
     private bool _notificationOptionsExpanded;
+    private Storyboard? _notificationOptionsStoryboard;
 
     // Target monitor captured when the popover opens; reused for content-driven
     // resizes so the popover stays anchored even if the cursor later moves away.
@@ -490,10 +498,80 @@ public sealed partial class PopoverWindow : Window
     private void OnNotificationOptionsClicked(object sender, RoutedEventArgs e)
     {
         _notificationOptionsExpanded = !_notificationOptionsExpanded;
-        NotificationKindRows.Visibility = _notificationOptionsExpanded
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        NotificationOptionsGlyph.Glyph = _notificationOptionsExpanded ? "\uE70E" : "\uE70D";
+        AnimateNotificationOptions(_notificationOptionsExpanded);
+    }
+
+    private void AnimateNotificationOptions(bool expand)
+    {
+        // Capture the animated values before stopping so a rapid second click retargets
+        // from the current frame instead of snapping back to either endpoint.
+        var currentHeight = NotificationKindRows.ActualHeight;
+        var currentOpacity = NotificationKindRows.Opacity;
+        var currentOffset = NotificationKindRowsTransform.Y;
+        var currentRotation = NotificationOptionsGlyphRotation.Angle;
+        _notificationOptionsStoryboard?.Stop();
+        _notificationOptionsStoryboard = null;
+
+        NotificationKindRows.Visibility = Visibility.Visible;
+        NotificationKindRows.Height = double.NaN;
+        var availableWidth = (NotificationKindRows.Parent as FrameworkElement)?.ActualWidth
+            ?? NotificationKindRows.ActualWidth;
+        NotificationKindRows.Measure(new Size(availableWidth, double.PositiveInfinity));
+        var expandedHeight = NotificationKindRows.DesiredSize.Height;
+
+        NotificationKindRows.Height = currentHeight;
+        NotificationKindRows.Opacity = currentOpacity;
+        NotificationKindRowsTransform.Y = currentOffset;
+        NotificationOptionsGlyphRotation.Angle = currentRotation;
+
+        if (!_uiSettings.AnimationsEnabled || expandedHeight <= 0)
+        {
+            ApplyNotificationOptionsEndState(expand);
+            return;
+        }
+
+        var targetHeight = expand ? expandedHeight : 0;
+        var targetOpacity = expand ? 1 : 0;
+        var targetOffset = expand ? 0 : -NotificationSlideOffsetY;
+        var targetRotation = expand ? 180 : 0;
+        var fullDurationMs = expand
+            ? NotificationExpandDurationMs
+            : NotificationCollapseDurationMs;
+        var remaining = Math.Clamp(
+            Math.Abs(targetHeight - currentHeight) / expandedHeight,
+            0.0,
+            1.0);
+        var duration = new Duration(TimeSpan.FromMilliseconds(
+            Math.Max(1, fullDurationMs * remaining)));
+        var storyboard = new Storyboard();
+        // Height is the deliberate exception to composition-only animation: sibling rows
+        // must move with the disclosure rather than jump. The dependent layout work is
+        // bounded to this fixed two-row settings group and stays under 180ms.
+        storyboard.Children.Add(CreateSplineTransitionAnimation(
+            NotificationKindRows, "Height", currentHeight, targetHeight, duration, dependent: true));
+        storyboard.Children.Add(CreateSplineTransitionAnimation(
+            NotificationKindRows, "Opacity", currentOpacity, targetOpacity, duration));
+        storyboard.Children.Add(CreateSplineTransitionAnimation(
+            NotificationKindRowsTransform, "Y", currentOffset, targetOffset, duration, dependent: true));
+        storyboard.Children.Add(CreateSplineTransitionAnimation(
+            NotificationOptionsGlyphRotation, "Angle", currentRotation, targetRotation, duration, dependent: true));
+        storyboard.Completed += (_, _) =>
+        {
+            if (!ReferenceEquals(_notificationOptionsStoryboard, storyboard)) return;
+            _notificationOptionsStoryboard = null;
+            ApplyNotificationOptionsEndState(expand);
+        };
+        _notificationOptionsStoryboard = storyboard;
+        storyboard.Begin();
+    }
+
+    private void ApplyNotificationOptionsEndState(bool expanded)
+    {
+        NotificationKindRows.Height = expanded ? double.NaN : 0;
+        NotificationKindRows.Opacity = expanded ? 1 : 0;
+        NotificationKindRowsTransform.Y = expanded ? 0 : -NotificationSlideOffsetY;
+        NotificationKindRows.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        NotificationOptionsGlyphRotation.Angle = expanded ? 180 : 0;
     }
 
     private void OnAddServiceClicked(object sender, RoutedEventArgs e)
@@ -683,6 +761,39 @@ public sealed partial class PopoverWindow : Window
             EasingFunction = easing,
             EnableDependentAnimation = dependent,
         };
+        Storyboard.SetTarget(animation, target);
+        Storyboard.SetTargetProperty(animation, property);
+        return animation;
+    }
+
+    private static DoubleAnimationUsingKeyFrames CreateSplineTransitionAnimation(
+        DependencyObject target,
+        string property,
+        double from,
+        double to,
+        Duration duration,
+        bool dependent = false)
+    {
+        var animation = new DoubleAnimationUsingKeyFrames
+        {
+            Duration = duration,
+            EnableDependentAnimation = dependent,
+        };
+        animation.KeyFrames.Add(new DiscreteDoubleKeyFrame
+        {
+            KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero),
+            Value = from,
+        });
+        animation.KeyFrames.Add(new SplineDoubleKeyFrame
+        {
+            KeyTime = KeyTime.FromTimeSpan(duration.TimeSpan),
+            KeySpline = new KeySpline
+            {
+                ControlPoint1 = new Point(0.23, 1),
+                ControlPoint2 = new Point(0.32, 1),
+            },
+            Value = to,
+        });
         Storyboard.SetTarget(animation, target);
         Storyboard.SetTargetProperty(animation, property);
         return animation;

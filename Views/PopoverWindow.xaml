@@ -574,15 +574,25 @@
                                         HorizontalAlignment="Right" VerticalAlignment="Center"
                                         Style="{StaticResource BorderlessIconButtonStyle}"
                                         Click="OnNotificationOptionsClicked"
-                                        AutomationProperties.Name="{loc:Localize Key=Settings_Notifications}">
+                                    AutomationProperties.Name="{loc:Localize Key=Settings_Notifications}">
                                     <FontIcon x:Name="NotificationOptionsGlyph"
-                                              Glyph="&#xE70D;" FontSize="12" />
+                                              Glyph="&#xE70D;" FontSize="12"
+                                              RenderTransformOrigin="0.5,0.5">
+                                        <FontIcon.RenderTransform>
+                                            <RotateTransform x:Name="NotificationOptionsGlyphRotation" />
+                                        </FontIcon.RenderTransform>
+                                    </FontIcon>
                                 </Button>
                             </Grid>
                             <!-- Per-kind notification toggles remain configurable while the tray's
                                  global pause is off. Two kinds only — per-tool matrices are
                                  deliberately not offered (settings density is a feature). -->
-                            <StackPanel x:Name="NotificationKindRows" Visibility="Collapsed">
+                            <StackPanel x:Name="NotificationKindRows"
+                                        Height="0" Opacity="0" Visibility="Collapsed"
+                                        RenderTransformOrigin="0.5,0">
+                                <StackPanel.RenderTransform>
+                                    <TranslateTransform x:Name="NotificationKindRowsTransform" Y="-6" />
+                                </StackPanel.RenderTransform>
                                 <Border Height="1" Margin="0,2"
                                         Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                                 <StackPanel Margin="12,0,0,0">

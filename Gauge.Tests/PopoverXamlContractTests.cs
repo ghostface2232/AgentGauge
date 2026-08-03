@@ -99,6 +99,18 @@ public sealed class PopoverXamlContractTests
         Assert.Equal("40", (string?)disclosureButton.Attribute("Width"));
         Assert.Equal("40", (string?)disclosureButton.Attribute("Height"));
         Assert.Equal("Collapsed", (string?)nestedRows.Attribute("Visibility"));
+        Assert.Equal("0", (string?)nestedRows.Attribute("Height"));
+        Assert.Equal("0", (string?)nestedRows.Attribute("Opacity"));
+        var rowsTransform = nestedRows
+            .Element(xaml + "StackPanel.RenderTransform")!
+            .Element(xaml + "TranslateTransform")!;
+        Assert.Equal("-6", (string?)rowsTransform.Attribute("Y"));
+        var glyphRotation = disclosureButton
+            .Descendants(xaml + "RotateTransform")
+            .Single();
+        Assert.Equal(
+            "NotificationOptionsGlyphRotation",
+            (string?)glyphRotation.Attribute(XName.Get("Name", "http://schemas.microsoft.com/winfx/2006/xaml")));
         var masterRow = disclosureButton.Parent!;
         Assert.Equal("48", (string?)masterRow.Attribute("MinHeight"));
         Assert.Single(masterRow.Elements(xaml + "TextBlock"));
@@ -108,6 +120,19 @@ public sealed class PopoverXamlContractTests
             Assert.Contains(nestedRows.Descendants(xaml + "ToggleSwitch"), element =>
                 (string?)element.Attribute("IsOn") == $"{{Binding Global.{setting}, Mode=TwoWay}}");
         }
+    }
+
+    [Fact]
+    public void NotificationDisclosureMotionIsResponsiveAndAccessible()
+    {
+        var source = File.ReadAllText(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml.cs"));
+
+        Assert.Contains("NotificationExpandDurationMs = 180", source, StringComparison.Ordinal);
+        Assert.Contains("NotificationCollapseDurationMs = 140", source, StringComparison.Ordinal);
+        Assert.Contains("_uiSettings.AnimationsEnabled", source, StringComparison.Ordinal);
+        Assert.Contains("ReferenceEquals(_notificationOptionsStoryboard, storyboard)", source, StringComparison.Ordinal);
+        Assert.Contains("ControlPoint1 = new Point(0.23, 1)", source, StringComparison.Ordinal);
+        Assert.Contains("ControlPoint2 = new Point(0.32, 1)", source, StringComparison.Ordinal);
     }
 
     private static string RepoRoot()
