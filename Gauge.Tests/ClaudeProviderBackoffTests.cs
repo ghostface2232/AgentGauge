@@ -61,6 +61,38 @@ public sealed class ClaudeProviderBackoffTests
         Assert.NotEmpty(recovered.Windows);
     }
 
+    [Fact]
+    public async Task CacheExpiryUsesMonotonicTimeWhenWallClockMovesBackward()
+    {
+        var handler = new SequenceHandler(Ok(), Ok());
+        var (provider, time) = Provider(handler);
+
+        await provider.GetSnapshotAsync(default);
+        time.Advance(TimeSpan.FromMinutes(5.5));
+        time.ShiftWallClock(TimeSpan.FromHours(-1));
+
+        await provider.GetSnapshotAsync(default);
+
+        Assert.Equal(2, handler.Calls);
+    }
+
+    [Fact]
+    public async Task CooldownUsesMonotonicTimeWhenWallClockMovesForward()
+    {
+        var handler = new SequenceHandler(Ok(), TooMany(), Ok());
+        var (provider, time) = Provider(handler);
+
+        await provider.GetSnapshotAsync(default);
+        time.Advance(TimeSpan.FromMinutes(6));
+        await provider.GetSnapshotAsync(default); // starts the 2-minute cooldown
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        time.ShiftWallClock(TimeSpan.FromDays(1));
+        await provider.GetSnapshotAsync(default);
+
+        Assert.Equal(2, handler.Calls);
+    }
+
     private static (ClaudeProvider Provider, MutableTime Time) Provider(SequenceHandler handler)
     {
         var time = new MutableTime(Start);
@@ -87,8 +119,28 @@ public sealed class ClaudeProviderBackoffTests
 
     private sealed class MutableTime(DateTimeOffset now) : TimeProvider
     {
-        public DateTimeOffset Now = now;
-        public override DateTimeOffset GetUtcNow() => Now;
+        private DateTimeOffset _utcNow = now;
+        private long _timestamp;
+
+        public DateTimeOffset Now
+        {
+            get => _utcNow;
+            set => Advance(value - _utcNow);
+        }
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public override long GetTimestamp() => _timestamp;
+
+        public void Advance(TimeSpan elapsed)
+        {
+            _utcNow += elapsed;
+            _timestamp += elapsed.Ticks;
+        }
+
+        public void ShiftWallClock(TimeSpan offset) => _utcNow += offset;
     }
 
     private sealed class StubSource(CredentialReadResult result) : ICredentialSource

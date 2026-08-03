@@ -66,8 +66,9 @@ public sealed class ClaudeProvider : IUsageProvider
     // Only ever accessed from the coordinator's serialized refresh (one call at a
     // time), so no locking is needed.
     private UsageSnapshot? _lastSnapshot;
-    private DateTimeOffset? _lastSuccessAt;
-    private DateTimeOffset? _cooldownUntil;
+    private long? _lastSuccessTimestamp;
+    private long? _cooldownStartedTimestamp;
+    private TimeSpan _cooldownDuration;
     private int _consecutive429;
     private string? _credentialFingerprint;
     private bool _credentialFingerprintInitialized;
@@ -103,7 +104,7 @@ public sealed class ClaudeProvider : IUsageProvider
         }
 
         var credentials = credentialResult.Credential;
-        var now = _time.GetUtcNow();
+        var nowTimestamp = _time.GetTimestamp();
 
         // A CLI re-login/account switch must not serve the prior account's 5-minute
         // cache. Keep only a one-way fingerprint, never the token itself.
@@ -113,8 +114,9 @@ public sealed class ClaudeProvider : IUsageProvider
         if (_credentialFingerprintInitialized && !StringComparer.Ordinal.Equals(_credentialFingerprint, fingerprint))
         {
             _lastSnapshot = null;
-            _lastSuccessAt = null;
-            _cooldownUntil = null;
+            _lastSuccessTimestamp = null;
+            _cooldownStartedTimestamp = null;
+            _cooldownDuration = default;
             _consecutive429 = 0;
         }
         _credentialFingerprint = fingerprint;
@@ -128,8 +130,10 @@ public sealed class ClaudeProvider : IUsageProvider
         // Serve the cached snapshot without a network call when we fetched recently or
         // are in a 429 cooldown. Refresh the (cheap, file-based) plan label so a plan
         // change still shows promptly.
-        var inCooldown = _cooldownUntil is { } cooldownUntil && now < cooldownUntil;
-        var fetchedRecently = _lastSuccessAt is { } lastSuccess && now - lastSuccess < MinFetchInterval;
+        var inCooldown = _cooldownStartedTimestamp is { } cooldownStarted
+            && _time.GetElapsedTime(cooldownStarted, nowTimestamp) < _cooldownDuration;
+        var fetchedRecently = _lastSuccessTimestamp is { } lastSuccess
+            && _time.GetElapsedTime(lastSuccess, nowTimestamp) < MinFetchInterval;
         if (_lastSnapshot is not null && (inCooldown || fetchedRecently))
         {
             return _lastSnapshot with { Plan = credentials?.Plan ?? _lastSnapshot.Plan };
@@ -144,7 +148,7 @@ public sealed class ClaudeProvider : IUsageProvider
                 ToolName = ToolName,
                 Plan = credentials?.Plan,
                 Windows = Array.Empty<UsageWindow>(),
-                CapturedAt = DateTimeOffset.Now,
+                CapturedAt = _time.GetUtcNow(),
             };
         }
 
@@ -156,7 +160,8 @@ public sealed class ClaudeProvider : IUsageProvider
         {
             _consecutive429++;
             var cooldown = Backoff.ForAttempt(_consecutive429);
-            _cooldownUntil = _time.GetUtcNow() + cooldown;
+            _cooldownStartedTimestamp = _time.GetTimestamp();
+            _cooldownDuration = cooldown;
             Debug.WriteLine($"[Gauge] ClaudeProvider 429 (x{_consecutive429}); backing off {cooldown.TotalMinutes.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}m");
 
             // Keep showing the last good value if we have one; only surface a failure
@@ -204,8 +209,9 @@ public sealed class ClaudeProvider : IUsageProvider
     private UsageSnapshot RecordSuccess(List<UsageWindow> windows, string? plan)
     {
         _consecutive429 = 0;
-        _cooldownUntil = null;
-        _lastSuccessAt = _time.GetUtcNow();
+        _cooldownStartedTimestamp = null;
+        _cooldownDuration = default;
+        _lastSuccessTimestamp = _time.GetTimestamp();
         _lastSnapshot = new UsageSnapshot
         {
             ToolName = ToolName,
