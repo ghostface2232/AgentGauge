@@ -88,21 +88,75 @@ public sealed class UsageHistoryStoreTests : IDisposable
         Directory.CreateDirectory(_dir);
         File.WriteAllText(Path.Combine(_dir, "usage-history.db"), "this is not a sqlite file");
 
-        using var store = new UsageHistoryStore(_dir, _time);
-        store.Record(Snapshot("Codex", 0.25, _time.Now));
+        using (var store = new UsageHistoryStore(_dir, _time))
+        {
+            store.Record(Snapshot("Codex", 0.25, _time.Now));
+        }
 
-        var samples = store.GetRecent("Codex", UsageWindowType.FiveHour.ToString(), TimeSpan.FromHours(1));
+        // Reopen so this assertion is backed by the recreated SQLite file rather than
+        // the first store's in-memory tail, which is populated even when disk writes fail.
+        using var reopened = new UsageHistoryStore(_dir, _time);
+        var samples = reopened.GetRecent("Codex", UsageWindowType.FiveHour.ToString(), TimeSpan.FromHours(1));
         var ratio = Assert.Single(samples).UsedRatio;
         Assert.Equal(0.25, ratio, 3);
+        Assert.Equal(1, CountRows());
+    }
+
+    [Fact]
+    public void NonCorruptionSqliteFailureDoesNotDeleteHistory()
+    {
+        using (var store = new UsageHistoryStore(_dir, _time))
+        {
+            store.Record(Snapshot("Codex", 0.10, _time.Now.AddMinutes(-5)));
+        }
+
+        using (var connection = OpenDatabase())
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                CREATE TABLE sentinel (value TEXT NOT NULL);
+                INSERT INTO sentinel VALUES ('keep');
+                CREATE TRIGGER reject_sample BEFORE INSERT ON samples
+                BEGIN
+                    SELECT RAISE(ABORT, 'expected test constraint');
+                END;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        using (var store = new UsageHistoryStore(_dir, _time))
+        {
+            store.Record(Snapshot("Codex", 0.20, _time.Now));
+        }
+
+        using var verify = OpenDatabase();
+        using var countSentinel = verify.CreateCommand();
+        countSentinel.CommandText = "SELECT COUNT(*) FROM sentinel WHERE value = 'keep'";
+        Assert.Equal(1L, (long)countSentinel.ExecuteScalar()!);
+
+        using var countSamples = verify.CreateCommand();
+        countSamples.CommandText = "SELECT COUNT(*) FROM samples";
+        Assert.Equal(1L, (long)countSamples.ExecuteScalar()!);
     }
 
     private long CountRows()
     {
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(_dir, "usage-history.db")};Mode=ReadOnly");
-        connection.Open();
+        using var connection = OpenDatabase(SqliteOpenMode.ReadOnly);
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COUNT(*) FROM samples";
         return (long)command.ExecuteScalar()!;
+    }
+
+    private SqliteConnection OpenDatabase(SqliteOpenMode mode = SqliteOpenMode.ReadWrite)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(_dir, "usage-history.db"),
+            Mode = mode,
+        }.ToString());
+        connection.Open();
+        return connection;
     }
 
     private static UsageSnapshot Snapshot(string tool, double ratio, DateTimeOffset capturedAt) => new()

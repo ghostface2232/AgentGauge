@@ -40,6 +40,8 @@ public interface IUsageHistorySource
 public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySource, IDisposable
 {
     private const string FileName = "usage-history.db";
+    private const int SqliteCorrupt = 11;
+    private const int SqliteNotADatabase = 26;
     private static readonly TimeSpan Retention = TimeSpan.FromDays(90);
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(24);
 
@@ -228,7 +230,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             {
                 Debug.WriteLine($"[Gauge] usage history failed: {ex.GetType().Name}");
                 CloseConnection();
-                if (attempt == 0 && ex is SqliteException)
+                if (attempt == 0 && ex is SqliteException sqliteError && IsCorruption(sqliteError))
                 {
                     TryDeleteDatabase();
                     continue;
@@ -251,30 +253,44 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             DataSource = _path,
             Mode = SqliteOpenMode.ReadWriteCreate,
         }.ToString());
-        connection.Open();
-        using (var command = connection.CreateCommand())
+        try
         {
-            command.CommandText =
-                """
-                PRAGMA journal_mode=WAL;
-                CREATE TABLE IF NOT EXISTS samples (
-                    tool         TEXT    NOT NULL,
-                    window_key   TEXT    NOT NULL,
-                    group_label  TEXT    NULL,
-                    captured_at  INTEGER NOT NULL,
-                    used_ratio   REAL    NOT NULL,
-                    reset_time   INTEGER NULL,
-                    used_tokens  INTEGER NULL,
-                    limit_tokens INTEGER NULL
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS ix_samples_identity
-                    ON samples (tool, window_key, captured_at);
-                """;
-            command.ExecuteNonQuery();
+            connection.Open();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText =
+                    """
+                    PRAGMA journal_mode=WAL;
+                    CREATE TABLE IF NOT EXISTS samples (
+                        tool         TEXT    NOT NULL,
+                        window_key   TEXT    NOT NULL,
+                        group_label  TEXT    NULL,
+                        captured_at  INTEGER NOT NULL,
+                        used_ratio   REAL    NOT NULL,
+                        reset_time   INTEGER NULL,
+                        used_tokens  INTEGER NULL,
+                        limit_tokens INTEGER NULL
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS ix_samples_identity
+                        ON samples (tool, window_key, captured_at);
+                    """;
+                command.ExecuteNonQuery();
+            }
+            _connection = connection;
+            return connection;
         }
-        _connection = connection;
-        return connection;
+        catch
+        {
+            // Ownership transfers to _connection only after initialization succeeds.
+            // Until then this local handle must be closed before corrupt-file recovery
+            // can delete the database on Windows.
+            connection.Dispose();
+            throw;
+        }
     }
+
+    private static bool IsCorruption(SqliteException error)
+        => error.SqliteErrorCode is SqliteCorrupt or SqliteNotADatabase;
 
     private void CloseConnection()
     {
