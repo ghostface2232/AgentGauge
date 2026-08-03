@@ -87,6 +87,14 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         }
     }
 
+    /// <summary>Reflects the persisted language after a failed change without raising a new request.</summary>
+    public void SetLanguage(AppLanguage language)
+    {
+        _suspendSideEffects = true;
+        LanguageIndex = (int)language;
+        _suspendSideEffects = false;
+    }
+
     partial void OnNotificationsEnabledChanged(bool value)
     {
         if (_suspendSideEffects) return;

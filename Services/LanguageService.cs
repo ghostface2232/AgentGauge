@@ -58,7 +58,8 @@ public static class LanguageService
     /// Persists an explicit user language choice (the in-app switch). Takes effect on the
     /// next launch; the caller is responsible for relaunching.
     /// </summary>
-    public static void SaveOverride(AppLanguage language, string? directory = null)
-        => AppSettingsFile.Save(
+    /// <returns>True when the override reached disk; false when the current process should remain running.</returns>
+    public static bool SaveOverride(AppLanguage language, string? directory = null)
+        => AppSettingsFile.TrySave(
             directory ?? AppSettingsFile.DefaultDirectory, dto => dto.Language = language.ToCode());
 }

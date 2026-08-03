@@ -91,6 +91,20 @@ public sealed class GlobalSettingsViewModelTests
     }
 
     [Fact]
+    public void SetLanguageReflectsPersistedChoiceWithoutRaisingRequest()
+    {
+        var vm = Create();
+        var requests = 0;
+        vm.LanguageChangeRequested += (_, _) => requests++;
+        vm.LanguageIndex = (int)AppLanguage.Japanese;
+
+        vm.SetLanguage(AppLanguage.Korean);
+
+        Assert.Equal((int)AppLanguage.Korean, vm.LanguageIndex);
+        Assert.Equal(1, requests);
+    }
+
+    [Fact]
     public void TogglingStartOnBootRaisesRequestWithNewValue()
     {
         var vm = Create(notificationsEnabled: false);

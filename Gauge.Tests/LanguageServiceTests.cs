@@ -65,13 +65,30 @@ public sealed class LanguageServiceTests
             var detected = LanguageService.InitializeFromSettings(dir);
             var other = detected == AppLanguage.Japanese ? AppLanguage.English : AppLanguage.Japanese;
 
-            LanguageService.SaveOverride(other, dir);
+            Assert.True(LanguageService.SaveOverride(other, dir));
 
             Assert.Equal(other, LanguageService.InitializeFromSettings(dir));
         }
         finally
         {
             if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveOverrideReportsFailureWhenSettingsDirectoryIsAFile()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "GaugeLangFile_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            File.WriteAllText(path, "not a directory");
+
+            Assert.False(LanguageService.SaveOverride(AppLanguage.Japanese, path));
+            Assert.Equal("not a directory", File.ReadAllText(path));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
         }
     }
 }

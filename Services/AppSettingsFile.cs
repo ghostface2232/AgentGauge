@@ -79,6 +79,13 @@ internal static class AppSettingsFile
     /// atomically (temp file + move). Other keys present in the file are preserved.
     /// </summary>
     public static void Save(string directory, Action<AppSettingsDto> mutate)
+        => _ = TrySave(directory, mutate);
+
+    /// <summary>
+    /// The result-reporting form used when the caller must not continue unless the
+    /// preference reached disk (for example, before restarting to change language).
+    /// </summary>
+    public static bool TrySave(string directory, Action<AppSettingsDto> mutate)
     {
         try
         {
@@ -93,10 +100,12 @@ internal static class AppSettingsFile
                 JsonSerializer.Serialize(stream, dto, WriteOptions);
             }
             File.Move(temp, path, overwrite: true);
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             Debug.WriteLine($"[Gauge] settings save failed: {ex.GetType().Name}");
+            return false;
         }
     }
 }

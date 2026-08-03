@@ -333,7 +333,13 @@ public partial class App : Application
         }
         // The UI language is fixed per process lifetime (XAML strings resolve at parse
         // time), so applying a new language means: persist the override, then restart.
-        LanguageService.SaveOverride(language);
+        if (!LanguageService.SaveOverride(language))
+        {
+            // Keep the running app intact when the preference could not reach disk;
+            // otherwise it would restart into the old language for no effect.
+            _settingsViewModel?.Global.SetLanguage(Loc.Current);
+            return;
+        }
         DisposePipeline();
         // AppInstance.Restart terminates this process and relaunches it with the given
         // arguments — after termination, so the single-instance key is free when the new
