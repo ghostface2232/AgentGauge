@@ -1,3 +1,4 @@
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Services;
 
@@ -76,10 +77,71 @@ public sealed class UsageCacheStoreTests : IDisposable
     }
 
     [Fact]
+    public void SameTypeWindowsKeepDistinctLabelsAcrossARestart()
+    {
+        // GitHub Copilot's three quotas are all BillingCycle windows, so re-deriving the
+        // label from the type alone rehydrated them as three identical "Usage" rows. The
+        // label KEY is persisted (not the resolved text) so it re-resolves per language.
+        var snapshot = new UsageSnapshot
+        {
+            ToolName = "GitHub Copilot",
+            CapturedAt = DateTimeOffset.UtcNow,
+            Windows = new[]
+            {
+                Quota("chat", "Label_Copilot_Chat"),
+                Quota("premium_interactions", "Label_Copilot_Premium"),
+                // A quota Gauge doesn't know yet carries its raw id as the key; Loc.Get
+                // passes an unknown key through, so the window keeps a usable label.
+                Quota("some_future_quota", "some_future_quota"),
+            },
+        };
+
+        new UsageCacheStore(_dir).Save(new[] { snapshot });
+        var loaded = Assert.Single(new UsageCacheStore(_dir).Load());
+
+        Assert.Equal(3, loaded.Windows.Count);
+        Assert.Equal(3, loaded.Windows.Select(w => w.Label).Distinct().Count());
+        Assert.Equal(
+            WindowLabels.For(UsageWindowType.BillingCycle, "Label_Copilot_Chat"),
+            Assert.Single(loaded.Windows, w => w.Id == "chat").Label);
+        Assert.Equal(
+            "some_future_quota",
+            Assert.Single(loaded.Windows, w => w.Id == "some_future_quota").Label);
+    }
+
+    [Fact]
+    public void WindowsWithoutALabelKeyStillReDeriveFromTheirType()
+    {
+        // v3 records carry no label key; those windows must keep the old behavior.
+        new UsageCacheStore(_dir).Save(new[]
+        {
+            new UsageSnapshot
+            {
+                ToolName = "Codex",
+                CapturedAt = DateTimeOffset.UtcNow,
+                Windows = new[] { new UsageWindow { Type = UsageWindowType.Weekly, Label = "stale", UsedRatio = 0.5 } },
+            },
+        });
+
+        var window = Assert.Single(Assert.Single(new UsageCacheStore(_dir).Load()).Windows);
+        Assert.Null(window.LabelKey);
+        Assert.Equal(WindowLabels.For(UsageWindowType.Weekly), window.Label);
+    }
+
+    [Fact]
     public void LoadReturnsEmptyWhenFileAbsent()
     {
         Assert.Empty(new UsageCacheStore(_dir).Load());
     }
+
+    private static UsageWindow Quota(string id, string labelKey) => new()
+    {
+        Id = id,
+        Type = UsageWindowType.BillingCycle,
+        LabelKey = labelKey,
+        Label = WindowLabels.For(UsageWindowType.BillingCycle, labelKey),
+        UsedRatio = 0.5,
+    };
 
     [Fact]
     public void SaveOverwritesPreviousContents()

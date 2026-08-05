@@ -43,6 +43,19 @@ public sealed record UsageWindow
     /// <summary>Short label for display (e.g. "5시간", "주간").</summary>
     public required string Label { get; init; }
 
+    /// <summary>
+    /// Localization key behind <see cref="Label"/>, for the windows whose label is NOT
+    /// simply derived from <see cref="Type"/>. GitHub Copilot's chat / completions / premium
+    /// quotas are three <see cref="UsageWindowType.BillingCycle"/> windows that would
+    /// otherwise all read "Usage" — indistinguishable both as rows and as toast titles.
+    ///
+    /// The key, not the resolved text, is what gets persisted, so a rehydrated cache
+    /// re-resolves in whatever language is active now. An unrecognized key falls through
+    /// <c>Loc.Get</c> to itself, so a provider id for a quota Gauge doesn't know yet still
+    /// survives as its own label. Null when <see cref="Type"/> alone determines the label.
+    /// </summary>
+    public string? LabelKey { get; init; }
+
     /// <summary>When this window resets, if known.</summary>
     public DateTimeOffset? ResetTime { get; init; }
 

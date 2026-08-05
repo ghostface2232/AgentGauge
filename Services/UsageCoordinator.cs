@@ -25,6 +25,10 @@ public enum RefreshReason
 ///   refresh ran within the last 10s we skip the data source and just re-emit the
 ///   cached state. The periodic refresh counts toward the debounce too, so we never
 ///   over-poll the providers.
+/// - Beyond that debounce, opening the popover also respects a per-provider cost floor
+///   (<see cref="ForcedIntervalFor"/>), which exists for providers whose read is
+///   expensive in a way a 10-second gap does not cover. Explicit user actions (the
+///   refresh button, a sign-in, adding a tool) bypass it.
 /// - The last successful snapshot per tool is cached; on failure the cached value is
 ///   kept and surfaced with its capture time.
 ///
@@ -38,19 +42,25 @@ public sealed class UsageCoordinator : IDisposable
     private static readonly TimeSpan SchedulerTickInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ForcedRefreshDebounce = TimeSpan.FromSeconds(10);
 
+    // Sentinel for "no refresh has been attempted yet". Not 0: a timestamp source is free to
+    // start there, which would make the very first refresh read as an old one.
+    private const long NeverRefreshed = long.MinValue;
+
     private readonly UsageService _usageService;
     private readonly DispatcherQueue? _dispatcher;
     private readonly IUsageCachePersistence? _persistence;
     private readonly IUsageHistoryRecorder? _history;
+    private readonly TimeProvider _time;
 
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly CancellationTokenSource _cts = new();
     private readonly object _cacheLock = new();
     private readonly Dictionary<string, CachedUsage> _cache = new();
     private readonly List<string> _toolOrder = new();
-    private readonly Dictionary<ToolKind, long> _lastProviderAttemptTicks = new();
+    // Monotonic timestamps, so the intervals below survive a wall-clock change.
+    private readonly Dictionary<ToolKind, long> _lastProviderAttemptTimestamps = new();
 
-    private long _lastRefreshStartedTick;
+    private long _lastRefreshStartedTimestamp = NeverRefreshed;
     private Task? _loopTask;
     private bool _disposed;
 
@@ -68,12 +78,14 @@ public sealed class UsageCoordinator : IDisposable
         UsageService usageService,
         DispatcherQueue? dispatcher = null,
         IUsageCachePersistence? persistence = null,
-        IUsageHistoryRecorder? history = null)
+        IUsageHistoryRecorder? history = null,
+        TimeProvider? time = null)
     {
         _usageService = usageService;
         _dispatcher = dispatcher;
         _persistence = persistence;
         _history = history;
+        _time = time ?? TimeProvider.System;
         RehydrateFromDisk();
     }
 
@@ -140,9 +152,9 @@ public sealed class UsageCoordinator : IDisposable
     public async Task RefreshAsync(RefreshReason reason)
     {
         var isDebouncedRequest = reason is RefreshReason.PopoverOpened or RefreshReason.Manual;
-        var lastStarted = Interlocked.Read(ref _lastRefreshStartedTick);
-        if (isDebouncedRequest && lastStarted != 0
-            && Environment.TickCount64 - lastStarted < ForcedRefreshDebounce.TotalMilliseconds)
+        var lastStarted = Interlocked.Read(ref _lastRefreshStartedTimestamp);
+        if (isDebouncedRequest && lastStarted != NeverRefreshed
+            && _time.GetElapsedTime(lastStarted) < ForcedRefreshDebounce)
         {
             // Within the debounce window: show the cached value, don't re-fetch.
             EmitState();
@@ -198,36 +210,48 @@ public sealed class UsageCoordinator : IDisposable
         try
         {
             var enabledProviders = _usageService.GetEnabledProviders();
-            var attemptTick = Environment.TickCount64;
-            var providersToRefresh = reason == RefreshReason.Periodic
-                ? enabledProviders.Where(provider => IsPeriodicRefreshDue(provider.Tool, attemptTick)).ToList()
-                : enabledProviders;
+            var attemptTimestamp = _time.GetTimestamp();
+            var providersToRefresh = reason switch
+            {
+                RefreshReason.Periodic => enabledProviders
+                    .Where(provider => IsDue(provider.Tool, attemptTimestamp, PeriodicIntervalFor(provider.Tool)))
+                    .ToList(),
+                RefreshReason.PopoverOpened => enabledProviders
+                    .Where(provider => IsDue(provider.Tool, attemptTimestamp, ForcedIntervalFor(provider.Tool)))
+                    .ToList(),
+                _ => enabledProviders,
+            };
 
-            // A scheduler tick often has no due provider. It is not a refresh attempt and
-            // must not affect the 10-second user-action debounce.
             if (providersToRefresh.Count == 0)
             {
-                // Removing the final enabled tool also produces an empty batch. ToolsChanged
-                // must still purge and persist the old card even though there is nothing to fetch.
-                if (reason == RefreshReason.ToolsChanged)
+                // A scheduler tick often has no due provider. It is not a refresh attempt and
+                // must not affect the 10-second user-action debounce, and there is no new
+                // state to announce.
+                if (reason == RefreshReason.Periodic)
                 {
-                    var remainingToolNames = enabledProviders.Select(provider => provider.ToolName).ToHashSet();
-                    var removedAnyTool = MergeIntoCache(
+                    return;
+                }
+
+                // Every other reason is a user action, so the cached state is still re-emitted
+                // even when nothing was fetched — a popover opened while every provider is
+                // inside its cost floor must show its cards, and removing the final enabled
+                // tool must purge and persist the old card despite there being nothing to fetch.
+                var removedAnyTool = reason == RefreshReason.ToolsChanged
+                    && MergeIntoCache(
                         Array.Empty<ProviderSnapshotResult>(),
-                        remainingToolNames);
-                    EmitState();
-                    if (removedAnyTool)
-                    {
-                        PersistSuccessfulSnapshots();
-                    }
+                        enabledProviders.Select(provider => provider.ToolName).ToHashSet());
+                EmitState();
+                if (removedAnyTool)
+                {
+                    PersistSuccessfulSnapshots();
                 }
                 return;
             }
 
-            Interlocked.Exchange(ref _lastRefreshStartedTick, attemptTick);
+            Interlocked.Exchange(ref _lastRefreshStartedTimestamp, attemptTimestamp);
             foreach (var provider in providersToRefresh)
             {
-                _lastProviderAttemptTicks[provider.Tool] = attemptTick;
+                _lastProviderAttemptTimestamps[provider.Tool] = attemptTimestamp;
             }
 
             // Snapshot the cached capture-times before merging so a genuine live fetch can
@@ -264,9 +288,10 @@ public sealed class UsageCoordinator : IDisposable
         return true;
     }
 
-    private bool IsPeriodicRefreshDue(ToolKind tool, long nowTick)
-        => !_lastProviderAttemptTicks.TryGetValue(tool, out var previous)
-            || nowTick - previous >= PeriodicIntervalFor(tool).TotalMilliseconds;
+    private bool IsDue(ToolKind tool, long nowTimestamp, TimeSpan interval)
+        => interval <= TimeSpan.Zero
+            || !_lastProviderAttemptTimestamps.TryGetValue(tool, out var previous)
+            || _time.GetElapsedTime(previous, nowTimestamp) >= interval;
 
     /// <summary>
     /// Provider-specific background cadence. User-triggered and authentication/tool changes
@@ -279,6 +304,24 @@ public sealed class UsageCoordinator : IDisposable
         ToolKind.Antigravity => TimeSpan.FromMinutes(10),
         ToolKind.GitHubCopilot => TimeSpan.FromMinutes(15),
         _ => TimeSpan.FromMinutes(5),
+    };
+
+    /// <summary>
+    /// Minimum spacing between attempts for a provider on a popover-open refresh. Unlike
+    /// <see cref="PeriodicIntervalFor"/> this bounds COST, not staleness, so it is zero for
+    /// everything whose read is one HTTP GET — those stay current on every open, and Claude
+    /// additionally serves its own 5-minute network cache.
+    ///
+    /// Antigravity is the exception: with the IDE closed it has no endpoint to call, so a
+    /// read launches a language server, waits for it to answer, and tears the process tree
+    /// down again. Without a floor every tray click spawns one, which the 10-second debounce
+    /// does not prevent. Ten minutes of drift is the periodic cadence anyway, so a two-minute
+    /// floor costs no meaningful freshness; the refresh button still forces a read.
+    /// </summary>
+    internal static TimeSpan ForcedIntervalFor(ToolKind tool) => tool switch
+    {
+        ToolKind.Antigravity => TimeSpan.FromMinutes(2),
+        _ => TimeSpan.Zero,
     };
 
     private void ReportAuthenticationOutcomes(

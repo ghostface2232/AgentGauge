@@ -57,12 +57,12 @@ public sealed class LocalizationFormatTests : IDisposable
     {
         Loc.Initialize(language);
 
-        var title = NotificationText.ThresholdTitle("Codex", UsageWindowType.Weekly, 90);
+        var title = NotificationText.ThresholdTitle("Codex", Window(UsageWindowType.Weekly), 90);
         var scopedTitle = NotificationText.ThresholdTitle(
-            "Claude Code", UsageWindowType.Weekly, 70, "Fable");
-        var resetTitle = NotificationText.ResetTitle("Claude Code", UsageWindowType.FiveHour);
+            "Claude Code", Window(UsageWindowType.Weekly, group: "Fable"), 70);
+        var resetTitle = NotificationText.ResetTitle("Claude Code", Window(UsageWindowType.FiveHour));
         var scopedResetTitle = NotificationText.ResetTitle(
-            "Claude Code", UsageWindowType.Weekly, "Fable");
+            "Claude Code", Window(UsageWindowType.Weekly, group: "Fable"));
         var resetMessage = NotificationText.ResetMessage(100);
 
         Assert.DoesNotContain("{", title);
@@ -88,4 +88,36 @@ public sealed class LocalizationFormatTests : IDisposable
         Assert.Contains("1 day (", oneDay);
         Assert.DoesNotContain("1 days", oneDay);
     }
+
+    [Theory]
+    [InlineData(AppLanguage.Korean)]
+    [InlineData(AppLanguage.English)]
+    [InlineData(AppLanguage.Japanese)]
+    public void SameTypeWindowsWithDistinctLabelsProduceDistinctTitles(AppLanguage language)
+    {
+        Loc.Initialize(language);
+
+        // GitHub Copilot's quotas are all BillingCycle windows: deriving the title's label
+        // from the type alone made a premium-request alert read identically to a chat one.
+        var chat = Window(UsageWindowType.BillingCycle, labelKey: "Label_Copilot_Chat");
+        var premium = Window(UsageWindowType.BillingCycle, labelKey: "Label_Copilot_Premium");
+
+        Assert.NotEqual(
+            NotificationText.ThresholdTitle("GitHub Copilot", chat, 90),
+            NotificationText.ThresholdTitle("GitHub Copilot", premium, 90));
+        Assert.NotEqual(
+            NotificationText.ResetTitle("GitHub Copilot", chat),
+            NotificationText.ResetTitle("GitHub Copilot", premium));
+        Assert.DoesNotContain("Label_", NotificationText.ThresholdTitle("GitHub Copilot", premium, 90));
+    }
+
+    private static UsageWindow Window(
+        UsageWindowType type, string? group = null, string? labelKey = null) => new()
+    {
+        Type = type,
+        UsedRatio = 0.9,
+        GroupLabel = group,
+        LabelKey = labelKey,
+        Label = WindowLabels.For(type, labelKey),
+    };
 }

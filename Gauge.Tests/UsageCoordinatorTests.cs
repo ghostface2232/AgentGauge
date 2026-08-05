@@ -188,6 +188,110 @@ public sealed class UsageCoordinatorTests
         Assert.Equal(1, provider.CallCount);
     }
 
+    [Theory]
+    [InlineData(ToolKind.Antigravity, 2)]
+    [InlineData(ToolKind.Codex, 0)]
+    [InlineData(ToolKind.ClaudeCode, 0)]
+    [InlineData(ToolKind.Cursor, 0)]
+    [InlineData(ToolKind.GitHubCopilot, 0)]
+    public void OnlyProcessSpawningProvidersHaveAPopoverOpenCostFloor(ToolKind tool, int minutes)
+    {
+        Assert.Equal(TimeSpan.FromMinutes(minutes), UsageCoordinator.ForcedIntervalFor(tool));
+    }
+
+    [Fact]
+    public async Task PopoverOpenSkipsAProviderInsideItsCostFloorButStillShowsItsCard()
+    {
+        // Antigravity has no endpoint when the IDE is closed: a read launches a language
+        // server and tears it down again, so every tray click used to spawn one. The floor
+        // outlives the 10s debounce, so re-opening the popover a minute later still skips it.
+        var time = new MutableTime();
+        var antigravity = new StubProvider("Antigravity");
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { antigravity }), time: time);
+        UsageState? state = null;
+        coordinator.Updated += (_, value) => state = value;
+
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        Assert.Equal(1, antigravity.CallCount);
+
+        time.Advance(TimeSpan.FromMinutes(1)); // past the debounce, inside the two-minute floor
+        state = null;
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+
+        Assert.Equal(1, antigravity.CallCount);
+        // Nothing was fetched, but the popover must still receive the cached card.
+        Assert.NotNull(state);
+        Assert.NotNull(Assert.Single(state!.Tools).Snapshot);
+    }
+
+    [Fact]
+    public async Task PopoverOpenRefreshesAgainOnceTheCostFloorHasPassed()
+    {
+        var time = new MutableTime();
+        var antigravity = new StubProvider("Antigravity");
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { antigravity }), time: time);
+
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        time.Advance(TimeSpan.FromMinutes(3));
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+
+        Assert.Equal(2, antigravity.CallCount);
+    }
+
+    [Fact]
+    public async Task ExplicitUserActionsBypassTheCostFloor()
+    {
+        var time = new MutableTime();
+        var antigravity = new StubProvider("Antigravity");
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { antigravity }), time: time);
+
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        // A completed sign-in and adding a tool both mean "now, really".
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+        // So does the refresh button, once past the shared 10-second debounce.
+        time.Advance(TimeSpan.FromSeconds(11));
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        Assert.Equal(4, antigravity.CallCount);
+    }
+
+    [Fact]
+    public async Task CostFlooredProviderDoesNotBlockAnotherProvidersRefresh()
+    {
+        var time = new MutableTime();
+        var antigravity = new StubProvider("Antigravity");
+        var codex = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(
+            new UsageService(new IUsageProvider[] { antigravity, codex }), time: time);
+
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        time.Advance(TimeSpan.FromMinutes(1));
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+
+        Assert.Equal(1, antigravity.CallCount);
+        Assert.Equal(2, codex.CallCount);
+    }
+
+    [Fact]
+    public async Task ForcedRefreshWithinTheDebounceIsSkippedRegardlessOfTheFloor()
+    {
+        // The two gates are independent: the debounce covers rapid clicking for every
+        // provider, the floor covers the expensive one over a longer span.
+        var time = new MutableTime();
+        var codex = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { codex }), time: time);
+
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        time.Advance(TimeSpan.FromSeconds(9));
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        Assert.Equal(1, codex.CallCount);
+
+        time.Advance(TimeSpan.FromSeconds(2));
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        Assert.Equal(2, codex.CallCount);
+    }
+
     [Fact]
     public async Task RehydratedSnapshotIsShownWhenColdStartRefreshFails()
     {
@@ -293,9 +397,30 @@ public sealed class UsageCoordinatorTests
         }
     }
 
+    /// <summary>
+    /// Drives the coordinator's monotonic gates (the forced-refresh debounce and the
+    /// per-provider cost floor) without real waiting. Starts at a non-zero timestamp so a
+    /// test can never accidentally depend on the "never refreshed" sentinel being zero.
+    /// </summary>
+    private sealed class MutableTime : TimeProvider
+    {
+        private long _timestamp = TimeSpan.TicksPerHour;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => _timestamp;
+
+        public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
+    }
+
     private sealed class StubProvider(string name) : IUsageProvider
     {
-        public ToolKind Tool => name == "Codex" ? ToolKind.Codex : ToolKind.ClaudeCode;
+        public ToolKind Tool => name switch
+        {
+            "Codex" => ToolKind.Codex,
+            "Antigravity" => ToolKind.Antigravity,
+            _ => ToolKind.ClaudeCode,
+        };
         public string ToolName => name;
         public int CallCount { get; private set; }
         public bool Throw { get; set; }

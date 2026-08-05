@@ -172,7 +172,7 @@ public sealed class UsageNotificationEvaluator
                 : UsageLevel.Caution,
             ToolName = toolName,
             WindowType = window.Type,
-            Title = NotificationText.ThresholdTitle(toolName, window.Type, percent, window.GroupLabel),
+            Title = NotificationText.ThresholdTitle(toolName, window, percent),
             Message = ResetTimeFormatter.ForNotification(window.ResetTime, now),
             CreatedAt = now,
         };
@@ -188,7 +188,7 @@ public sealed class UsageNotificationEvaluator
             Level = UsageLevel.Ok,
             ToolName = toolName,
             WindowType = window.Type,
-            Title = NotificationText.ResetTitle(toolName, window.Type, window.GroupLabel),
+            Title = NotificationText.ResetTitle(toolName, window),
             Message = NotificationText.ResetMessage(availablePercent),
             CreatedAt = now,
         };

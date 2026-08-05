@@ -64,7 +64,7 @@ public partial class App : Application
         _trayIcon = new TrayIconService();
         _trayIcon.LeftClicked += OnTrayLeftClicked;
         _trayIcon.StartOnBootToggled += OnTrayStartOnBootToggled;
-        _trayIcon.NotificationsToggled += OnTrayNotificationsToggled;
+        _trayIcon.NotificationKindToggled += OnNotificationKindToggled;
         _trayIcon.ExitRequested += OnTrayExitRequested;
 
         // Reflect the real run-on-startup state in the tray menu checkmark.
@@ -139,12 +139,11 @@ public partial class App : Application
         // comes from the persisted notifications flag and the real Run-key startup state.
         _notificationSettingsStore = new NotificationSettingsStore();
         var notificationPreferences = _notificationSettingsStore.Load();
-        _trayIcon.SetNotificationsChecked(notificationPreferences.Enabled);
+        _trayIcon.SetNotificationPreferences(notificationPreferences);
         _viewModeSettingsStore = new ViewModeSettingsStore();
         var viewMode = _viewModeSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(notificationPreferences, _startupService.IsEnabled(), viewMode);
-        globalSettings.NotificationsToggleRequested += OnGlobalNotificationsToggled;
-        globalSettings.NotificationKindToggleRequested += OnGlobalNotificationKindToggled;
+        globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
@@ -270,50 +269,27 @@ public partial class App : Application
         _ = _settingsViewModel.RefreshAsync();
     }
 
-    // The settings-panel toggle and the tray-menu item are two views of one flag. Each
-    // toggle path applies the change and then reflects it on the *other* surface, so
-    // flipping notifications in one place updates the other immediately.
-    private void OnGlobalNotificationsToggled(object? sender, bool enabled)
-    {
-        ApplyNotificationsEnabled(enabled);
-        _trayIcon?.SetNotificationsChecked(enabled);
-    }
-
-    private void OnTrayNotificationsToggled(object? sender, bool enabled)
-    {
-        ApplyNotificationsEnabled(enabled);
-        _settingsViewModel?.Global.SetNotificationsEnabled(enabled);
-    }
-
-    private void ApplyNotificationsEnabled(bool enabled)
-    {
-        MutateNotificationPreferences(current => current with { Enabled = enabled });
-    }
-
-    private void OnGlobalNotificationKindToggled(object? sender, (UsageNotificationKind Kind, bool Enabled) change)
-    {
-        MutateNotificationPreferences(current => change.Kind switch
-        {
-            UsageNotificationKind.Threshold => current with { Thresholds = change.Enabled },
-            UsageNotificationKind.Reset => current with { Resets = change.Enabled },
-            _ => current,
-        });
-    }
-
     /// <summary>
-    /// Preferences live in settings.json; read-modify-write through the store so a toggle
-    /// flipped on one surface (tray master switch vs settings kind toggles) never clobbers
-    /// the others.
+    /// The settings card and the tray menu show the same two notification-kind switches, so
+    /// both raise this one intent event. Preferences live in settings.json; the change is a
+    /// read-modify-write through the store (so a toggle flipped on one surface never
+    /// clobbers the other's key), and the persisted result is then pushed back to BOTH
+    /// surfaces — the originating one included, since it only flipped itself optimistically.
     /// </summary>
-    private void MutateNotificationPreferences(Func<NotificationPreferences, NotificationPreferences> mutate)
+    private void OnNotificationKindToggled(object? sender, (UsageNotificationKind Kind, bool Enabled) change)
     {
         if (_notificationSettingsStore is null)
         {
             return;
         }
-        var updated = mutate(_notificationSettingsStore.Load());
-        _notificationSettingsStore.Save(updated);
-        _notificationService?.SetPreferences(updated);
+        _notificationSettingsStore.Save(_notificationSettingsStore.Load().With(change.Kind, change.Enabled));
+        // Read the state back rather than trusting the write: settings.json can fail to
+        // save, and a toggle that never reached disk must revert instead of lying (the same
+        // honesty rule start-on-boot follows by re-reading the registry).
+        var applied = _notificationSettingsStore.Load();
+        _notificationService?.SetPreferences(applied);
+        _trayIcon?.SetNotificationPreferences(applied);
+        _settingsViewModel?.Global.SyncNotifications(applied);
     }
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)
