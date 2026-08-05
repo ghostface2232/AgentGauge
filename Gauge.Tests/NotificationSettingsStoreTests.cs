@@ -51,12 +51,60 @@ public sealed class NotificationSettingsStoreTests : IDisposable
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
+    // Both-off writes NotificationsEnabled=false, so this case reads back through the
+    // legacy-pause branch rather than the plain path. It must still round-trip.
     [InlineData(false, false)]
     public void SaveThenLoadRoundTrips(bool thresholds, bool resets)
     {
         var store = new NotificationSettingsStore(() => _dir);
         store.Save(new NotificationPreferences(thresholds, resets));
         Assert.Equal(new NotificationPreferences(thresholds, resets), store.Load());
+    }
+
+    [Fact]
+    public void TurningAKindBackOnEscapesTheAllOffStateInOneStep()
+    {
+        // Both-off persists as the legacy master-pause shape, so the mask that migrates an
+        // older build's pause also applies to a state this build wrote. Re-arming must not be
+        // trapped by it: Save always rewrites the derived flag, clearing the mask.
+        var store = new NotificationSettingsStore(() => _dir);
+        store.Save(new NotificationPreferences(false, false));
+
+        store.Save(store.Load().With(UsageNotificationKind.Threshold, true));
+
+        Assert.Equal(new NotificationPreferences(true, false), store.Load());
+    }
+
+    [Fact]
+    public void TryLoadReportsAnUnreadableFileInsteadOfInventingTheDefaults()
+    {
+        // Every flag defaults to ON, so a caller that cannot tell "the file says default"
+        // from "I could not read it" fails open — it would un-mute a user who muted. The
+        // value is still the default (callers need something), but the false is the signal
+        // that it is a guess and must not be acted on.
+        WriteSettings("{ not valid json");
+
+        Assert.False(new NotificationSettingsStore(() => _dir).TryLoad(out var preferences));
+        Assert.Equal(NotificationPreferences.Default, preferences);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("""{ "NotifyThresholds": false, "NotifyResets": true }""")]
+    public void TryLoadSucceedsForAnAbsentOrReadableFile(string json)
+    {
+        // An absent file is a fresh install, not a failure — it must read as a clean success
+        // so first run arms notifications normally.
+        if (json.Length > 0) WriteSettings(json);
+
+        Assert.True(new NotificationSettingsStore(() => _dir).TryLoad(out _));
+    }
+
+    [Fact]
+    public void TrySaveReportsSuccessSoTheCallerNeedNotReReadToConfirm()
+    {
+        Assert.True(new NotificationSettingsStore(() => _dir).TrySave(new NotificationPreferences(true, false)));
+        Assert.Equal(new NotificationPreferences(true, false), new NotificationSettingsStore(() => _dir).Load());
     }
 
     [Fact]

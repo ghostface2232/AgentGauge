@@ -274,10 +274,14 @@ public sealed class UsageCoordinatorTests
     }
 
     [Fact]
-    public async Task ForcedRefreshWithinTheDebounceIsSkippedRegardlessOfTheFloor()
+    public async Task ForcedRefreshWithinTheDebounceIsSkippedForAProviderWithNoCostFloor()
     {
-        // The two gates are independent: the debounce covers rapid clicking for every
-        // provider, the floor covers the expensive one over a longer span.
+        // Isolates the debounce from the floor by using Codex, whose floor is Zero: whatever
+        // blocks the second open here is provably the debounce. The reverse case — blocked by
+        // the floor once the debounce has passed — is PopoverOpenSkipsAProviderInsideItsCostFloor.
+        // A floored provider can never be blocked by the debounce ALONE, since 10s < 2min means
+        // its floor is always still active whenever the debounce is; so this pairing is the only
+        // way to show the two gates are separate.
         var time = new MutableTime();
         var codex = new StubProvider("Codex");
         using var coordinator = new UsageCoordinator(new UsageService(new[] { codex }), time: time);

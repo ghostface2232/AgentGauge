@@ -261,11 +261,23 @@ public partial class App : Application
     {
         if (_settingsViewModel is null) return;
 
-        // Reflect any state changed while the panel was closed — notably start-on-boot,
-        // which the tray menu can also flip — before showing the toggles.
-        _settingsViewModel.Global.SyncFromSystem(
-            _notificationSettingsStore?.Load() ?? NotificationPreferences.Default,
-            _startupService?.IsEnabled() ?? false);
+        // Reflect any state changed while the panel was closed — the tray menu can flip both
+        // start-on-boot and the notification kinds — before showing the toggles.
+        var startOnBoot = _startupService?.IsEnabled() ?? false;
+        if (_notificationSettingsStore is { } store && store.TryLoad(out var notifications))
+        {
+            // The kind switches ARE the notification gate now, so the live service is armed
+            // from the same values they display; neither can claim what the other isn't doing.
+            _notificationService?.SetPreferences(notifications);
+            _settingsViewModel.Global.SyncFromSystem(notifications, startOnBoot);
+        }
+        else
+        {
+            // Preferences unreadable: adopting the all-enabled default here would show two
+            // "on" switches and un-mute the service for a user who muted it. Leave both as
+            // they are and only re-sync the setting we could actually read.
+            _settingsViewModel.Global.SetStartOnBoot(startOnBoot);
+        }
         _ = _settingsViewModel.RefreshAsync();
     }
 
@@ -282,11 +294,15 @@ public partial class App : Application
         {
             return;
         }
-        _notificationSettingsStore.Save(_notificationSettingsStore.Load().With(change.Kind, change.Enabled));
-        // Read the state back rather than trusting the write: settings.json can fail to
-        // save, and a toggle that never reached disk must revert instead of lying (the same
-        // honesty rule start-on-boot follows by re-reading the registry).
-        var applied = _notificationSettingsStore.Load();
+        // A toggle that never reached disk must revert on both surfaces rather than lying.
+        // Unlike start-on-boot we must NOT confirm by re-reading: an unreadable settings.json
+        // is indistinguishable from an absent one, and absent means "every alert on", so a
+        // transient read error would flip both switches back on and start toasting. A missing
+        // registry Run value genuinely means "off", which is why that one can re-read safely.
+        // Trust the write's own result instead.
+        var current = _notificationSettingsStore.Load();
+        var desired = current.With(change.Kind, change.Enabled);
+        var applied = _notificationSettingsStore.TrySave(desired) ? desired : current;
         _notificationService?.SetPreferences(applied);
         _trayIcon?.SetNotificationPreferences(applied);
         _settingsViewModel?.Global.SyncNotifications(applied);

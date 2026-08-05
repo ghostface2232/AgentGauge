@@ -584,9 +584,11 @@
                                     </FontIcon>
                                 </Button>
                             </Grid>
-                            <!-- Per-kind notification toggles remain configurable while the tray's
-                                 global pause is off. Two kinds only — per-tool matrices are
-                                 deliberately not offered (settings density is a feature). -->
+                            <!-- These two switches ARE the notification setting — there is no
+                                 separate master — and the tray menu mirrors the same two, so
+                                 neither surface can show a state the other contradicts. Two
+                                 kinds only: per-tool matrices are deliberately not offered
+                                 (settings density is a feature). -->
                             <StackPanel x:Name="NotificationKindRows"
                                         Height="0" Opacity="0" Visibility="Collapsed"
                                         RenderTransformOrigin="0.5,0">

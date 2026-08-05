@@ -316,7 +316,9 @@ public sealed class UsageCoordinator : IDisposable
     /// read launches a language server, waits for it to answer, and tears the process tree
     /// down again. Without a floor every tray click spawns one, which the 10-second debounce
     /// does not prevent. Ten minutes of drift is the periodic cadence anyway, so a two-minute
-    /// floor costs no meaningful freshness; the refresh button still forces a read.
+    /// floor costs no meaningful freshness; the refresh button bypasses the floor (though it
+    /// still shares the 10-second debounce, so a click right after a popover-open can land
+    /// inside it).
     /// </summary>
     internal static TimeSpan ForcedIntervalFor(ToolKind tool) => tool switch
     {
