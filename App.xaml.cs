@@ -64,7 +64,7 @@ public partial class App : Application
         _trayIcon = new TrayIconService();
         _trayIcon.LeftClicked += OnTrayLeftClicked;
         _trayIcon.StartOnBootToggled += OnTrayStartOnBootToggled;
-        _trayIcon.NotificationsToggled += OnTrayNotificationsToggled;
+        _trayIcon.NotificationKindToggled += OnNotificationKindToggled;
         _trayIcon.ExitRequested += OnTrayExitRequested;
 
         // Reflect the real run-on-startup state in the tray menu checkmark.
@@ -139,12 +139,11 @@ public partial class App : Application
         // comes from the persisted notifications flag and the real Run-key startup state.
         _notificationSettingsStore = new NotificationSettingsStore();
         var notificationPreferences = _notificationSettingsStore.Load();
-        _trayIcon.SetNotificationsChecked(notificationPreferences.Enabled);
+        _trayIcon.SetNotificationPreferences(notificationPreferences);
         _viewModeSettingsStore = new ViewModeSettingsStore();
         var viewMode = _viewModeSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(notificationPreferences, _startupService.IsEnabled(), viewMode);
-        globalSettings.NotificationsToggleRequested += OnGlobalNotificationsToggled;
-        globalSettings.NotificationKindToggleRequested += OnGlobalNotificationKindToggled;
+        globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
@@ -262,58 +261,51 @@ public partial class App : Application
     {
         if (_settingsViewModel is null) return;
 
-        // Reflect any state changed while the panel was closed — notably start-on-boot,
-        // which the tray menu can also flip — before showing the toggles.
-        _settingsViewModel.Global.SyncFromSystem(
-            _notificationSettingsStore?.Load() ?? NotificationPreferences.Default,
-            _startupService?.IsEnabled() ?? false);
+        // Reflect any state changed while the panel was closed — the tray menu can flip both
+        // start-on-boot and the notification kinds — before showing the toggles.
+        var startOnBoot = _startupService?.IsEnabled() ?? false;
+        if (_notificationSettingsStore is { } store && store.TryLoad(out var notifications))
+        {
+            // The kind switches ARE the notification gate now, so the live service is armed
+            // from the same values they display; neither can claim what the other isn't doing.
+            _notificationService?.SetPreferences(notifications);
+            _settingsViewModel.Global.SyncFromSystem(notifications, startOnBoot);
+        }
+        else
+        {
+            // Preferences unreadable: adopting the all-enabled default here would show two
+            // "on" switches and un-mute the service for a user who muted it. Leave both as
+            // they are and only re-sync the setting we could actually read.
+            _settingsViewModel.Global.SetStartOnBoot(startOnBoot);
+        }
         _ = _settingsViewModel.RefreshAsync();
     }
 
-    // The settings-panel toggle and the tray-menu item are two views of one flag. Each
-    // toggle path applies the change and then reflects it on the *other* surface, so
-    // flipping notifications in one place updates the other immediately.
-    private void OnGlobalNotificationsToggled(object? sender, bool enabled)
-    {
-        ApplyNotificationsEnabled(enabled);
-        _trayIcon?.SetNotificationsChecked(enabled);
-    }
-
-    private void OnTrayNotificationsToggled(object? sender, bool enabled)
-    {
-        ApplyNotificationsEnabled(enabled);
-        _settingsViewModel?.Global.SetNotificationsEnabled(enabled);
-    }
-
-    private void ApplyNotificationsEnabled(bool enabled)
-    {
-        MutateNotificationPreferences(current => current with { Enabled = enabled });
-    }
-
-    private void OnGlobalNotificationKindToggled(object? sender, (UsageNotificationKind Kind, bool Enabled) change)
-    {
-        MutateNotificationPreferences(current => change.Kind switch
-        {
-            UsageNotificationKind.Threshold => current with { Thresholds = change.Enabled },
-            UsageNotificationKind.Reset => current with { Resets = change.Enabled },
-            _ => current,
-        });
-    }
-
     /// <summary>
-    /// Preferences live in settings.json; read-modify-write through the store so a toggle
-    /// flipped on one surface (tray master switch vs settings kind toggles) never clobbers
-    /// the others.
+    /// The settings card and the tray menu show the same two notification-kind switches, so
+    /// both raise this one intent event. Preferences live in settings.json; the change is a
+    /// read-modify-write through the store (so a toggle flipped on one surface never
+    /// clobbers the other's key), and the persisted result is then pushed back to BOTH
+    /// surfaces — the originating one included, since it only flipped itself optimistically.
     /// </summary>
-    private void MutateNotificationPreferences(Func<NotificationPreferences, NotificationPreferences> mutate)
+    private void OnNotificationKindToggled(object? sender, (UsageNotificationKind Kind, bool Enabled) change)
     {
         if (_notificationSettingsStore is null)
         {
             return;
         }
-        var updated = mutate(_notificationSettingsStore.Load());
-        _notificationSettingsStore.Save(updated);
-        _notificationService?.SetPreferences(updated);
+        // A toggle that never reached disk must revert on both surfaces rather than lying.
+        // Unlike start-on-boot we must NOT confirm by re-reading: an unreadable settings.json
+        // is indistinguishable from an absent one, and absent means "every alert on", so a
+        // transient read error would flip both switches back on and start toasting. A missing
+        // registry Run value genuinely means "off", which is why that one can re-read safely.
+        // Trust the write's own result instead.
+        var current = _notificationSettingsStore.Load();
+        var desired = current.With(change.Kind, change.Enabled);
+        var applied = _notificationSettingsStore.TrySave(desired) ? desired : current;
+        _notificationService?.SetPreferences(applied);
+        _trayIcon?.SetNotificationPreferences(applied);
+        _settingsViewModel?.Global.SyncNotifications(applied);
     }
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)

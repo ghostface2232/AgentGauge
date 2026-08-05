@@ -146,13 +146,18 @@ public sealed class GitHubCopilotProvider : IUsageProvider
                 usedCount = (long)Math.Round(Math.Clamp(entitlement - remaining, 0, entitlement));
             }
 
+            // Every Copilot quota is a BillingCycle window, so the type-derived label would
+            // read "Usage" for all of them. Carry the per-quota label KEY on the window so
+            // the rehydrated cache and the toast titles resolve the same distinct name.
+            var labelKey = QuotaLabelKey(quota.Name);
             windows.Add(new UsageWindow
             {
                 Type = UsageWindowType.BillingCycle,
                 // Distinct ids (chat / completions / premium_interactions) keep the several
                 // BillingCycle windows apart for reconciliation, notifications, and the cache.
                 Id = quota.Name,
-                Label = QuotaLabel(quota.Name),
+                LabelKey = labelKey,
+                Label = WindowLabels.For(UsageWindowType.BillingCycle, labelKey),
                 UsedRatio = used,
                 ResetTime = reset,
                 UsedTokens = usedCount,
@@ -180,12 +185,16 @@ public sealed class GitHubCopilotProvider : IUsageProvider
         return null;
     }
 
-    private static string QuotaLabel(string quotaId) => quotaId.ToLowerInvariant() switch
+    /// <summary>
+    /// Localization key for a quota's label. An unknown future quota returns its raw id,
+    /// which <c>Loc.Get</c> passes through unchanged — so the window shows the id rather
+    /// than being hidden or collapsing into the generic "Usage".
+    /// </summary>
+    private static string QuotaLabelKey(string quotaId) => quotaId.ToLowerInvariant() switch
     {
-        "chat" => Loc.Get("Label_Copilot_Chat"),
-        "completions" => Loc.Get("Label_Copilot_Completions"),
-        "premium_interactions" => Loc.Get("Label_Copilot_Premium"),
-        // Unknown future quota: show its raw id rather than hiding the window.
+        "chat" => "Label_Copilot_Chat",
+        "completions" => "Label_Copilot_Completions",
+        "premium_interactions" => "Label_Copilot_Premium",
         _ => quotaId,
     };
 

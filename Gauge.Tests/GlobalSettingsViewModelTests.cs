@@ -7,30 +7,26 @@ namespace Gauge.Tests;
 public sealed class GlobalSettingsViewModelTests
 {
     private static GlobalSettingsViewModel Create(
-        bool notificationsEnabled = true,
+        NotificationPreferences? notifications = null,
         bool startOnBoot = false,
         UsageViewMode viewMode = UsageViewMode.Bar)
-        => new(NotificationPreferences.Default with { Enabled = notificationsEnabled }, startOnBoot, viewMode);
+        => new(notifications ?? NotificationPreferences.Default, startOnBoot, viewMode);
 
     [Fact]
     public void ConstructorSetsInitialStateWithoutRaisingEvents()
     {
-        var notifications = 0;
         var startup = 0;
         var viewModeChanges = 0;
         var kinds = 0;
-        var vm = Create(notificationsEnabled: true, startOnBoot: true, viewMode: UsageViewMode.Gauge);
-        vm.NotificationsToggleRequested += (_, _) => notifications++;
+        var vm = Create(startOnBoot: true, viewMode: UsageViewMode.Gauge);
         vm.NotificationKindToggleRequested += (_, _) => kinds++;
         vm.StartOnBootToggleRequested += (_, _) => startup++;
         vm.ViewModeChangeRequested += (_, _) => viewModeChanges++;
 
-        Assert.True(vm.NotificationsEnabled);
         Assert.True(vm.NotifyThresholds);
         Assert.True(vm.NotifyResets);
         Assert.True(vm.StartOnBoot);
         Assert.Equal((int)UsageViewMode.Gauge, vm.ViewModeIndex);
-        Assert.Equal(0, notifications);
         Assert.Equal(0, kinds);
         Assert.Equal(0, startup);
         Assert.Equal(0, viewModeChanges);
@@ -46,18 +42,6 @@ public sealed class GlobalSettingsViewModelTests
         vm.ViewModeIndex = (int)UsageViewMode.Gauge;
 
         Assert.Equal(UsageViewMode.Gauge, requested);
-    }
-
-    [Fact]
-    public void TogglingNotificationsRaisesRequestWithNewValue()
-    {
-        var vm = Create();
-        bool? requested = null;
-        vm.NotificationsToggleRequested += (_, value) => requested = value;
-
-        vm.NotificationsEnabled = false;
-
-        Assert.False(requested);
     }
 
     [Fact]
@@ -107,7 +91,7 @@ public sealed class GlobalSettingsViewModelTests
     [Fact]
     public void TogglingStartOnBootRaisesRequestWithNewValue()
     {
-        var vm = Create(notificationsEnabled: false);
+        var vm = Create(new NotificationPreferences(false, false));
         bool? requested = null;
         vm.StartOnBootToggleRequested += (_, value) => requested = value;
 
@@ -132,22 +116,34 @@ public sealed class GlobalSettingsViewModelTests
     [Fact]
     public void SyncFromSystemReflectsTogglesWithoutRaisingEvents()
     {
-        var vm = Create(notificationsEnabled: true, startOnBoot: true);
-        var notifications = 0;
+        var vm = Create(startOnBoot: true);
         var kinds = 0;
         var startup = 0;
-        vm.NotificationsToggleRequested += (_, _) => notifications++;
         vm.NotificationKindToggleRequested += (_, _) => kinds++;
         vm.StartOnBootToggleRequested += (_, _) => startup++;
 
-        vm.SyncFromSystem(new NotificationPreferences(false, false, true), startOnBoot: false);
+        vm.SyncFromSystem(new NotificationPreferences(false, true), startOnBoot: false);
 
-        Assert.False(vm.NotificationsEnabled);
         Assert.False(vm.NotifyThresholds);
         Assert.True(vm.NotifyResets);
         Assert.False(vm.StartOnBoot);
-        Assert.Equal(0, notifications);
         Assert.Equal(0, kinds);
         Assert.Equal(0, startup);
+    }
+
+    [Fact]
+    public void SyncNotificationsReflectsATrayToggleWithoutRaisingRequests()
+    {
+        // The tray menu shows the same two switches, so a toggle made there while the panel
+        // is open must land here — and must not bounce back as a fresh request.
+        var vm = Create();
+        var kinds = 0;
+        vm.NotificationKindToggleRequested += (_, _) => kinds++;
+
+        vm.SyncNotifications(new NotificationPreferences(false, true));
+
+        Assert.False(vm.NotifyThresholds);
+        Assert.True(vm.NotifyResets);
+        Assert.Equal(0, kinds);
     }
 }

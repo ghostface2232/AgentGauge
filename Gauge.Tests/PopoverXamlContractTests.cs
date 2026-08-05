@@ -35,8 +35,10 @@ public sealed class PopoverXamlContractTests
         }
     }
 
+    // The kind switches are the whole notification setting, so nothing may gate them: no
+    // IsEnabled, and no dimmed/inert treatment on their row.
     [Fact]
-    public void NotificationKindTogglesRemainConfigurableWhileGloballyPaused()
+    public void NotificationKindTogglesAreNeverGatedByAnotherSetting()
     {
         var document = XDocument.Load(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
         var xaml = document.Root!.Name.Namespace;

@@ -29,14 +29,17 @@ public interface IUsageCachePersistence
 /// original capture time, so its age is visible — while a live refresh runs.
 ///
 /// Only the values Gauge itself computed are stored here; no tokens or credentials ever
-/// touch this file. Window labels are language-dependent, so they are re-derived from the
-/// window type on load rather than persisted.
+/// touch this file. Window labels are language-dependent, so the resolved text is never
+/// persisted — the label is re-derived on load from the window type plus, when the type
+/// alone is not enough, the persisted <see cref="UsageWindow.LabelKey"/> (GitHub Copilot's
+/// three billing-cycle quotas would otherwise all rehydrate as the same "Usage" row).
 /// </summary>
 public sealed class UsageCacheStore : IUsageCachePersistence
 {
-    // v2 added the per-window stable Id; v3 added the provider-reported window duration.
+    // v2 added the per-window stable Id; v3 added the provider-reported window duration;
+    // v4 added the label key for windows whose label is not derived from the type.
     // Older records remain readable: missing fields simply fall back to their old behavior.
-    private const int CurrentVersion = 3;
+    private const int CurrentVersion = 4;
     private const string FileName = "usage-cache.json";
 
     private static readonly JsonSerializerOptions Options = new()
@@ -116,6 +119,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         {
             Id = w.Id,
             GroupLabel = w.GroupLabel,
+            LabelKey = w.LabelKey,
             Type = w.Type,
             UsedRatio = w.UsedRatio,
             ResetTime = w.ResetTime,
@@ -134,11 +138,13 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         {
             Id = w.Id,
             GroupLabel = w.GroupLabel,
+            LabelKey = w.LabelKey,
             Type = w.Type,
             UsedRatio = w.UsedRatio,
-            // Labels are language-dependent; re-derive for the active language. GroupLabel is a
+            // Labels are language-dependent; re-derive for the active language, using the
+            // window's own key when its type does not determine the label. GroupLabel is a
             // language-neutral family name, so it is restored as stored.
-            Label = WindowLabels.For(w.Type),
+            Label = WindowLabels.For(w.Type, w.LabelKey),
             ResetTime = w.ResetTime,
             Duration = w.DurationSeconds is > 0 and <= 31_622_400
                 ? TimeSpan.FromSeconds(w.DurationSeconds.Value)
@@ -166,6 +172,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
     {
         public string? Id { get; set; }
         public string? GroupLabel { get; set; }
+        public string? LabelKey { get; set; }
         public UsageWindowType Type { get; set; }
         public double UsedRatio { get; set; }
         public DateTimeOffset? ResetTime { get; set; }

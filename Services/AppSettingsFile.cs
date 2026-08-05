@@ -56,21 +56,41 @@ internal static class AppSettingsFile
 
     public static AppSettingsDto Load(string directory)
     {
+        _ = TryLoad(directory, out var settings);
+        return settings;
+    }
+
+    /// <summary>
+    /// The result-reporting form of <see cref="Load"/>. Returns false ONLY when the file
+    /// exists but could not be read or parsed; an absent file is a successful load of the
+    /// defaults (a fresh install).
+    ///
+    /// The distinction matters because every setting here defaults to ON/enabled, so a
+    /// caller that cannot tell "the file says default" from "I could not read the file"
+    /// fails **open** — it would silently re-arm a preference the user turned off. Callers
+    /// that would act on the result (rather than just display it) must keep their current
+    /// state when this returns false.
+    /// </summary>
+    public static bool TryLoad(string directory, out AppSettingsDto settings)
+    {
         var path = Path.Combine(directory, "settings.json");
         if (!File.Exists(path))
         {
-            return new AppSettingsDto();
+            settings = new AppSettingsDto();
+            return true;
         }
 
         try
         {
             using var stream = File.OpenRead(path);
-            return JsonSerializer.Deserialize<AppSettingsDto>(stream) ?? new AppSettingsDto();
+            settings = JsonSerializer.Deserialize<AppSettingsDto>(stream) ?? new AppSettingsDto();
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             Debug.WriteLine($"[Gauge] settings load failed: {ex.GetType().Name}");
-            return new AppSettingsDto();
+            settings = new AppSettingsDto();
+            return false;
         }
     }
 

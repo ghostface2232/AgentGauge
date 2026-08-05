@@ -5,14 +5,15 @@ using Gauge.Models;
 namespace Gauge.ViewModels;
 
 /// <summary>
-/// App-wide settings shown at the top of the settings panel: toggles for usage
-/// notifications and run-on-startup. Both states are owned elsewhere — start-on-boot is
-/// also a tray-menu item and lives in the registry Run key, notifications gate the live
-/// <c>UsageNotificationService</c> and persist to settings.json — so this view model only
-/// holds the toggle state and emits intent. The owner (<c>App</c>) applies the change
-/// against the real service, then reconciles the toggle back to the actual result via
-/// <see cref="SetStartOnBoot"/> / <see cref="SyncFromSystem"/>. Those setters suspend the
-/// change events so reflecting an external state never loops back as a new request.
+/// App-wide settings shown at the top of the settings panel: the per-kind notification
+/// toggles and run-on-startup. Every one of these states is owned elsewhere — start-on-boot
+/// lives in the registry Run key, the notification kinds gate the live
+/// <c>UsageNotificationService</c> and persist to settings.json — and every one is also
+/// surfaced in the tray menu, so this view model only holds the toggle state and emits
+/// intent. The owner (<c>App</c>) applies the change against the real service, then
+/// reconciles both surfaces via <see cref="SetStartOnBoot"/> /
+/// <see cref="SyncNotifications"/> / <see cref="SyncFromSystem"/>. Those setters suspend
+/// the change events so reflecting an external state never loops back as a new request.
 /// </summary>
 public sealed partial class GlobalSettingsViewModel : ObservableObject
 {
@@ -27,9 +28,6 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         _suspendSideEffects = false;
     }
 
-    /// <summary>Raised when the user flips the notifications toggle (not on a programmatic sync).</summary>
-    public event EventHandler<bool>? NotificationsToggleRequested;
-
     /// <summary>Raised when the user flips a per-kind notification toggle (not on a programmatic sync).</summary>
     public event EventHandler<(UsageNotificationKind Kind, bool Enabled)>? NotificationKindToggleRequested;
 
@@ -42,9 +40,11 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     /// <summary>Raised when the user picks a different UI language (not on a programmatic sync).</summary>
     public event EventHandler<AppLanguage>? LanguageChangeRequested;
 
-    [ObservableProperty] public partial bool NotificationsEnabled { get; set; }
-
-    /// <summary>Per-kind toggles, active only while the master switch is on.</summary>
+    /// <summary>
+    /// Per-kind alert toggles. These are the whole of the notification setting — there is no
+    /// separate master switch — and the tray menu shows the same two, so either surface's
+    /// change is reflected onto the other.
+    /// </summary>
     [ObservableProperty] public partial bool NotifyThresholds { get; set; }
     [ObservableProperty] public partial bool NotifyResets { get; set; }
 
@@ -95,12 +95,6 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         _suspendSideEffects = false;
     }
 
-    partial void OnNotificationsEnabledChanged(bool value)
-    {
-        if (_suspendSideEffects) return;
-        NotificationsToggleRequested?.Invoke(this, value);
-    }
-
     partial void OnNotifyThresholdsChanged(bool value)
     {
         if (_suspendSideEffects) return;
@@ -119,11 +113,15 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         StartOnBootToggleRequested?.Invoke(this, value);
     }
 
-    /// <summary>Reflects the real notifications-enabled state without raising the toggle event.</summary>
-    public void SetNotificationsEnabled(bool value)
+    /// <summary>
+    /// Reflects the real notification preferences without raising the toggle events — used
+    /// after every apply, including one made from the tray menu while the panel is open.
+    /// </summary>
+    public void SyncNotifications(NotificationPreferences preferences)
     {
         _suspendSideEffects = true;
-        NotificationsEnabled = value;
+        NotifyThresholds = preferences.Thresholds;
+        NotifyResets = preferences.Resets;
         _suspendSideEffects = false;
     }
 
@@ -143,7 +141,6 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     public void SyncFromSystem(NotificationPreferences notifications, bool startOnBoot)
     {
         _suspendSideEffects = true;
-        NotificationsEnabled = notifications.Enabled;
         NotifyThresholds = notifications.Thresholds;
         NotifyResets = notifications.Resets;
         StartOnBoot = startOnBoot;
