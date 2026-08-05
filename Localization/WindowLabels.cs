@@ -9,6 +9,14 @@ namespace Gauge.Localization;
 /// </summary>
 public static class WindowLabels
 {
+    /// <summary>
+    /// The label for a window, preferring its own <see cref="UsageWindow.LabelKey"/> over
+    /// the type-derived default. Used by providers when building a window and by the cache
+    /// when rehydrating one, so both resolve the same text in the active language.
+    /// </summary>
+    public static string For(UsageWindowType type, string? labelKey)
+        => labelKey is { Length: > 0 } key ? Loc.Get(key) : For(type);
+
     public static string For(UsageWindowType type) => type switch
     {
         UsageWindowType.FiveHour => Loc.Get("Label_FiveHour"),

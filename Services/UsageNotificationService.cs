@@ -39,11 +39,12 @@ public sealed class UsageNotificationService : IDisposable
     }
 
     /// <summary>
-    /// Applies the notification preferences. While the master switch is off,
-    /// <see cref="Process"/> is a no-op; re-arming it resets the evaluator baseline so
-    /// flipping back on never replays alerts for thresholds crossed while silenced.
-    /// Kind toggles only filter presentation — detection keeps running (and consumes
-    /// crossings) so re-enabling a kind never replays stale alerts either.
+    /// Applies the notification preferences. With every kind off nothing can be raised, so
+    /// <see cref="Process"/> is a no-op and detection stops; turning a kind back on resets
+    /// the evaluator baseline, so re-enabling never replays crossings that happened while
+    /// the app was silent. While at least one kind is on, detection keeps running for all
+    /// kinds and the disabled ones are filtered at presentation — so toggling one kind off
+    /// and on again never replays its stale alerts either.
     /// </summary>
     public void SetPreferences(NotificationPreferences preferences)
     {
@@ -55,27 +56,17 @@ public sealed class UsageNotificationService : IDisposable
         }
     }
 
-    /// <summary>Flips only the master switch (the tray-menu toggle path).</summary>
-    public void SetEnabled(bool enabled) => SetPreferences(_preferences with { Enabled = enabled });
-
     public void Process(UsageState state)
     {
         if (!_preferences.Enabled) return;
         foreach (var notification in _evaluator.Evaluate(state, DateTimeOffset.Now))
         {
-            if (ShouldShow(notification.Kind))
+            if (_preferences.Allows(notification.Kind))
             {
                 Show(notification);
             }
         }
     }
-
-    private bool ShouldShow(UsageNotificationKind kind) => kind switch
-    {
-        UsageNotificationKind.Threshold => _preferences.Thresholds,
-        UsageNotificationKind.Reset => _preferences.Resets,
-        _ => true,
-    };
 
     /// <summary>Developer visual QA: one toast of every alert kind.</summary>
     public void ShowDemoSequence()
@@ -136,7 +127,7 @@ public sealed class UsageNotificationService : IDisposable
         Level = level,
         ToolName = toolName,
         WindowType = windowType,
-        Title = NotificationText.ThresholdTitle(toolName, windowType, percent),
+        Title = NotificationText.ThresholdTitle(toolName, DemoWindow(windowType), percent),
         Message = ResetTimeFormatter.ForNotification(reset, now),
         CreatedAt = now,
     };
@@ -148,8 +139,15 @@ public sealed class UsageNotificationService : IDisposable
         Level = UsageLevel.Ok,
         ToolName = toolName,
         WindowType = windowType,
-        Title = NotificationText.ResetTitle(toolName, windowType),
+        Title = NotificationText.ResetTitle(toolName, DemoWindow(windowType)),
         Message = NotificationText.ResetMessage(availablePercent),
         CreatedAt = now,
+    };
+
+    private static UsageWindow DemoWindow(UsageWindowType type) => new()
+    {
+        Type = type,
+        UsedRatio = 0,
+        Label = WindowLabels.For(type),
     };
 }

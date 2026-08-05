@@ -42,6 +42,36 @@ public sealed class GitHubCopilotProviderTests
     }
 
     [Fact]
+    public async Task EachQuotaCarriesItsOwnLabelAndKey()
+    {
+        // Every quota is a BillingCycle window, so the type-derived label would read "Usage"
+        // for all of them. The per-quota key is what keeps the rows — and the toast titles —
+        // distinct, and it is persisted so a rehydrated cache re-resolves the same names.
+        var snapshot = await new GitHubCopilotProvider(new HttpClient(new StubHandler(LiveFreeJson)), TokenSource())
+            .GetSnapshotAsync(default);
+
+        Assert.Equal(
+            new[] { "Label_Copilot_Chat", "Label_Copilot_Completions" },
+            snapshot.Windows.Select(w => w.LabelKey));
+        Assert.Equal(2, snapshot.Windows.Select(w => w.Label).Distinct().Count());
+        Assert.DoesNotContain(snapshot.Windows, w => w.Label.StartsWith("Label_", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UnknownQuotaFallsBackToItsRawIdAsBothKeyAndLabel()
+    {
+        const string json = """
+        { "quota_snapshots": { "some_future_quota": { "percent_remaining": 40.0, "has_quota": true, "unlimited": false } } }
+        """;
+        var window = Assert.Single((await Snapshot(json)).Windows);
+
+        Assert.Equal("some_future_quota", window.LabelKey);
+        // Loc.Get passes an unknown key through, so the window shows the id rather than
+        // collapsing into the generic type label.
+        Assert.Equal("some_future_quota", window.Label);
+    }
+
+    [Fact]
     public async Task ComputesUsedFromPercentRemaining()
     {
         const string json = """
