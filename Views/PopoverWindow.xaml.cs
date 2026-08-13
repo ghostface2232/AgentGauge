@@ -407,7 +407,24 @@ public sealed partial class PopoverWindow : Window
         NativeMethods.GetCursorPos(out var cursor);
         var area = DisplayArea.GetFromPoint(new PointInt32(cursor.X, cursor.Y), DisplayAreaFallback.Nearest);
         _workArea = area.WorkArea;
-        _scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
+        _scale = GetScaleForDisplayArea(area);
+    }
+
+    private double GetScaleForDisplayArea(DisplayArea area)
+    {
+        // The scale must come from the *target* monitor, not GetDpiForWindow: while
+        // hidden, the window may still sit on a different-DPI monitor, so on mixed-DPI
+        // setups the first open would size and place the popover with the stale scale
+        // (and the post-move DPI-change relayout would reuse it too). Resolve the
+        // target DisplayArea's own effective DPI; fall back to the window DPI only if
+        // the monitor lookup fails (e.g. the display disappeared mid-call).
+        var monitor = Microsoft.UI.Win32Interop.GetMonitorFromDisplayId(area.DisplayId);
+        if (monitor != 0
+            && NativeMethods.GetDpiForMonitor(monitor, NativeMethods.MDT_EFFECTIVE_DPI, out var dpiX, out _) == 0)
+        {
+            return dpiX / 96.0;
+        }
+        return NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
     }
 
     private void PositionAndResize(double contentHeightDip)
@@ -729,7 +746,11 @@ public sealed partial class PopoverWindow : Window
     private async Task UpdateTitleIcon()
     {
         var stem = RootHost.ActualTheme == ElementTheme.Dark ? "gauge_icon_dark" : "gauge_icon";
-        var scale = TitleIcon.XamlRoot?.RasterizationScale ?? _scale;
+        // Use the captured target-monitor scale, not XamlRoot.RasterizationScale: at
+        // Show() time the hidden window's XamlRoot still reports the *previous*
+        // monitor's scale, so on mixed-DPI setups the icon would decode at the wrong
+        // pixel size for the whole session (nothing re-runs this after the move).
+        var scale = _scale;
         if (scale <= 0) scale = 1.0;
         var targetPx = (uint)Math.Max(1, Math.Round(TitleIcon.Width * scale));
 
@@ -1328,6 +1349,11 @@ public sealed partial class PopoverWindow : Window
 
         [DllImport("user32.dll")]
         public static extern uint GetDpiForWindow(nint hWnd);
+
+        public const int MDT_EFFECTIVE_DPI = 0;
+
+        [DllImport("shcore.dll")]
+        public static extern int GetDpiForMonitor(nint hMonitor, int dpiType, out uint dpiX, out uint dpiY);
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
