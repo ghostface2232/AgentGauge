@@ -6,9 +6,11 @@
 
 ---
 
+> **수정 현황 (2026-08-13)**: H1 → `9dbd1af`+`7570a93`, M1 → `f137554`+`38b11d8`, M2 → `362f4cb` 에서 수정 완료.
+
 ## HIGH
 
-### H1. 혼합 DPI 다중 모니터에서 첫 열기 배치가 잘못된 스케일 사용
+### H1. 혼합 DPI 다중 모니터에서 첫 열기 배치가 잘못된 스케일 사용 — ✅ 수정됨
 `Views/PopoverWindow.xaml.cs:403-411` (`CaptureTargetMonitor`), `Show()`(:194-196), `PositionAndResize`(:413-435)
 `_workArea`는 커서 아래 모니터(`DisplayArea.GetFromPoint`)에서 얻지만 `_scale`은 **숨겨진 창이 현재 놓여 있는 모니터**의 DPI(`GetDpiForWindow`)에서 얻는다. 100% 모니터에 마지막으로 표시됐던 창을 150% 모니터의 트레이에서 열면, 첫 열기에서 크기·마진이 잘못 계산되어 팝오버가 축소/확대·오정렬된다. `MoveAndResize`로 창이 새 모니터에 도착한 뒤 발생하는 DPI 변경 리레이아웃도 낡은 `_scale`을 재사용하므로 **다음 열기까지** 잘못된 상태가 유지된다. `BodyScroll.MaxHeight`와 트레이 아이콘 픽셀 크기도 같은 스케일을 상속. 스펙("100/125/150% DPI 대응") 직접 위반.
 **수정 방향**: 대상 모니터 자체에서 스케일 도출(`GetDpiForMonitor`), 그리고/또는 `WM_DPICHANGED`에서 `_scale` 재캡처 후 `PositionAndResize` 재실행.
@@ -17,12 +19,12 @@
 
 ## MEDIUM
 
-### M1. `ToolRegistry._enabled` 크로스 스레드 데이터 레이스
+### M1. `ToolRegistry._enabled` 크로스 스레드 데이터 레이스 — ✅ 수정됨
 `Services/ToolRegistry.cs:24` · 소비: `App.xaml.cs:134` → `Services/UsageService.cs:46`
 코디네이터 갱신 루프(스레드풀)가 매 사이클 `IsEnabled` → `List<T>.Contains`를 호출하는 동안, UI 스레드는 같은 `List<ToolKind>`를 `Add`/`Remove`/`ReorderEnabled`로 변경한다. `List<T>`는 동시 읽기-중-쓰기 안전을 보장하지 않음 — 1분 틱과 도구 제거가 겹치면 찢어진 상태를 읽을 수 있고, `MergeIntoCache`가 enabled 목록에 없는 도구의 캐시를 삭제하므로 **여전히 켜져 있는 도구의 카드가 일시 삭제되고 그 삭제가 usage-cache.json에 영속화**될 수 있다.
 **수정 방향**: `_enabled`를 락으로 보호하거나, 불변 `IReadOnlyList`를 원자적으로 교체(`Volatile.Write`).
 
-### M2. Cursor 스키마 드리프트 시 0% "성공"이 마지막 정상 스냅샷을 덮어씀
+### M2. Cursor 스키마 드리프트 시 0% "성공"이 마지막 정상 스냅샷을 덮어씀 — ✅ 수정됨
 `Providers/CursorProvider.cs:150` (`return 0;`)
 `usage-summary` 응답 형태가 바뀌어(필드 개명, 인식 필드 없는 플랜) 퍼센트 우선순위 체인이 전부 실패하면 `0`으로 폴백해 **0% 사용의 성공 스냅샷**을 반환한다. 코디네이터는 이를 라이브 성공으로 취급 — 마지막 정상값 교체·영속화, `usage-history.db`에 가짜 0 하락 기록(ETA 분류기가 사이클 리셋으로 오인), 평가기의 reset-fallback 오탐 가능. 다른 프로바이더(Copilot/Antigravity)는 사용 불가한 버킷을 **건너뛰지** 0으로 가정하지 않으며, "실패가 last-good을 잘못된 데이터로 대체해선 안 된다"는 스펙과 모순.
 **수정 방향**: 인식 필드가 하나도 없으면 `ParsePlanPercentUsed`가 `null` 반환 → 윈도 생략 또는 throw로 last-good 유지.
