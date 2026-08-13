@@ -141,6 +141,54 @@ public sealed class ToolRegistryTests
         }
     }
 
+    [Fact]
+    public void EnabledSnapshotIsImmutableUnderLaterMutations()
+    {
+        // The coordinator's refresh loop reads Enabled/IsEnabled from a thread-pool
+        // thread while the UI thread mutates the registry, so a returned snapshot must
+        // never change under the reader's feet (copy-on-write contract).
+        var registry = new ToolRegistry(new InMemoryStore());
+        var snapshot = registry.Enabled;
+
+        registry.Add(ToolKind.Cursor);
+        registry.Remove(ToolKind.Codex);
+        registry.ReorderEnabled(new[] { ToolKind.Cursor, ToolKind.ClaudeCode });
+
+        Assert.Equal(new[] { ToolKind.ClaudeCode, ToolKind.Codex }, snapshot);
+    }
+
+    [Fact]
+    public async Task ConcurrentReadsDuringMutationsNeverThrow()
+    {
+        // Regression smoke for the torn-read race: hammer cross-thread reads (as the
+        // refresh loop does) while the "UI thread" adds/removes/reorders. With in-place
+        // List mutation this could observe a mid-resize state and throw or misreport.
+        var registry = new ToolRegistry(new InMemoryStore());
+        using var stop = new CancellationTokenSource();
+        var reader = Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                foreach (var kind in registry.Enabled)
+                {
+                    Assert.True(Enum.IsDefined(kind));
+                }
+                _ = registry.IsEnabled(ToolKind.Cursor);
+                _ = registry.Available;
+            }
+        });
+
+        for (var i = 0; i < 2000; i++)
+        {
+            registry.Add(ToolKind.Cursor);
+            registry.ReorderEnabled(new[] { ToolKind.Cursor, ToolKind.ClaudeCode });
+            registry.Remove(ToolKind.Cursor);
+        }
+
+        stop.Cancel();
+        await reader;
+    }
+
     /// <summary>In-memory store seeded with the production default.</summary>
     private sealed class InMemoryStore : IToolRegistryStore
     {

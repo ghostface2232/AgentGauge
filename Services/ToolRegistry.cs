@@ -17,8 +17,12 @@ public sealed class ToolRegistry
     private readonly IToolRegistryStore _store;
     // Ordered: index is the tool's position in the UI. A list (not a set) so the user's
     // drag-to-reorder is preserved and persisted. N is tiny (the catalog), so Contains/IndexOf
-    // scans are fine.
-    private readonly List<ToolKind> _enabled;
+    // scans are fine. Mutations happen only on the UI thread, but the coordinator's refresh
+    // loop reads IsEnabled/Enabled from a thread-pool thread — so the list is copy-on-write:
+    // every mutation swaps in a freshly built list (volatile reference), and a published list
+    // is never mutated again. Readers therefore always see a consistent snapshot, never a
+    // torn mid-resize state.
+    private volatile List<ToolKind> _enabled;
 
     public ToolRegistry(IToolRegistryStore store)
     {
@@ -37,12 +41,23 @@ public sealed class ToolRegistry
 
     public bool IsEnabled(ToolKind kind) => _enabled.Contains(kind);
 
-    /// <summary>Registered tools, in the user's saved display order.</summary>
-    public IReadOnlyList<ToolKind> Enabled => _enabled.ToList();
+    /// <summary>Registered tools, in the user's saved display order. Returns a read-only
+    /// wrapper over the current snapshot so no caller can mutate a published list, which
+    /// would break the copy-on-write contract (see <see cref="_enabled"/>).</summary>
+    public IReadOnlyList<ToolKind> Enabled => _enabled.AsReadOnly();
 
     /// <summary>Catalog tools not yet registered — the candidates for the "+" picker.</summary>
-    public IReadOnlyList<ToolKind> Available =>
-        ToolCatalog.All.Select(descriptor => descriptor.Kind).Where(kind => !_enabled.Contains(kind)).ToList();
+    public IReadOnlyList<ToolKind> Available
+    {
+        get
+        {
+            // Read the volatile field once so the whole filter runs against a single
+            // snapshot; per-element reads could straddle a concurrent swap.
+            var snapshot = _enabled;
+            return ToolCatalog.All.Select(descriptor => descriptor.Kind)
+                .Where(kind => !snapshot.Contains(kind)).ToList();
+        }
+    }
 
     public bool Add(ToolKind kind)
     {
@@ -50,17 +65,19 @@ public sealed class ToolRegistry
         {
             return false;
         }
-        _enabled.Add(kind);
+        _enabled = new List<ToolKind>(_enabled) { kind };
         Persist(membershipChanged: true);
         return true;
     }
 
     public bool Remove(ToolKind kind)
     {
-        if (!_enabled.Remove(kind))
+        var next = new List<ToolKind>(_enabled);
+        if (!next.Remove(kind))
         {
             return false;
         }
+        _enabled = next;
         Persist(membershipChanged: true);
         return true;
     }
@@ -75,11 +92,12 @@ public sealed class ToolRegistry
     /// </summary>
     public bool ReorderEnabled(IReadOnlyList<ToolKind> visibleNewOrder)
     {
-        var newOrder = visibleNewOrder.Where(_enabled.Contains).Distinct().ToList();
+        var next = new List<ToolKind>(_enabled);
+        var newOrder = visibleNewOrder.Where(next.Contains).Distinct().ToList();
         var slots = new List<int>();
-        for (var i = 0; i < _enabled.Count; i++)
+        for (var i = 0; i < next.Count; i++)
         {
-            if (newOrder.Contains(_enabled[i]))
+            if (newOrder.Contains(next[i]))
             {
                 slots.Add(i);
             }
@@ -92,9 +110,9 @@ public sealed class ToolRegistry
         var changed = false;
         for (var k = 0; k < slots.Count; k++)
         {
-            if (_enabled[slots[k]] != newOrder[k])
+            if (next[slots[k]] != newOrder[k])
             {
-                _enabled[slots[k]] = newOrder[k];
+                next[slots[k]] = newOrder[k];
                 changed = true;
             }
         }
@@ -103,6 +121,7 @@ public sealed class ToolRegistry
             return false;
         }
 
+        _enabled = next;
         Persist(membershipChanged: false);
         return true;
     }
