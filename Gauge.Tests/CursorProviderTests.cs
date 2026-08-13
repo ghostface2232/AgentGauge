@@ -84,6 +84,24 @@ public sealed class CursorProviderTests
     }
 
     [Fact]
+    public async Task UnrecognizedShapeThrowsInsteadOfFabricatingZeroPercent()
+    {
+        // Schema drift must propagate as a failure so the coordinator keeps the last
+        // good snapshot — a fabricated 0% "success" would overwrite it and poison the
+        // usage history with a false drop-to-zero.
+        const string json = """
+        {
+          "membershipType": "pro",
+          "billingCycleEnd": "2026-07-01T00:00:00Z",
+          "individualUsage": { "planV2": { "creditsUsedPercent": 42.0 } }
+        }
+        """;
+        var provider = new CursorProvider(new HttpClient(new StubHandler(json)), CursorSource("t", "u"));
+
+        await Assert.ThrowsAsync<System.Text.Json.JsonException>(() => provider.GetSnapshotAsync(default));
+    }
+
+    [Fact]
     public async Task PercentAboveHundredIsClamped()
     {
         var ratio = await Ratio("""{ "individualUsage": { "plan": { "totalPercentUsed": 250 } } }""");

@@ -89,7 +89,13 @@ public sealed class CursorProvider : IUsageProvider
         var root = document.RootElement;
 
         var plan = MapPlan(root.GetStringOrNull("membershipType"));
-        var percentUsed = ParsePlanPercentUsed(root);
+        // Schema drift (renamed blocks, a plan shape with none of the recognized fields)
+        // must fail the fetch, not fabricate a 0% "success": a fabricated success would
+        // replace the last good snapshot, record a false drop-to-zero into the history DB
+        // (which the ETA classifier reads as a cycle reset), and could trip the
+        // evaluator's reset fallback. Throwing keeps the last good snapshot instead.
+        var percentUsed = ParsePlanPercentUsed(root)
+            ?? throw new JsonException("usage-summary contained no recognized usage percent field.");
         // GetDateTimeOffsetOrNull parses with InvariantCulture, not CurrentCulture (set by
         // the UI language): this is API data, so it must not depend on the ambient culture.
         var resetTime = root.GetDateTimeOffsetOrNull("billingCycleEnd");
@@ -108,8 +114,10 @@ public sealed class CursorProvider : IUsageProvider
     /// Headline usage percent, mirroring Cursor's dashboard precedence:
     /// plan.totalPercentUsed → avg(auto, api) → either lane → plan used/limit →
     /// overall (personal cap) → pooled (team). All values are already in percent units.
+    /// Null when no recognized field is present — never assume an unrecognized shape
+    /// means 0% used.
     /// </summary>
-    private static double ParsePlanPercentUsed(JsonElement root)
+    private static double? ParsePlanPercentUsed(JsonElement root)
     {
         var individual = root.GetObjectOrNull("individualUsage");
         var plan = individual?.GetObjectOrNull("plan");
@@ -147,7 +155,7 @@ public sealed class CursorProvider : IUsageProvider
             return pooledRatio;
         }
 
-        return 0;
+        return null;
     }
 
     /// <summary>used/limit as a clamped percentage, or null when the block/limit is absent.</summary>
