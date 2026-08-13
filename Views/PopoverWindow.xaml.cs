@@ -118,8 +118,10 @@ public sealed partial class PopoverWindow : Window
         SystemBackdrop = new DesktopAcrylicBackdrop();
         // Seed the scale from the window's current monitor so the pre-warm decode below
         // (and a theme change before the first Show) targets the right pixel size;
-        // Show() recaptures from the target monitor.
-        _scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
+        // Show() recaptures from the target monitor. Reuses the same monitor-DPI helper
+        // (and its GetDpiForWindow fallback) as CaptureTargetMonitor.
+        _scale = GetScaleForDisplayArea(DisplayArea.GetFromWindowId(
+            Microsoft.UI.Win32Interop.GetWindowIdFromWindow(_hwnd), DisplayAreaFallback.Nearest));
         RootHost.ActualThemeChanged += (_, _) =>
         {
             UpdateDwmTheme();

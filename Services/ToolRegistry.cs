@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using Gauge.Models;
 
 namespace Gauge.Services;
@@ -18,16 +19,17 @@ public sealed class ToolRegistry
     // Ordered: index is the tool's position in the UI. A list (not a set) so the user's
     // drag-to-reorder is preserved and persisted. N is tiny (the catalog), so Contains/IndexOf
     // scans are fine. Mutations happen only on the UI thread, but the coordinator's refresh
-    // loop reads IsEnabled/Enabled from a thread-pool thread — so the list is copy-on-write:
-    // every mutation swaps in a freshly built list (volatile reference), and a published list
-    // is never mutated again. Readers therefore always see a consistent snapshot, never a
-    // torn mid-resize state.
-    private volatile List<ToolKind> _enabled;
+    // loop reads IsEnabled/Enabled from a thread-pool thread — so the collection is
+    // copy-on-write: every mutation swaps in a freshly built list (volatile reference), and
+    // a published snapshot is never mutated again. The read-only wrapper type makes that
+    // never-mutate contract structural rather than comment-enforced. Readers therefore
+    // always see a consistent snapshot, never a torn mid-resize state.
+    private volatile ReadOnlyCollection<ToolKind> _enabled;
 
     public ToolRegistry(IToolRegistryStore store)
     {
         _store = store;
-        _enabled = store.Load().Distinct().ToList();
+        _enabled = store.Load().Distinct().ToList().AsReadOnly();
     }
 
     /// <summary>Raised after the registered SET changes (add/remove), post-persist. The usage
@@ -41,10 +43,10 @@ public sealed class ToolRegistry
 
     public bool IsEnabled(ToolKind kind) => _enabled.Contains(kind);
 
-    /// <summary>Registered tools, in the user's saved display order. Returns a read-only
-    /// wrapper over the current snapshot so no caller can mutate a published list, which
-    /// would break the copy-on-write contract (see <see cref="_enabled"/>).</summary>
-    public IReadOnlyList<ToolKind> Enabled => _enabled.AsReadOnly();
+    /// <summary>Registered tools, in the user's saved display order. The returned snapshot
+    /// is immutable (see <see cref="_enabled"/>), so handing it out directly is safe and
+    /// allocation-free.</summary>
+    public IReadOnlyList<ToolKind> Enabled => _enabled;
 
     /// <summary>Catalog tools not yet registered — the candidates for the "+" picker.</summary>
     public IReadOnlyList<ToolKind> Available
@@ -61,23 +63,27 @@ public sealed class ToolRegistry
 
     public bool Add(ToolKind kind)
     {
-        if (_enabled.Contains(kind))
+        var snapshot = _enabled;
+        if (snapshot.Contains(kind))
         {
             return false;
         }
-        _enabled = new List<ToolKind>(_enabled) { kind };
+        _enabled = new List<ToolKind>(snapshot) { kind }.AsReadOnly();
         Persist(membershipChanged: true);
         return true;
     }
 
     public bool Remove(ToolKind kind)
     {
-        var next = new List<ToolKind>(_enabled);
-        if (!next.Remove(kind))
+        var snapshot = _enabled;
+        var index = snapshot.IndexOf(kind);
+        if (index < 0)
         {
             return false;
         }
-        _enabled = next;
+        var next = new List<ToolKind>(snapshot);
+        next.RemoveAt(index);
+        _enabled = next.AsReadOnly();
         Persist(membershipChanged: true);
         return true;
     }
@@ -92,12 +98,14 @@ public sealed class ToolRegistry
     /// </summary>
     public bool ReorderEnabled(IReadOnlyList<ToolKind> visibleNewOrder)
     {
-        var next = new List<ToolKind>(_enabled);
-        var newOrder = visibleNewOrder.Where(next.Contains).Distinct().ToList();
+        // Detect the change read-only against one snapshot first; the copy is built only
+        // on the hit path, so a drag that ends where it started allocates nothing.
+        var snapshot = _enabled;
+        var newOrder = visibleNewOrder.Where(snapshot.Contains).Distinct().ToList();
         var slots = new List<int>();
-        for (var i = 0; i < next.Count; i++)
+        for (var i = 0; i < snapshot.Count; i++)
         {
-            if (newOrder.Contains(next[i]))
+            if (newOrder.Contains(snapshot[i]))
             {
                 slots.Add(i);
             }
@@ -110,10 +118,10 @@ public sealed class ToolRegistry
         var changed = false;
         for (var k = 0; k < slots.Count; k++)
         {
-            if (next[slots[k]] != newOrder[k])
+            if (snapshot[slots[k]] != newOrder[k])
             {
-                next[slots[k]] = newOrder[k];
                 changed = true;
+                break;
             }
         }
         if (!changed)
@@ -121,7 +129,12 @@ public sealed class ToolRegistry
             return false;
         }
 
-        _enabled = next;
+        var next = new List<ToolKind>(snapshot);
+        for (var k = 0; k < slots.Count; k++)
+        {
+            next[slots[k]] = newOrder[k];
+        }
+        _enabled = next.AsReadOnly();
         Persist(membershipChanged: false);
         return true;
     }
