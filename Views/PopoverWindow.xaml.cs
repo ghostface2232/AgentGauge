@@ -82,6 +82,7 @@ public sealed partial class PopoverWindow : Window
     private Storyboard? _viewTransitionStoryboard;
     private int _titleIconLoadId;
     private string? _titleIconKey;
+    private bool _xamlRootChangedHooked;
     private AutoHideScrollBar? _usageAutoHide;
     private AutoHideScrollBar? _settingsAutoHide;
 
@@ -115,10 +116,32 @@ public sealed partial class PopoverWindow : Window
 
         // Frosted Quick-Settings look.
         SystemBackdrop = new DesktopAcrylicBackdrop();
+        // Seed the scale from the window's current monitor so the pre-warm decode below
+        // (and a theme change before the first Show) targets the right pixel size;
+        // Show() recaptures from the target monitor.
+        _scale = NativeMethods.GetDpiForWindow(_hwnd) / 96.0;
         RootHost.ActualThemeChanged += (_, _) =>
         {
             UpdateDwmTheme();
             _ = UpdateTitleIcon();
+        };
+        // A live DPI change while the popover is shown (monitor scaling changed in
+        // Settings, dock/undock) arrives via XamlRoot.Changed: recapture the scale,
+        // re-decode the title mark, and re-place so the DIP size is preserved. While
+        // hidden, the next Show() recaptures from the target monitor anyway.
+        RootHost.Loaded += (_, _) =>
+        {
+            if (_xamlRootChangedHooked || RootHost.XamlRoot is not { } xamlRoot) return;
+            _xamlRootChangedHooked = true;
+            xamlRoot.Changed += (root, args) =>
+            {
+                if (!_isShown) return;
+                var scale = root.RasterizationScale;
+                if (scale <= 0 || Math.Abs(scale - _scale) < 0.001) return;
+                _scale = scale;
+                _ = UpdateTitleIcon();
+                PositionAndResize(_usageViewHeightDip);
+            };
         };
         _ = UpdateTitleIcon();
 
