@@ -58,6 +58,10 @@ internal static class Strings
                                  "Couldn't load usage.\nCheck your sign-in status in settings.",
                                  "使用量を読み込めませんでした。\n設定でログイン状態を確認してください。"],
         ["Empty_NoHistory"]   = ["사용 기록이 아직 없습니다.", "No usage yet.", "使用履歴がまだありません。"],
+        ["Empty_NotSignedIn"] = ["로그인된 도구가 없습니다.\n설정에서 사용 중인 도구에 로그인하세요.",
+                                 "No tools are signed in.\nSign in from settings to see usage.",
+                                 "ログインしているツールがありません。\n設定からログインしてください。"],
+        ["Action_OpenSettings"] = ["설정 열기",       "Open settings",     "設定を開く"],
         ["NoData"]            = ["데이터 없음",         "No data",           "データなし"],
         ["Tray_NoData"]       = ["{0} 데이터 없음",     "{0} no data",       "{0} データなし"],       // {0} = tool
         ["Tray_Tooltip"]      = ["AgentGauge — {0}\n갱신: {1}", "AgentGauge — {0}\nUpdated: {1}", "AgentGauge — {0}\n更新: {1}"], // {0}=summary {1}=time

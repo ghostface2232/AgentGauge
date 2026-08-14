@@ -20,11 +20,19 @@ public sealed partial class UsageViewModel : ObservableObject
     /// (cards then keep the order the coordinator supplies).</summary>
     private readonly ToolRegistry? _registry;
     private readonly IUsageHistorySource? _history;
+    /// <summary>Returns true when every registered tool's credential state is known-Missing
+    /// (nobody signed in). Optional so tests and older call sites can omit it; without it
+    /// the empty state never claims "no tools are signed in".</summary>
+    private readonly Func<bool>? _allToolsSignedOut;
 
-    public UsageViewModel(ToolRegistry? registry = null, IUsageHistorySource? history = null)
+    public UsageViewModel(
+        ToolRegistry? registry = null,
+        IUsageHistorySource? history = null,
+        Func<bool>? allToolsSignedOut = null)
     {
         _registry = registry;
         _history = history;
+        _allToolsSignedOut = allToolsSignedOut;
         // A reorder elsewhere (the settings screen) re-sorts the cards in place — no re-fetch.
         if (_registry is not null)
         {
@@ -147,6 +155,12 @@ public sealed partial class UsageViewModel : ObservableObject
     [ObservableProperty]
     public partial string EmptyMessage { get; set; }
 
+    /// <summary>True when the empty state should offer an inline "Open Settings" button —
+    /// any empty cause the user can act on from settings (sign-in missing or failed fetch).
+    /// Never true while loading.</summary>
+    [ObservableProperty]
+    public partial bool IsSettingsCtaVisible { get; set; }
+
     /// <summary>
     /// Highest usage ratio (0–1) across every tool/window, used to pick the tray
     /// icon variant. 0 when there is no data. Not bound by the UI, so a plain property.
@@ -178,28 +192,46 @@ public sealed partial class UsageViewModel : ObservableObject
         TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
         RefreshCards(recorded);
 
-        IsEmpty = recorded.Count == 0;
+        // A fresh install with nothing signed in doesn't produce "no record" tools: the
+        // providers report success with an empty snapshot, which would render one dead
+        // "no data" card per default tool and no hint that signing in is the fix. When no
+        // window exists anywhere and every registered tool's credentials are known-missing,
+        // fold that into the empty state with an explicit sign-in call to action instead.
+        var hasAnyWindow = recorded.Any(t => t.Snapshot is { Windows.Count: > 0 });
+        var signedOutEmpty = state.Tools.Count > 0 && !hasAnyWindow
+            && _allToolsSignedOut?.Invoke() == true;
+
+        IsEmpty = recorded.Count == 0 || signedOutEmpty;
         if (IsEmpty)
         {
-            EmptyMessage = BuildEmptyMessage(state);
+            (EmptyMessage, IsSettingsCtaVisible) = BuildEmptyState(state, signedOutEmpty);
+        }
+        else
+        {
+            IsSettingsCtaVisible = false;
         }
     }
 
-    private static string BuildEmptyMessage(UsageState state)
+    private static (string Message, bool ShowSettingsCta) BuildEmptyState(UsageState state, bool signedOutEmpty)
     {
+        if (signedOutEmpty)
+        {
+            return (Loc.Get("Empty_NotSignedIn"), true);
+        }
+
         if (state.Tools.Count == 0)
         {
-            return Loc.Get("Loading");
+            return (Loc.Get("Loading"), false);
         }
 
         // All providers errored with no cached value (network or expired login).
         if (state.Tools.All(t => t.LastRefreshFailed && t.Snapshot is null))
         {
-            return Loc.Get("Empty_FetchFailed");
+            return (Loc.Get("Empty_FetchFailed"), true);
         }
 
         // Providers ran but returned nothing (e.g. tools not used yet).
-        return Loc.Get("Empty_NoHistory");
+        return (Loc.Get("Empty_NoHistory"), true);
     }
 
     private void RefreshCards(IReadOnlyList<CachedUsage> tools)

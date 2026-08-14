@@ -182,17 +182,27 @@
                      cards' right edge. -->
                 <Border Grid.Row="1" Padding="0">
                 <Grid>
-                <!-- Centered guidance shown when no tool has any data. -->
-                <TextBlock
+                <!-- Centered guidance shown when no tool has any data. When the cause is
+                     actionable from settings (nothing signed in / fetch failed), an inline
+                     "Open Settings" button gives new users the path the text alone hides. -->
+                <StackPanel
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    TextAlignment="Center"
-                    TextWrapping="Wrap"
                     Margin="16,0"
-                    Opacity="0.7"
-                    Text="{Binding EmptyMessage}"
-                    Style="{StaticResource BodyTextBlockStyle}"
-                    Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}}" />
+                    Spacing="12"
+                    Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}}">
+                    <TextBlock
+                        TextAlignment="Center"
+                        TextWrapping="Wrap"
+                        Opacity="0.7"
+                        Text="{Binding EmptyMessage}"
+                        Style="{StaticResource BodyTextBlockStyle}" />
+                    <Button
+                        HorizontalAlignment="Center"
+                        Click="OnSettingsClicked"
+                        Content="{loc:Localize Key=Action_OpenSettings}"
+                        Visibility="{Binding IsSettingsCtaVisible, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
                 <ScrollViewer
                     x:Name="BodyScroll"
                     Padding="16,0,16,0"

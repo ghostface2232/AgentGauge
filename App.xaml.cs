@@ -161,7 +161,7 @@ public partial class App : Application
         // History is additive analytics beside the last-known cache: live readings are
         // appended so trend/ETA features have data; a broken history DB never blocks startup.
         _historyStore = new UsageHistoryStore();
-        _viewModel = new UsageViewModel(_toolRegistry, _historyStore);
+        _viewModel = new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
         _viewModel.SetViewMode(viewMode);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
@@ -205,6 +205,28 @@ public partial class App : Application
         {
             _popover.Show();
         }
+    }
+
+    /// <summary>
+    /// True only when every registered tool's credential state is known-Missing — the
+    /// usage view uses this to show a "sign in from Settings" call to action instead of
+    /// dead "no data" cards. Any other state (signed in, invalid/expired, login running)
+    /// suppresses the claim, so the CTA never shows over an account that is actually
+    /// signed in. Antigravity has no Gauge-readable credential at all — its auth provider
+    /// idles in Missing even when the IDE is fully signed in — so its presence suppresses
+    /// the claim too rather than counting as signed out.
+    /// </summary>
+    private bool AllEnabledToolsSignedOut()
+    {
+        if (_toolRegistry is null || _authentication is null)
+        {
+            return false;
+        }
+        var enabled = _toolRegistry.Enabled;
+        return enabled.Count > 0 && enabled.All(kind =>
+            kind != ToolKind.Antigravity
+            && _authentication.TryGetValue(kind, out var provider)
+            && provider.State.Status == AuthenticationStatus.Missing);
     }
 
     private void OnUsageUpdated(object? sender, UsageState state)

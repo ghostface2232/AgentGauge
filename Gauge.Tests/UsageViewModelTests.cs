@@ -107,6 +107,74 @@ public sealed class UsageViewModelTests
         Assert.Equal(new[] { ToolKind.Codex, ToolKind.ClaudeCode }, registry.Enabled);
     }
 
+    [Fact]
+    public void ApplyShowsSignInCtaWhenNothingSignedInAndOnlyEmptyRecords()
+    {
+        // Fresh install: default tools "succeed" with empty snapshots (no credentials) and
+        // the auth states are all Missing — the view must ask for sign-in, not show dead cards.
+        var viewModel = new UsageViewModel(allToolsSignedOut: () => true);
+
+        viewModel.Apply(State(WithEmptyRecord("Claude Code"), WithEmptyRecord("Codex")));
+
+        Assert.True(viewModel.IsEmpty);
+        Assert.Equal(Loc.Get("Empty_NotSignedIn"), viewModel.EmptyMessage);
+        Assert.True(viewModel.IsSettingsCtaVisible);
+    }
+
+    [Fact]
+    public void ApplyKeepsNoDataCardsWhenSomeToolIsSignedIn()
+    {
+        var viewModel = new UsageViewModel(allToolsSignedOut: () => false);
+
+        viewModel.Apply(State(WithEmptyRecord("Claude Code")));
+
+        Assert.False(viewModel.IsEmpty);
+        Assert.False(viewModel.IsSettingsCtaVisible);
+        Assert.Single(viewModel.Cards);
+    }
+
+    [Fact]
+    public void ApplyShowsCtaWithFetchFailedMessageWhenAllToolsFailedWithoutCache()
+    {
+        var viewModel = new UsageViewModel();
+
+        viewModel.Apply(State(
+            WithFailedRecord("Claude Code"),
+            WithFailedRecord("Codex")));
+
+        Assert.True(viewModel.IsEmpty);
+        Assert.Equal(Loc.Get("Empty_FetchFailed"), viewModel.EmptyMessage);
+        Assert.True(viewModel.IsSettingsCtaVisible);
+    }
+
+    [Fact]
+    public void ApplyHidesCtaWhileLoading()
+    {
+        var viewModel = new UsageViewModel(allToolsSignedOut: () => true);
+
+        viewModel.Apply(UsageState.Empty);
+
+        Assert.True(viewModel.IsEmpty);
+        Assert.Equal(Loc.Get("Loading"), viewModel.EmptyMessage);
+        Assert.False(viewModel.IsSettingsCtaVisible);
+    }
+
+    [Fact]
+    public void ApplyClearsCtaOnceUsageArrives()
+    {
+        var signedOut = true;
+        var viewModel = new UsageViewModel(allToolsSignedOut: () => signedOut);
+        viewModel.Apply(State(WithEmptyRecord("Claude Code")));
+        Assert.True(viewModel.IsSettingsCtaVisible);
+
+        signedOut = false;
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42)));
+
+        Assert.False(viewModel.IsEmpty);
+        Assert.False(viewModel.IsSettingsCtaVisible);
+        Assert.Single(viewModel.Cards);
+    }
+
     private sealed class OrderedStore(params ToolKind[] enabled) : IToolRegistryStore
     {
         private IReadOnlyCollection<ToolKind> _state = enabled;
@@ -161,5 +229,13 @@ public sealed class UsageViewModelTests
     private static CachedUsage WithoutRecord(string toolName) => new()
     {
         ToolName = toolName,
+    };
+
+    // A tool whose most recent refresh failed with nothing cached (network down / expired
+    // login on a cold start).
+    private static CachedUsage WithFailedRecord(string toolName) => new()
+    {
+        ToolName = toolName,
+        LastRefreshFailed = true,
     };
 }
