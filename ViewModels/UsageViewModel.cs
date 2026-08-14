@@ -132,6 +132,16 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
+    /// <summary>Re-runs the level-to-brush bindings on every card after a live theme
+    /// change — the resolved brush is theme-dependent, which bindings can't observe.</summary>
+    public void RefreshLevelBrushes()
+    {
+        foreach (var card in Cards)
+        {
+            card.RefreshLevelBrushes();
+        }
+    }
+
     /// <summary>Manual refresh button; the app routes this through the debounced coordinator.</summary>
     public IRelayCommand RefreshCommand { get; }
 

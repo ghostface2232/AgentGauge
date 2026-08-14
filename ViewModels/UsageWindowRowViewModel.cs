@@ -128,4 +128,16 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
             : string.Empty;
         (PaceText, PaceLevel) = UsagePaceClassifier.ForRow(window);
     }
+
+    /// <summary>
+    /// Re-raises the level properties without changing them, so level-to-brush bindings
+    /// re-run their converter after a live theme change. The resolved brush depends on
+    /// the theme — which the binding system cannot observe — so the owning window nudges
+    /// every row through here when <c>ActualTheme</c> flips.
+    /// </summary>
+    public void RefreshLevelBrushes()
+    {
+        OnPropertyChanged(nameof(Level));
+        OnPropertyChanged(nameof(PaceLevel));
+    }
 }

@@ -9,6 +9,43 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
+            <!-- Usage-level colors as named resources (never hardcoded inline at the
+                 use site), defined per theme. The *Brush set colors bar/gauge FILLS —
+                 large shapes where the saturated colors read fine on either acrylic.
+                 The *TextBrush set colors small TEXT (refresh-issue badge, pace warning
+                 caption): on light acrylic the fill amber/red fall well below readable
+                 contrast, so the light theme uses the darker Fluent status-foreground
+                 values instead. Dark text keeps the amber but brightens ok/danger —
+                 the fill red is only ~3.5:1 against a dark card, below the 4.5:1 small
+                 text needs (values are Fluent's dark status foregrounds). High contrast
+                 defers entirely to the system palette. -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="UsageOkBrush" Color="#2E9E4F" />
+                    <SolidColorBrush x:Key="UsageCautionBrush" Color="#FEAD0C" />
+                    <SolidColorBrush x:Key="UsageDangerBrush" Color="#FE140C" />
+                    <SolidColorBrush x:Key="UsageOkTextBrush" Color="#6CCB5F" />
+                    <SolidColorBrush x:Key="UsageCautionTextBrush" Color="#FEAD0C" />
+                    <SolidColorBrush x:Key="UsageDangerTextBrush" Color="#FF99A4" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="UsageOkBrush" Color="#2E9E4F" />
+                    <SolidColorBrush x:Key="UsageCautionBrush" Color="#FEAD0C" />
+                    <SolidColorBrush x:Key="UsageDangerBrush" Color="#FE140C" />
+                    <SolidColorBrush x:Key="UsageOkTextBrush" Color="#0F7B0F" />
+                    <SolidColorBrush x:Key="UsageCautionTextBrush" Color="#9D5D00" />
+                    <SolidColorBrush x:Key="UsageDangerTextBrush" Color="#C42B1C" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="UsageOkBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="UsageCautionBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="UsageDangerBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="UsageOkTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="UsageCautionTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="UsageDangerTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
             <!-- Tray context menu (SecondWindow host) sizes its window from content and,
                  at fractional DPI, lands a couple physical pixels short of the presenter.
                  That makes the presenter's internal ScrollViewer show a scrollbar and
@@ -21,13 +58,6 @@
                 <Setter Property="ScrollViewer.HorizontalScrollMode" Value="Disabled" />
                 <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
             </Style>
-
-            <!-- Usage-level colors as named resources (never hardcoded inline at the
-                 use site). Chosen to read on both light/dark acrylic; if per-theme
-                 tuning is wanted later, move these into ResourceDictionary.ThemeDictionaries. -->
-            <SolidColorBrush x:Key="UsageOkBrush" Color="#2E9E4F" />
-            <SolidColorBrush x:Key="UsageCautionBrush" Color="#FEAD0C" />
-            <SolidColorBrush x:Key="UsageDangerBrush" Color="#FE140C" />
 
             <!-- App font: bundled Pretendard JP (OFL 1.1), shipped under Assets/Fonts and
                  loaded read-only at runtime. Every WinUI text style (Body/Caption/Subtitle/…)

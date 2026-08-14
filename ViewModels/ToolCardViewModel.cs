@@ -133,6 +133,16 @@ public sealed partial class ToolCardViewModel : ObservableObject
         RebuildGaugeGroups(windows);
     }
 
+    /// <summary>Re-runs the level-to-brush bindings on every row after a live theme
+    /// change (see <see cref="UsageWindowRowViewModel.RefreshLevelBrushes"/>).</summary>
+    public void RefreshLevelBrushes()
+    {
+        foreach (var row in Windows)
+        {
+            row.RefreshLevelBrushes();
+        }
+    }
+
     /// <summary>
     /// Orders windows for display when a tool groups them by model/family scope: groups stay
     /// together in first-seen order, and within a group 5-hour comes before weekly.

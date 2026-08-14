@@ -251,7 +251,7 @@
                                             <TextBlock
                                                 VerticalAlignment="Center"
                                                 FontSize="12"
-                                                Foreground="{StaticResource UsageCautionBrush}"
+                                                Foreground="{ThemeResource UsageCautionTextBrush}"
                                                 Text="{loc:Localize Key=Status_RefreshIssue}"
                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                 AutomationProperties.Name="{loc:Localize Key=Tooltip_RefreshIssue}"
@@ -349,7 +349,7 @@
                                                             <TextBlock
                                                                 Text="{Binding PaceText}"
                                                                 TextWrapping="Wrap"
-                                                                Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}}"
+                                                                Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}, ConverterParameter=text}"
                                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                                 Visibility="{Binding HasPaceWarning, Converter={StaticResource BoolToVis}}" />
                                                             <!-- Measured burn-rate projection ("2시간 후
@@ -440,7 +440,7 @@
                                                                             TextAlignment="Center"
                                                                             TextWrapping="Wrap"
                                                                             Text="{Binding PaceText}"
-                                                                            Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}}"
+                                                                            Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}, ConverterParameter=text}"
                                                                             Style="{StaticResource CaptionTextBlockStyle}"
                                                                             Visibility="{Binding HasPaceWarning, Converter={StaticResource BoolToVis}}" />
                                                                         <TextBlock

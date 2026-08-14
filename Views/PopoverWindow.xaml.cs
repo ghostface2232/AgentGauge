@@ -122,10 +122,18 @@ public sealed partial class PopoverWindow : Window
         // (and its GetDpiForWindow fallback) as CaptureTargetMonitor.
         _scale = GetScaleForDisplayArea(DisplayArea.GetFromWindowId(
             Microsoft.UI.Win32Interop.GetWindowIdFromWindow(_hwnd), DisplayAreaFallback.Nearest));
+        // Keep the level-to-brush converter resolving against the LIVE theme: XAML
+        // ThemeResource references re-resolve on their own, but the converter's code
+        // lookup would otherwise stay pinned to the launch theme (Application.
+        // RequestedTheme never changes). Seed now, retarget on every switch, and nudge
+        // the level bindings so already-rendered pace captions pick up the new brush.
+        SyncLevelBrushTheme();
         RootHost.ActualThemeChanged += (_, _) =>
         {
             UpdateDwmTheme();
             _ = UpdateTitleIcon();
+            SyncLevelBrushTheme();
+            (RootHost.DataContext as UsageViewModel)?.RefreshLevelBrushes();
         };
         // A live DPI change while the popover is shown (monitor scaling changed in
         // Settings, dock/undock) arrives via XamlRoot.Changed: recapture the scale,
@@ -364,6 +372,16 @@ public sealed partial class PopoverWindow : Window
         var preference = NativeMethods.DWMWCP_ROUND;
         _ = NativeMethods.DwmSetWindowAttribute(
             _hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
+    }
+
+    /// <summary>Points the shared level-to-brush converter at the window's current
+    /// ActualTheme so its code-side resource lookups match what ThemeResource resolves.</summary>
+    private void SyncLevelBrushTheme()
+    {
+        if (RootHost.Resources["LevelToBrush"] is Converters.UsageLevelToBrushConverter converter)
+        {
+            converter.Theme = RootHost.ActualTheme;
+        }
     }
 
     private void UpdateDwmTheme()
