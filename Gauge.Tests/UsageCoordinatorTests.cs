@@ -380,6 +380,56 @@ public sealed class UsageCoordinatorTests
         Assert.Equal("Claude Code", saved.ToolName);
     }
 
+    [Fact]
+    public async Task RefreshAfterDisposeIsAQuietNoOp()
+    {
+        // App.RefreshAfterWake can race DisposePipeline: its 5-second delay means the
+        // coordinator it null-checked may be disposed by the time it calls in. That must
+        // not surface ObjectDisposedException into an async void handler (process crash).
+        var provider = new StubProvider("Codex");
+        var coordinator = new UsageCoordinator(new UsageService(new[] { provider }));
+        coordinator.Dispose();
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        Assert.Equal(0, provider.CallCount);
+    }
+
+    [Fact]
+    public async Task DisposeDuringInFlightRefreshNeitherThrowsNorFaultsTheCaller()
+    {
+        // Dispose used to tear down the gate/CTS immediately; a refresh still holding the
+        // gate then hit ObjectDisposedException in its finally-Release. Dispose must leave
+        // a held gate alone so the in-flight cycle can finish unwinding cleanly.
+        var provider = new StubProvider("Codex") { Block = new TaskCompletionSource() };
+        var coordinator = new UsageCoordinator(new UsageService(new[] { provider }));
+
+        // The call chain is synchronous up to the provider's blocked await, so the gate
+        // is provably held once RefreshAsync returns its incomplete task.
+        var refresh = coordinator.RefreshAsync(RefreshReason.Manual);
+        Assert.Equal(1, provider.CallCount);
+
+        coordinator.Dispose();
+        provider.Block.SetResult();
+
+        await refresh; // must complete without throwing
+    }
+
+    [Fact]
+    public async Task UnexpectedPersistenceFailureIsContainedAndLaterCyclesStillRun()
+    {
+        // Persistence runs inside the refresh cycle after the fetch; an unexpected throw
+        // there must not escape to the async void UI handlers or kill the scheduler loop.
+        var persistence = new FakePersistence { ThrowOnSave = new InvalidOperationException("disk") };
+        var provider = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }), persistence: persistence);
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+
+        Assert.Equal(2, provider.CallCount);
+    }
+
     private static UsageSnapshot Seed(string name) => new()
     {
         ToolName = name,
@@ -392,11 +442,13 @@ public sealed class UsageCoordinatorTests
         public IReadOnlyList<UsageSnapshot> Seed { get; set; } = Array.Empty<UsageSnapshot>();
         public IReadOnlyList<UsageSnapshot> Saved { get; private set; } = Array.Empty<UsageSnapshot>();
         public bool SaveCalled { get; private set; }
+        public Exception? ThrowOnSave { get; set; }
 
         public IReadOnlyList<UsageSnapshot> Load() => Seed;
         public void Save(IReadOnlyCollection<UsageSnapshot> snapshots)
         {
             SaveCalled = true;
+            if (ThrowOnSave is not null) throw ThrowOnSave;
             Saved = snapshots.ToList();
         }
     }
@@ -431,20 +483,23 @@ public sealed class UsageCoordinatorTests
         public bool ThrowAuth { get; set; }
         public bool EmptyWindows { get; set; }
         public DateTimeOffset? FixedCapturedAt { get; set; }
-        public Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
+        /// <summary>When set, the fetch parks on this until the test completes it.</summary>
+        public TaskCompletionSource? Block { get; set; }
+        public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
         {
             CallCount++;
+            if (Block is not null) await Block.Task;
             if (ThrowAuth) throw new AuthenticationRequiredException(Tool, HttpStatusCode.Unauthorized);
             if (Throw) throw new HttpRequestException("offline");
             var windows = EmptyWindows
                 ? Array.Empty<UsageWindow>()
                 : new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5시간", UsedRatio = .2 } };
-            return Task.FromResult(new UsageSnapshot
+            return new UsageSnapshot
             {
                 ToolName = ToolName,
                 CapturedAt = FixedCapturedAt ?? DateTimeOffset.Now,
                 Windows = windows,
-            });
+            };
         }
     }
 }
