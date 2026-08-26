@@ -36,10 +36,12 @@
 **주의**: 현재 테스트 픽스처는 full timestamp(`"2026-07-01T00:00:00Z"`)를 사용 — AGENTS.md의 "라이브 응답을 먼저 확인" 원칙대로 실제 응답이 날짜 전용인지 확인 후 수정할 것.
 **수정 방향**: 실측 확인 후 `AssumeUniversal` 적용 또는 `GetDateOnlyOrNull` → UTC 자정 사용.
 
-### M4. 드래그 재정렬 중 컬렉션 변경 시 크래시/순서 손상
+### M4. 드래그 재정렬 중 컬렉션 변경 시 크래시/순서 손상 — ✅ 수정됨
 `Views/PopoverWindow.xaml.cs` `ReorderSurface`: `BeginDrag`(:1058-1085)에서 `_home`/`_centers`를 1회 스냅샷하지만 `ShiftOthers`(:1150-1179)·`OnPointerMoved`(:997-1013)·`ComputeTarget`(:1114-1141)은 **라이브** `_count()`로 인덱싱
 팝오버 열기가 강제 갱신을 트리거하므로, 드래그 중 결과가 도착해 `UsageViewModel.Apply`가 카드를 추가/제거하면 `panel.Children.Count > _home.Length` → 포인터 이동 핸들러에서 `IndexOutOfRangeException`(미처리 → 앱 크래시), 또는 `Commit`이 낡은 인덱스로 `Cards.Move` 호출 → `ArgumentOutOfRangeException`/순서 손상. 설정 그리드의 `RebuildCards`도 동일 노출.
 **수정 방향**: 드래그 중 `CollectionChanged` 구독으로 활성 드래그 취소/정착, `ShiftOthers`/`Commit`에서 `_home.Length`와 라이브 카운트 양쪽으로 인덱스 검증.
+**실제 수정**: 구독 대신 **제스처가 스스로 검증**하는 방식을 택했다 — 라이브 카운트를 스냅샷 길이와 대조해, 포인터 이동 중 어긋나면 제스처를 포기하고(`Abandon`), 커밋 시점에 어긋나면 변형만 되돌린 채 이동을 생략한다. 구독 수명 관리가 아예 사라지고 두 서피스에 동일하게 적용된다. 인덱스 계산은 순수 `Views/ReorderPlan`으로 분리해 스냅샷 범위를 벗어날 수 없게 하고 단위 테스트를 붙였다.
+부수로 드러난 이중 커밋도 함께 수정했다: `OnPointerReleased`의 `ReleasePointerCaptures()`가 `OnPointerEnded`를 동기 재진입시켜 `Settle`이 2회 실행되고, WinUI에서 `Storyboard.Stop()`이 `Completed`를 발생시키므로 `Move`가 2회 걸려 순서가 손상될 수 있었다. 해제 순서를 바로잡고 커밋 시 제스처 id를 소각해 드롭당 1회만 커밋되게 했다.
 
 ### M5. 접근성: 아이콘 전용 버튼·스위치·드롭다운의 UIA 이름 부재
 `Views/PopoverWindow.xaml` — 새로고침(:491-498), 설정 톱니(:499-506), 뒤로(:533-536), 연결 해제 X(:113-117), 서비스 추가(:713-719), 업데이트(:725-731) 버튼이 `FontIcon`만 포함해 UIA Name이 비어 있음(WinUI는 툴팁을 자동 승격하지 않음). `ToggleSwitch` 3개(의도적으로 On/Off 내용 비움)와 `ComboBox` 2개도 이름 없음 — 스크린 리더가 용도 없이 "토글 스위치/콤보 상자"만 낭독. 코드베이스가 패턴을 이미 알고 있으나(`NotificationOptionsButton`:577) 나머지에 미적용.
