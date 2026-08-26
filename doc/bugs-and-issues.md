@@ -7,6 +7,7 @@
 ---
 
 > **수정 현황 (2026-08-13)**: H1 → `9dbd1af`+`7570a93`, M1 → `f137554`+`38b11d8`, M2 → `362f4cb` 에서 수정 완료.
+> **수정 현황 (2026-08-26)**: M8 → `24daa0c`+`f6fde7d` 에서 수정 완료 (후자는 부수로 발견된 `AntigravityEngineHost.Dispose`의 무한 게이트 대기 종료 행도 함께 수정 — UI 컨텍스트에서 시작된 갱신은 Dispose가 UI 스레드를 점유하는 동안 게이트를 풀 수 없음).
 
 ## HIGH
 
@@ -52,7 +53,7 @@
 `Views/PopoverWindow.xaml:713-719` — AGENTS.md §Settings panel은 "+" 버튼이 **스크롤 본문 안**, 인증 카드 다음이라 명시하지만 실제로는 Row 2 푸터 바(더구나 `DataContext=Update`인 영역) 안에 있음. 코드 비하인드 핸들러와 파스타임 툴팁 덕에 동작만 할 뿐.
 **수정 방향**: 버튼을 `AuthRepeater` 뒤 스크롤 안으로 이동하거나 AGENTS.md를 실태에 맞게 수정 — 둘 중 하나로 정합화.
 
-### M8. `UsageCoordinator.Dispose`가 진행 중 갱신과 레이스
+### M8. `UsageCoordinator.Dispose`가 진행 중 갱신과 레이스 — ✅ 수정됨
 `Services/UsageCoordinator.cs:483-502` + `RefreshCoreAsync` finally(:281)
 `Dispose`가 `_cts` 취소 직후 `_cts`·`_refreshGate`를 `_loopTask`나 진행 중 갱신을 기다리지 않고 폐기. (a) 게이트를 쥔 갱신이 폐기된 세마포어에 `Release()` → `ObjectDisposedException`이 `OperationCanceledException` 전용 처리를 탈출해 `async void` 핸들러(`OnPopoverOpened`/`RefreshAfterWake`)로 유출, (b) 종료와 경합한 `RefreshAsync`가 폐기된 `_cts.Token` 참조. 종료/언어 재시작 시에만 발생하나 "깨끗한 티어다운" 의도를 무산시킴.
 **수정 방향**: `_disposed` 선설정 후 `RefreshAsync` 조기 반환, 루프 태스크를 짧게 대기 후 폐기 — 또는 세마포어는 폐기하지 않고 `Release`를 플래그로 가드.
