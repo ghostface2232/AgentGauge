@@ -398,9 +398,9 @@ public sealed class UsageCoordinatorTests
     [Fact]
     public async Task DisposeDuringInFlightRefreshNeitherThrowsNorFaultsTheCaller()
     {
-        // Dispose used to tear down the gate/CTS immediately; a refresh still holding the
-        // gate then hit ObjectDisposedException in its finally-Release. Dispose must leave
-        // a held gate alone so the in-flight cycle can finish unwinding cleanly.
+        // A refresh that entered the gate will Release it in its finally; Dispose must
+        // therefore leave a held gate alone (leaking it at exit) so the in-flight cycle
+        // can finish unwinding cleanly instead of faulting on a disposed semaphore.
         var provider = new StubProvider("Codex") { Block = new TaskCompletionSource() };
         var coordinator = new UsageCoordinator(new UsageService(new[] { provider }));
 

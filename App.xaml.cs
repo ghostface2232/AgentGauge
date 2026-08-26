@@ -458,8 +458,10 @@ public partial class App : Application
         SystemEvents.SessionSwitch -= OnSessionSwitch;
         _coordinator?.Dispose();
         _coordinator = null;
-        // After the coordinator has stopped (no refresh in flight), tear down any delegate
-        // engine Gauge launched, along with its sidecar tree.
+        // The coordinator is cancelled and its loop drained, but a refresh begun from a UI
+        // handler can still be unwinding (its continuations queue behind this UI thread).
+        // Tear down any delegate engine Gauge launched, along with its sidecar tree; the
+        // host serializes against an in-flight read with its own gate.
         _antigravityProvider?.Dispose();
         _antigravityProvider = null;
         _notificationService?.Dispose();

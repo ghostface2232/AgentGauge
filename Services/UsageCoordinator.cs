@@ -62,8 +62,9 @@ public sealed class UsageCoordinator : IDisposable
 
     private long _lastRefreshStartedTimestamp = NeverRefreshed;
     private Task? _loopTask;
-    // Volatile: set by Dispose on the UI thread and read by refresh entry points on
-    // thread-pool threads; the early-return below must see it without a lock.
+    // Volatile: read by refresh entry points that may resume off the UI thread (and by
+    // tests exercising them cross-thread); the early-return must see Dispose's write
+    // without a lock.
     private volatile bool _disposed;
 
     /// <summary>Raised after each refresh with the current cached state (on the UI thread).</summary>
@@ -193,9 +194,11 @@ public sealed class UsageCoordinator : IDisposable
         {
             // Shutting down; ignore.
         }
-        catch (ObjectDisposedException)
+        catch (ObjectDisposedException) when (_disposed)
         {
             // Raced Dispose (the CTS or gate was torn down mid-call); shutting down.
+            // The filter keeps a genuine mid-session ODE from persistence/history
+            // falling through to the logging catch below instead of being masked.
         }
         catch (Exception ex)
         {
@@ -528,9 +531,12 @@ public sealed class UsageCoordinator : IDisposable
             // ignore
         }
 
-        // Let the loop observe the cancel and unwind. Providers see the token at their
-        // next await, so an in-flight cycle normally exits in milliseconds; the bound
-        // only keeps a pathological hang from stalling exit.
+        // Let the loop observe the cancel and unwind. A loop cycle runs entirely on the
+        // thread pool, so it exits in milliseconds; the bound only keeps a pathological
+        // hang from stalling exit. A cycle started from a UI async void handler is
+        // different: without ConfigureAwait(false) its continuations need the UI thread,
+        // which Dispose is blocking, so such a cycle CANNOT finish here — its held gate
+        // is what the leak branch below exists for.
         try
         {
             _loopTask?.Wait(TimeSpan.FromSeconds(2));
