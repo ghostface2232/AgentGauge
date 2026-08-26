@@ -25,6 +25,14 @@ internal sealed class AppSettingsDto
     public string? ViewMode { get; set; }
 
     /// <summary>
+    /// The user's foreground-lock timeout, captured by <see cref="ForegroundLockGuard"/>
+    /// before Gauge zeroes the live value and cleared again on a clean exit. Present at
+    /// startup only when the previous instance was hard-killed after zeroing — the live 0
+    /// is then Gauge's leftover, and this is the value to restore.
+    /// </summary>
+    public uint? ForegroundLockTimeoutBaseline { get; set; }
+
+    /// <summary>
     /// Any properties not modelled above — keys written by a newer build, or settings this
     /// build doesn't know about. Captured on load and written back verbatim so a
     /// read-modify-write that touches one field never drops another's data.

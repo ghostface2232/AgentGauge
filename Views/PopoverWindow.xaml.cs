@@ -247,7 +247,7 @@ public sealed partial class PopoverWindow : Window
         // real foreground window, so DesktopAcrylic renders its inactive fallback (a
         // solid, near-white fill) until the user clicks it. Force foreground so the
         // acrylic engages immediately. Succeeds because the foreground-lock timeout was
-        // zeroed at startup (see TrayIconService.DisableForegroundLock).
+        // zeroed at startup (see ForegroundLockGuard.Disable).
         _ = NativeMethods.SetForegroundWindow(_hwnd);
         UpdateDwmTheme();
         // Re-apply once more after the show settles: some DWM attribute recreation
