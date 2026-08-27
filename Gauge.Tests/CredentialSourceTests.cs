@@ -26,12 +26,68 @@ public sealed class CredentialSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task MalformedJsonIsRetriedABoundedNumberOfTimes()
+    {
+        // A file that stays unparseable still ends as Invalid — the retry must not loop.
+        Write(".claude/.credentials.json", "{ still-broken");
+        var waits = 0;
+        var source = new CliCredentialSource(() => _root, () => null, (_, _) => { waits++; return Task.CompletedTask; });
+
+        var result = await source.ReadAsync(ToolKind.ClaudeCode);
+
+        Assert.Equal(CredentialReadStatus.Invalid, result.Status);
+        Assert.Equal(2, waits); // three attempts, so two waits between them
+    }
+
+    [Fact]
+    public async Task FileLockedByTheCliIsRetriedRatherThanReportedInvalid()
+    {
+        // Gauge reads the CLI's file without coordination, so a read can land while the CLI
+        // is rotating its token. Reporting Invalid there spawns a pointless delegated refresh
+        // and shows the card as signed out, for a file that is fine a moment later. The wait
+        // seam doubles as the moment the writer finishes.
+        Write(".claude/.credentials.json", """{"claudeAiOauth":{"accessToken":"claude-secret"}}""");
+        var path = Path.Combine(_root, ".claude", ".credentials.json");
+        // Also disposed by the using, so a failing assertion can't leave the lock held and
+        // break this class's directory cleanup.
+        using var exclusive = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
+        var source = new CliCredentialSource(() => _root, () => null, (_, _) =>
+        {
+            exclusive.Dispose(); // the CLI's rewrite completes and releases the file
+            return Task.CompletedTask;
+        });
+
+        var result = await source.ReadAsync(ToolKind.ClaudeCode);
+
+        Assert.Equal(CredentialReadStatus.Available, result.Status);
+        Assert.Equal("claude-secret", result.Credential?.AccessToken);
+    }
+
+    [Fact]
+    public async Task HalfWrittenFileIsRetriedRatherThanReportedInvalid()
+    {
+        // The same rotation seen a moment later: the file is present but truncated, which
+        // parses no better than corruption on a single attempt.
+        Write(".claude/.credentials.json", """{"claudeAiOauth":{"acce""");
+        var source = new CliCredentialSource(() => _root, () => null, (_, _) =>
+        {
+            Write(".claude/.credentials.json", """{"claudeAiOauth":{"accessToken":"claude-secret"}}""");
+            return Task.CompletedTask;
+        });
+
+        var result = await source.ReadAsync(ToolKind.ClaudeCode);
+
+        Assert.Equal(CredentialReadStatus.Available, result.Status);
+        Assert.Equal("claude-secret", result.Credential?.AccessToken);
+    }
+
+    [Fact]
     public async Task ReadsCodexHomeAndClaudePlanMapping()
     {
         var codexHome = Path.Combine(_root, "custom-codex");
         WriteAt(Path.Combine(codexHome, "auth.json"), """{"tokens":{"access_token":"codex-secret","account_id":"acct"}}""");
         Write(".claude/.credentials.json", """{"claudeAiOauth":{"accessToken":"claude-secret","subscriptionType":"max","rateLimitTier":"default_claude_max_20x"}}""");
-        var source = new CliCredentialSource(() => _root, () => codexHome);
+        var source = Source(codexHome);
 
         var codex = await source.ReadAsync(ToolKind.Codex);
         var claude = await source.ReadAsync(ToolKind.ClaudeCode);
@@ -185,7 +241,10 @@ public sealed class CredentialSourceTests : IDisposable
             + Segment("{\"exp\":" + rawExp + "}") + ".sig";
     }
 
-    private CliCredentialSource Source() => new(() => _root, () => null);
+    // No-op retry wait: the transient-read retry is exercised, never waited out. Every
+    // construction routes through here so a fixture that starts failing costs no real delay.
+    private CliCredentialSource Source(string? codexHome = null)
+        => new(() => _root, () => codexHome, (_, _) => Task.CompletedTask);
     private void Write(string relative, string text) => WriteAt(Path.Combine(_root, relative.Replace('/', Path.DirectorySeparatorChar)), text);
     private static void WriteAt(string path, string text) { Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, text); }
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }

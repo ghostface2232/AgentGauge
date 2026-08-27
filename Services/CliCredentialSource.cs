@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Gauge.Localization;
 using Gauge.Models;
@@ -8,35 +9,49 @@ namespace Gauge.Services;
 /// <summary>Reads credentials owned by the official CLIs. This class never writes them.</summary>
 public sealed class CliCredentialSource : ICredentialSource
 {
+    // A CLI rewriting its credential file is a sub-second event, so a couple of short
+    // waits comfortably outlast it while adding nothing to the common path (they run
+    // only after a read has already failed).
+    private const int TransientReadAttempts = 3;
+    private static readonly TimeSpan TransientRetryDelay = TimeSpan.FromMilliseconds(60);
+
     private readonly Func<string> _userProfile;
     private readonly Func<string?> _codexHome;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 
-    public CliCredentialSource(Func<string>? userProfile = null, Func<string?>? codexHome = null)
+    /// <param name="delay">
+    /// Seam for the retry wait, so tests exercise the retry without spending its duration.
+    /// </param>
+    public CliCredentialSource(
+        Func<string>? userProfile = null,
+        Func<string?>? codexHome = null,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
         _userProfile = userProfile ?? (() => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         _codexHome = codexHome ?? (() => Environment.GetEnvironmentVariable("CODEX_HOME"));
+        _delay = delay ?? Task.Delay;
     }
 
     public CredentialOwner Owner => CredentialOwner.CliLocal;
     public CredentialSource Source => CredentialSource.CliLocal;
 
-    public Task<CredentialReadResult> ReadAsync(ToolKind tool, CancellationToken cancellationToken = default)
+    public async Task<CredentialReadResult> ReadAsync(ToolKind tool, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(tool switch
+        return tool switch
         {
-            ToolKind.ClaudeCode => ReadClaude(),
-            ToolKind.Codex => ReadCodex(),
+            ToolKind.ClaudeCode => await ReadClaudeAsync(cancellationToken),
+            ToolKind.Codex => await ReadCodexAsync(cancellationToken),
             // Tools this source does not own (e.g. Antigravity, Cursor) are handled by
             // their dedicated sources in the chain. Report Missing so we don't shadow them.
             _ => new CredentialReadResult { Tool = tool, Status = CredentialReadStatus.Missing, Message = Loc.Get("Cred_Missing") },
-        });
+        };
     }
 
-    private CredentialReadResult ReadClaude()
+    private Task<CredentialReadResult> ReadClaudeAsync(CancellationToken cancellationToken)
     {
         var path = Path.Combine(_userProfile(), ".claude", ".credentials.json");
-        return ReadJson(ToolKind.ClaudeCode, path, root =>
+        return ReadJsonAsync(ToolKind.ClaudeCode, path, cancellationToken, root =>
         {
             if (root.GetObjectOrNull("claudeAiOauth") is not { } oauth
                 || oauth.GetStringOrNull("accessToken") is not { Length: > 0 } token)
@@ -64,7 +79,7 @@ public sealed class CliCredentialSource : ICredentialSource
         });
     }
 
-    private CredentialReadResult ReadCodex()
+    private Task<CredentialReadResult> ReadCodexAsync(CancellationToken cancellationToken)
     {
         var home = _codexHome();
         if (string.IsNullOrWhiteSpace(home))
@@ -72,7 +87,7 @@ public sealed class CliCredentialSource : ICredentialSource
             home = Path.Combine(_userProfile(), ".codex");
         }
         var path = Path.Combine(home, "auth.json");
-        return ReadJson(ToolKind.Codex, path, root =>
+        return ReadJsonAsync(ToolKind.Codex, path, cancellationToken, root =>
         {
             if (root.GetObjectOrNull("tokens") is not { } tokens
                 || tokens.GetStringOrNull("access_token") is not { Length: > 0 } token)
@@ -103,24 +118,64 @@ public sealed class CliCredentialSource : ICredentialSource
         });
     }
 
-    private static CredentialReadResult ReadJson(
-        ToolKind tool, string path, Func<JsonElement, CredentialReadResult> parse)
+    /// <summary>
+    /// Reads and parses a CLI's credential file, retrying briefly on a failure that looks
+    /// like the CLI rewriting it.
+    ///
+    /// Gauge reads these files without coordination, so a read can land in the middle of the
+    /// CLI's own token rotation — the very moment the read-only policy exists to tolerate.
+    /// That surfaces as a sharing violation (IOException) or as a parse failure on a
+    /// half-written file (JsonException), neither distinguishable from real corruption on a
+    /// single attempt. Reporting Invalid there is expensive and wrong: the provider spawns a
+    /// pointless delegated-refresh CLI and the auth card reads "signed out" until the next
+    /// live fetch, for a file that was valid a few milliseconds earlier and valid again a few
+    /// milliseconds later. Retrying settles it. A denied file (UnauthorizedAccessException) is
+    /// not transient — no wait fixes permissions — so it fails on the first attempt, and a
+    /// file that stays unreadable still ends as Invalid.
+    ///
+    /// Absence is decided once, before any attempt: only a file that was never there means
+    /// "not signed in". A file that disappears mid-retry throws FileNotFoundException, which
+    /// is an IOException and so retries with the rest — a rotation that recreates the file
+    /// still resolves, and one that does not ends as Invalid, exactly as it did before the
+    /// retry existed. Deciding absence per attempt would instead report Missing, whose empty
+    /// snapshot the coordinator treats as a success and writes over the last good one.
+    /// </summary>
+    private async Task<CredentialReadResult> ReadJsonAsync(
+        ToolKind tool, string path, CancellationToken cancellationToken, Func<JsonElement, CredentialReadResult> parse)
     {
         if (!File.Exists(path))
         {
             return new CredentialReadResult { Tool = tool, Status = CredentialReadStatus.Missing, Message = Loc.Get("Cred_Missing") };
         }
-        try
+
+        for (var attempt = 1; ; attempt++)
         {
-            using var stream = File.OpenRead(path);
-            using var document = JsonDocument.Parse(stream);
-            return parse(document.RootElement);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-        {
-            // Never include file contents or token values in diagnostics.
-            DiagnosticsLog.Write("auth", $"Credential read failed for {tool}: {ex.GetType().Name}");
-            return Invalid(tool, Loc.Get("Cred_ReadFailed"));
+            cancellationToken.ThrowIfCancellationRequested();
+            JsonElement root;
+            try
+            {
+                using var stream = File.OpenRead(path);
+                using var document = JsonDocument.Parse(stream);
+                // Detached from the document so parsing can happen outside this try: the
+                // retry must cover reading and parsing the file, never the callback's own
+                // interpretation of it.
+                root = document.RootElement.Clone();
+            }
+            catch (Exception ex) when (ex is IOException or JsonException && attempt < TransientReadAttempts)
+            {
+                await _delay(TransientRetryDelay, cancellationToken);
+                continue;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                // Never include file contents or token values in diagnostics.
+                DiagnosticsLog.Write(
+                    "auth",
+                    $"Credential read failed for {tool} after {attempt.ToString(CultureInfo.InvariantCulture)} attempt(s): {ex.GetType().Name}");
+                return Invalid(tool, Loc.Get("Cred_ReadFailed"));
+            }
+
+            return parse(root);
         }
     }
 

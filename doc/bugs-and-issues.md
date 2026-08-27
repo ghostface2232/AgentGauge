@@ -73,8 +73,9 @@
 ### L1. 알림 토글 적용 경로가 읽기 실패 시 fail-open
 `App.xaml.cs:303-305` + `NotificationSettingsStore.cs:31-35` — `store.Load()`가 읽기 실패 시 **전체 켜짐 기본값** 반환. 양쪽 다 끈 사용자가 일시적 읽기 실패 중 한 종류를 토글하면 `desired = 기본값.With(변경)`이 **다른 종류까지 재활성화**하고 `TrySave` 성공으로 영속화 — AGENTS.md가 패널 열기 경로에 금지한 바로 그 "un-mute" 시나리오. **수정**: `TryLoad` 사용, 실패 시 현재 표시 중인 환경설정을 기준으로.
 
-### L2. 일시적 자격 증명 파일 읽기 오류가 `Invalid`로 보고 → 허위 "로그아웃" + 불필요한 CLI 스폰
+### L2. 일시적 자격 증명 파일 읽기 오류가 `Invalid`로 보고 → 허위 "로그아웃" + 불필요한 CLI 스폰 — ✅ 수정됨
 `Services/CliCredentialSource.cs` `ReadJson` — CLI가 토큰을 회전 기록하는 순간의 공유 위반/반쯤 쓰인 JSON(읽기 전용 정책이 감내하려던 바로 그 순간)이 진짜 손상과 구분 없이 `Invalid`. 프로바이더는 무의미한 위임 갱신 CLI를 스폰하고, 재읽기도 충돌하면 `AuthenticationRequiredException` → 인증 카드가 다음 라이브 페치까지 "로그아웃"으로 표시. **수정**: `IOException`(일시)과 파싱 오류(손상) 구분, 1회 재시도 또는 별도 상태.
+**실제 수정**: 제안과 달리 **둘 다 재시도**한다(3회, 60ms 간격). 반쯤 쓰인 파일은 `JsonException`으로 나타나므로 파싱 오류를 "손상"으로 단정할 수 없고, 한 번의 읽기로는 회전 중과 진짜 손상을 구분할 방법이 없다 — 재시도가 유일한 판별 수단이다. 대신 권한 오류(`UnauthorizedAccessException`)는 대기로 해결되지 않으므로 즉시 실패하고, 끝내 읽히지 않으면 종전대로 `Invalid`. 별도 상태는 추가하지 않았다(인증 카드·프로바이더·코디네이터 계약을 모두 건드리는 데 비해 얻는 것이 없다). 파일 존재 확인은 루프 밖 1회로 두어, 회전 중 사라진 파일이 `Missing`(코디네이터가 성공으로 간주해 last-good을 덮음)으로 강등되지 않게 했다. 대기는 주입 가능한 심으로 두어 테스트가 실제 지연 없이 재시도를 검증한다.
 
 ### L3. Antigravity 루프백 클라이언트의 자체 타임아웃이 재시도 로직을 탈출
 `Providers/Internal/AntigravityLoopbackClient.cs:79-93` + `AntigravityEngineHost.cs:84-101` — `_http.Timeout`(5초) 만료는 `TaskCanceledException`인데 catch 필터는 `HttpRequestException/IOException`만. 위임 모드에서 포트는 열었지만 5초 넘게 걸리는 콜드 스타트 엔진(15초 `ReadyTimeout` 폴 루프가 존재하는 바로 그 사유)이 첫 느린 프로브에서 시도 전체를 중단; 어태치 모드에선 느린 서버 하나가 다음 포트 순회를 막음. 증상은 재시도 설계가 커버해야 할 상황에서 Antigravity 카드가 낡은 채 유지. **수정**: 호출자 토큰이 취소되지 않은 `TaskCanceledException`을 "이 시도 실패, 계속"으로 처리.

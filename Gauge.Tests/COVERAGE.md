@@ -9,6 +9,7 @@ These previously-untestable areas now have small production seams and are covere
 | Multi-monitor positioning | Placement math extracted to the pure `Views\PopoverPlacement` (popover bottom-right + tray menu), consumed by `PopoverWindow.PositionAndResize` and `TrayIconService.RepositionContextMenuAboveTray`. | `PopoverPlacementTests` |
 | 429 backoff timing | `ClaudeProvider` takes a `TimeProvider`; the 2→4→8→16→30m escalation lives in the reusable `Services\BackoffPolicy`. | `ClaudeProviderBackoffTests`, `BackoffPolicyTests` |
 | Refresh timing gates | `UsageCoordinator` takes a `TimeProvider` and reads both its gates — the 10s forced-refresh debounce and the per-provider cost floor — off monotonic timestamps. | `UsageCoordinatorTests` |
+| Transient credential-read retry | `CliCredentialSource` takes an injectable wait, so the retry that rides out a CLI's token rotation is exercised without spending its duration. | `CredentialSourceTests` |
 | Drag-reorder index math | The gesture's index math extracted to the pure `Views\ReorderPlan` (shift layout, snapshot-validity, commit bounds), consumed by `PopoverWindow.ReorderSurface`. | `ReorderPlanTests` |
 | Foreground-lock restore | Capture/restore extracted from `TrayIconService` into `ForegroundLockGuard` behind the `IForegroundLockTimeout` seam; the baseline persists to settings.json so a hard kill cannot lose the user's value. | `ForegroundLockGuardTests` |
 
