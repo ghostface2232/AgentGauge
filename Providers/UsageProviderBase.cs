@@ -162,7 +162,7 @@ public abstract class UsageProviderBase : IUsageProvider
 
         try
         {
-            return RecordSuccess(await FetchSnapshotAsync(credential, cancellationToken));
+            return await FetchWithPolicyAsync(credential, cancellationToken);
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
@@ -175,9 +175,16 @@ public abstract class UsageProviderBase : IUsageProvider
                 if (refreshed.Status == CredentialReadStatus.Available
                     && refreshed.Credential is { } freshCredential && HasUsableCredential(freshCredential))
                 {
+                    // Adopt the rotated token's fingerprint before the retry, or the NEXT
+                    // call would read the rotation as an account switch and throw away the
+                    // snapshot this retry is about to record (and its happy-path cache).
+                    if (_cachesSnapshots)
+                    {
+                        TrackCredentialFingerprint(freshCredential);
+                    }
                     try
                     {
-                        return RecordSuccess(await FetchSnapshotAsync(freshCredential, cancellationToken));
+                        return await FetchWithPolicyAsync(freshCredential, cancellationToken);
                     }
                     catch (HttpRequestException retryEx) when (retryEx.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                     {
@@ -186,6 +193,28 @@ public abstract class UsageProviderBase : IUsageProvider
                 }
             }
             throw new AuthenticationRequiredException(Tool, ex.StatusCode!.Value);
+        }
+    }
+
+    /// <summary>
+    /// One fetch attempt with the policy's degradation applied: a retryable status arms
+    /// the cooldown and serves the cache, any other failure serves the cache when the
+    /// policy says so — while auth rejections pass through untouched for the caller's
+    /// delegated-refresh recovery. Both the first attempt and the post-refresh retry go
+    /// through here, so a 429 on the retry still arms the gate instead of escaping it
+    /// (catch clauses of one try never re-match their siblings' throws).
+    /// </summary>
+    private async Task<UsageSnapshot> FetchWithPolicyAsync(ToolCredential credential, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return RecordSuccess(await FetchSnapshotAsync(credential, cancellationToken));
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            // Auth recovery (delegated refresh + retry) is owned by the caller; rethrow
+            // before the serve-cached catch below can swallow a rejected token.
+            throw;
         }
         catch (HttpRequestException ex) when (_gate is not null && RateLimitGate.IsRetryable(ex.StatusCode))
         {

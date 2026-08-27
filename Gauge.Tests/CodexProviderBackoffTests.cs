@@ -118,6 +118,32 @@ public sealed class CodexProviderBackoffTests
     }
 
     [Fact]
+    public async Task RetryableFailureOnThePostRefreshRetryStillArmsTheCooldown()
+    {
+        // 401 → delegated refresh → the single retry hits 429. The retry goes through
+        // the same policy layer as the first attempt, so the gate arms and the cached
+        // snapshot is served rather than the 429 escaping both.
+        var handler = new SequenceHandler(Ok(), Unauthorized(), TooMany(), Ok());
+        var time = new MutableTime();
+        var provider = new CodexProvider(
+            new HttpClient(handler), new MutableSource("token"), new FakeRefresher(), time);
+
+        await provider.GetSnapshotAsync(default); // live success cached
+        time.Advance(TimeSpan.FromMinutes(3));
+        var throttled = await provider.GetSnapshotAsync(default); // 401 → refresh → retry 429
+        Assert.Equal(3, handler.Calls);
+        Assert.NotEmpty(throttled.Windows); // cache served, not a hard failure
+
+        time.Advance(TimeSpan.FromMinutes(1)); // inside the retry-armed cooldown → no network
+        await provider.GetSnapshotAsync(default);
+        Assert.Equal(3, handler.Calls);
+
+        time.Advance(TimeSpan.FromMinutes(1.5)); // past it → refetches live
+        await provider.GetSnapshotAsync(default);
+        Assert.Equal(4, handler.Calls);
+    }
+
+    [Fact]
     public async Task AccountSwitchClearsTheCooldownAndCache()
     {
         var handler = new SequenceHandler(Ok(), TooMany(), Ok());
@@ -151,6 +177,8 @@ public sealed class CodexProviderBackoffTests
 
     private static Response NotFound() => new("{}", HttpStatusCode.NotFound);
 
+    private static Response Unauthorized() => new("{}", HttpStatusCode.Unauthorized);
+
     private sealed class MutableTime : TimeProvider
     {
         private DateTimeOffset _utcNow = new(2026, 8, 3, 9, 0, 0, TimeSpan.Zero);
@@ -165,6 +193,11 @@ public sealed class CodexProviderBackoffTests
             _utcNow += elapsed;
             _timestamp += elapsed.Ticks;
         }
+    }
+
+    private sealed class FakeRefresher : IDelegatedTokenRefresher
+    {
+        public Task<bool> TryRefreshAsync(CancellationToken cancellationToken) => Task.FromResult(true);
     }
 
     private sealed class MutableSource(string token) : ICredentialSource
