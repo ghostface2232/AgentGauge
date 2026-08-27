@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -23,6 +22,14 @@ internal sealed class AppSettingsDto
 
     /// <summary>Card view mode ("bar" / "gauge"). Null (absent) reads as the bar layout.</summary>
     public string? ViewMode { get; set; }
+
+    /// <summary>
+    /// The user's foreground-lock timeout, captured by <see cref="ForegroundLockGuard"/>
+    /// before Gauge zeroes the live value and cleared again on a clean exit. Present at
+    /// startup only when the previous instance was hard-killed after zeroing — the live 0
+    /// is then Gauge's leftover, and this is the value to restore.
+    /// </summary>
+    public uint? ForegroundLockTimeoutBaseline { get; set; }
 
     /// <summary>
     /// Any properties not modelled above — keys written by a newer build, or settings this
@@ -88,7 +95,7 @@ internal static class AppSettingsFile
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            Debug.WriteLine($"[Gauge] settings load failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("settings", $"settings.json load failed: {ex.GetType().Name}");
             settings = new AppSettingsDto();
             return false;
         }
@@ -124,7 +131,7 @@ internal static class AppSettingsFile
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Debug.WriteLine($"[Gauge] settings save failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("settings", $"settings.json save failed: {ex.GetType().Name}");
             return false;
         }
     }

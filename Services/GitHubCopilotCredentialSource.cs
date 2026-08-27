@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Gauge.Localization;
 using Gauge.Models;
@@ -96,7 +95,7 @@ public sealed class GitHubCopilotCredentialSource : ICredentialSource
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
             {
                 // Never log the file contents or token; the type name is enough to diagnose.
-                Debug.WriteLine($"[Gauge] Copilot token file read failed: {ex.GetType().Name}");
+                DiagnosticsLog.Write("auth", $"Copilot token file read failed: {ex.GetType().Name}");
             }
         }
         return null;

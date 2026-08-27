@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Gauge.Models;
 using Microsoft.Data.Sqlite;
 
@@ -228,7 +227,9 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             }
             catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                Debug.WriteLine($"[Gauge] usage history failed: {ex.GetType().Name}");
+                // Neutral wording on purpose: this runs for every caller — recording,
+                // hydrating and pruning — so naming one of them would misdirect triage.
+                DiagnosticsLog.Write("history", $"Usage history access failed: {ex.GetType().Name}");
                 CloseConnection();
                 if (attempt == 0 && ex is SqliteException sqliteError && IsCorruption(sqliteError))
                 {
@@ -317,7 +318,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                Debug.WriteLine($"[Gauge] usage history delete failed: {ex.GetType().Name}");
+                DiagnosticsLog.Write("history", $"Usage history reset failed: {ex.GetType().Name}");
             }
         }
     }

@@ -180,6 +180,9 @@ public sealed partial class PopoverWindow : Window
             (from, to) =>
             {
                 if (SettingsBorder.DataContext is not SettingsViewModel vm) return;
+                // The slots come from the layout snapshot the drag captured; check them
+                // against the collection being moved before Move can throw on a stale one.
+                if (!ReorderPlan.CanCommit(from, to, vm.Authentication.Count)) return;
                 // Finalize the visible order immediately; persist + sync the other screen on the
                 // next tick so the drop stays snappy (the order is already correct on screen).
                 if (from != to) vm.Authentication.Move(from, to);
@@ -247,7 +250,7 @@ public sealed partial class PopoverWindow : Window
         // real foreground window, so DesktopAcrylic renders its inactive fallback (a
         // solid, near-white fill) until the user clicks it. Force foreground so the
         // acrylic engages immediately. Succeeds because the foreground-lock timeout was
-        // zeroed at startup (see TrayIconService.DisableForegroundLock).
+        // zeroed at startup (see ForegroundLockGuard.Disable).
         _ = NativeMethods.SetForegroundWindow(_hwnd);
         UpdateDwmTheme();
         // Re-apply once more after the show settles: some DWM attribute recreation
@@ -679,6 +682,9 @@ public sealed partial class PopoverWindow : Window
             (from, to) =>
             {
                 if (RootHost.DataContext is not UsageViewModel vm) return;
+                // This surface counts the panel's realized children, which can briefly disagree
+                // with the collection driving them, so re-check against the one being moved.
+                if (!ReorderPlan.CanCommit(from, to, vm.Cards.Count)) return;
                 // Finalize the visible order immediately; persist + sync the other screen on the
                 // next tick so the drop stays snappy.
                 if (from != to) vm.Cards.Move(from, to);
@@ -997,6 +1003,10 @@ public sealed partial class PopoverWindow : Window
         private Point[] _home = Array.Empty<Point>();   // each slot's top-left, in host coordinates
         private Point[] _centers = Array.Empty<Point>(); // each slot's center, for nearest-slot targeting
         private FrameworkElement? _dragged;
+        // Bumped whenever a gesture starts, is abandoned, or commits, so the settle
+        // animation's completion can tell whether the drag it belongs to is still the
+        // current one — and so one drop can only ever commit once.
+        private int _gesture;
 
         public ReorderSurface(
             UIElement host, Func<int> count, Func<int, FrameworkElement?> container, Action<int, int> commit)
@@ -1014,7 +1024,13 @@ public sealed partial class PopoverWindow : Window
 
         private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (_pressed || _dragging)
+            // _dragged outlives _dragging until the drop settles and commits. Starting a
+            // second gesture during that window would retire the pending one before it
+            // commits — losing the reorder the user just made — and would hit-test against
+            // ActualOffset, which mid-settle no longer says where the cards appear. The press
+            // is ignored, not swallowed: nothing marks it handled, so a card's own buttons
+            // still receive it.
+            if (_pressed || _dragging || _dragged is not null)
             {
                 return;
             }
@@ -1049,6 +1065,16 @@ public sealed partial class PopoverWindow : Window
                     _pressed = false;
                     return;
                 }
+            }
+
+            // Opening the popover forces a refresh, so a provider result can land mid-drag and
+            // add or remove a card. The snapshot taken at BeginDrag then describes a layout that
+            // no longer exists: abandon the gesture rather than shift and commit by indices that
+            // now point at different cards.
+            if (!ReorderPlan.SnapshotMatches(_count(), _home.Length))
+            {
+                Abandon();
+                return;
             }
 
             var dx = pt.X - _pressPoint.X;
@@ -1086,7 +1112,11 @@ public sealed partial class PopoverWindow : Window
 
         private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
         {
-            if (!_pressed)
+            // Ignore a release from some other pointer (a second finger, a second button)
+            // so it cannot drop this drag at whatever target it happens to be holding. The
+            // capture-lost path deliberately keeps no such guard: it is the net that must
+            // still settle a drag whose own pointer went away.
+            if (!_pressed || e.Pointer.PointerId != _pointerId)
             {
                 return;
             }
@@ -1094,10 +1124,13 @@ public sealed partial class PopoverWindow : Window
             var from = _from;
             var target = _target;
             _pressed = false;
+            // Clear _dragging before releasing the capture: the release synchronously raises
+            // PointerCaptureLost, whose handler would otherwise still see a live drag and
+            // settle it, leaving this method to settle the same gesture a second time.
+            _dragging = false;
             _host.ReleasePointerCaptures();
             if (!wasDragging)
             {
-                _dragging = false;
                 return; // a plain tap — nothing to reorder
             }
             e.Handled = true;
@@ -1143,31 +1176,71 @@ public sealed partial class PopoverWindow : Window
             }
             Canvas.SetZIndex(_dragged, 1); // lift above the cards it slides over
             _dragging = true;
+            _gesture++;
             _target = _from;
             _host.CapturePointer(pointer);
             return true;
+        }
+
+        /// <summary>
+        /// Drops the gesture without reordering: the cards return to their real positions and
+        /// no move is committed. Bumping the gesture id also disarms a settle animation already
+        /// in flight, so its completion cannot commit indices from the abandoned drag.
+        /// </summary>
+        private void Abandon()
+        {
+            _gesture++;
+            _pressed = false;
+            _dragging = false;
+            _host.ReleasePointerCaptures();
+            ClearTransforms();
+            _dragged = null;
+            // Drop the snapshot too, so anything still holding an index from this gesture
+            // fails SnapshotMatches by construction rather than by a count coincidence.
+            _home = Array.Empty<Point>();
+            _centers = Array.Empty<Point>();
         }
 
         private void Settle(int from, int target)
         {
             _dragging = false;
             var slot = Math.Clamp(target, 0, Math.Max(0, _home.Length - 1));
+            var gesture = _gesture;
             if (_dragged is null)
             {
-                Commit(from, slot);
+                Commit(gesture, from, slot);
                 return;
             }
             // Slide the card into its gap, then swap the visual transforms for the real order in
             // one synchronous step so there is no jump.
             AnimateTo(_dragged, _home[slot].X - _home[from].X, _home[slot].Y - _home[from].Y,
-                () => Commit(from, slot));
+                () => Commit(gesture, from, slot));
         }
 
-        private void Commit(int from, int slot)
+        private void Commit(int gesture, int from, int slot)
         {
+            // The settle animation runs for ShiftMs, so the list can still change between the
+            // drop and here. Commit only for the gesture that is still current and only while
+            // the list matches the snapshot the indices came from — Move() with a stale index
+            // would either throw or reorder the wrong pair of cards.
+            if (gesture != _gesture)
+            {
+                // Superseded — by an abandon, or by a new drag begun during the settle. Leave
+                // the transforms alone: they now belong to whatever replaced this gesture.
+                return;
+            }
+            // Retire this gesture id so a second completion for the same drop cannot reorder
+            // again; Move is not idempotent, so committing twice corrupts the order.
+            _gesture++;
+            var live = _count();
             ClearTransforms();
             _dragged = null;
-            _commit(from, slot);
+            if (ReorderPlan.SnapshotMatches(live, _home.Length))
+            {
+                // from and slot are both bounded by the snapshot (BeginDrag validated from;
+                // Settle clamped slot), so a matching live count makes them valid slots here.
+                _commit(from, slot);
+            }
         }
 
         // Insertion slot for the dragged card: whichever home slot its center is now closest to
@@ -1177,7 +1250,9 @@ public sealed partial class PopoverWindow : Window
         // the card hovers on a boundary.
         private int ComputeTarget(Point center)
         {
-            var n = _count();
+            // Bounded by the snapshot, never the live count: the centers being compared are the
+            // ones captured at BeginDrag, so a list that grew mid-drag has no center to offer.
+            var n = _centers.Length;
             if (n == 0)
             {
                 return _target;
@@ -1215,18 +1290,10 @@ public sealed partial class PopoverWindow : Window
         // inserted at _target, opening (and closing) the gap live.
         private void ShiftOthers()
         {
-            var n = _count();
-            var order = new List<int>(n);
-            for (var i = 0; i < n; i++)
-            {
-                if (i != _from)
-                {
-                    order.Add(i);
-                }
-            }
-            order.Insert(Math.Clamp(_target, 0, order.Count), _from);
+            // Planned over the snapshot, so every slot and index below addresses _home safely.
+            var order = ReorderPlan.SlotOrder(_home.Length, _from, _target);
 
-            for (var slot = 0; slot < order.Count; slot++)
+            for (var slot = 0; slot < order.Length; slot++)
             {
                 var logical = order[slot];
                 if (logical == _from)
@@ -1321,13 +1388,24 @@ public sealed partial class PopoverWindow : Window
 
         private void ClearTransforms()
         {
+            // Every element this gesture touched, not just the ones still in the list: a card
+            // removed mid-drag is no longer reachable by index, and the repeater recycles its
+            // container — a translate or z-index left on it would resurface under another card.
+            var touched = new HashSet<FrameworkElement>(_running.Keys);
+            if (_dragged is not null)
+            {
+                touched.Add(_dragged);
+            }
             for (var i = 0; i < _count(); i++)
             {
-                var el = _container(i);
-                if (el is null)
+                if (_container(i) is { } el)
                 {
-                    continue;
+                    touched.Add(el);
                 }
+            }
+
+            foreach (var el in touched)
+            {
                 StopAnimation(el);
                 if (el.RenderTransform is TranslateTransform t)
                 {

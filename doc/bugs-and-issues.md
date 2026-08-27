@@ -7,6 +7,7 @@
 ---
 
 > **수정 현황 (2026-08-13)**: H1 → `9dbd1af`+`7570a93`, M1 → `f137554`+`38b11d8`, M2 → `362f4cb` 에서 수정 완료.
+> **수정 현황 (2026-08-26)**: M8 → `24daa0c`+`f6fde7d` 에서 수정 완료 (후자는 부수로 발견된 `AntigravityEngineHost.Dispose`의 무한 게이트 대기 종료 행도 함께 수정 — UI 컨텍스트에서 시작된 갱신은 Dispose가 UI 스레드를 점유하는 동안 게이트를 풀 수 없음).
 
 ## HIGH
 
@@ -29,16 +30,19 @@
 `usage-summary` 응답 형태가 바뀌어(필드 개명, 인식 필드 없는 플랜) 퍼센트 우선순위 체인이 전부 실패하면 `0`으로 폴백해 **0% 사용의 성공 스냅샷**을 반환한다. 코디네이터는 이를 라이브 성공으로 취급 — 마지막 정상값 교체·영속화, `usage-history.db`에 가짜 0 하락 기록(ETA 분류기가 사이클 리셋으로 오인), 평가기의 reset-fallback 오탐 가능. 다른 프로바이더(Copilot/Antigravity)는 사용 불가한 버킷을 **건너뛰지** 0으로 가정하지 않으며, "실패가 last-good을 잘못된 데이터로 대체해선 안 된다"는 스펙과 모순.
 **수정 방향**: 인식 필드가 하나도 없으면 `ParsePlanPercentUsed`가 `null` 반환 → 윈도 생략 또는 throw로 last-good 유지.
 
-### M3. Copilot 월간 초기화 시각을 로컬 시간으로 파싱할 가능성
+### M3. Copilot 월간 초기화 시각을 로컬 시간으로 파싱할 가능성 — ✅ 수정됨
 `Providers/GitHubCopilotProvider.cs:120` + `Providers/Internal/JsonElementExtensions.cs:60-63`
 `quota_reset_date_utc`가 날짜만 있는 문자열(예: `"2026-09-01"`)로 오면 `DateTimeOffset.TryParse(…, RoundtripKind)`가 **로컬 오프셋**을 적용 — UTC+9에서는 실제 UTC 초기화보다 9시간 이른 시각으로 표시되고, 평가기의 reset-advance 비교도 어긋난다. 날짜 전용 파서 `GetDateOnlyOrNull`(:64)이 정의만 되고 **저장소 어디서도 미사용**인 점이 이 지점의 원래 의도였음을 시사.
 **주의**: 현재 테스트 픽스처는 full timestamp(`"2026-07-01T00:00:00Z"`)를 사용 — AGENTS.md의 "라이브 응답을 먼저 확인" 원칙대로 실제 응답이 날짜 전용인지 확인 후 수정할 것.
 **수정 방향**: 실측 확인 후 `AssumeUniversal` 적용 또는 `GetDateOnlyOrNull` → UTC 자정 사용.
+**실제 수정**: 라이브 응답 형태를 확정하지 못했으므로 **어느 형태든 옳게** 파싱하도록 고쳤다 — `GetDateTimeOffsetOrNull`이 `AssumeUniversal | AdjustToUniversal`로 파싱해, 오프셋이 있는 값은 시점을 그대로 유지하고 오프셋이 없는 값(날짜 전용·시각 전용)은 UTC로 읽는다. 오프셋을 가진 입력의 시점은 증명적으로 불변이고 모든 소비자가 시점 기준이므로, Cursor·Claude·Antigravity에 대한 관측 가능한 변화 없이 같은 함정을 함께 제거한다. 미사용이던 `GetDateOnlyOrNull`은 역할이 흡수되어 삭제. 단, UTC 머신에서는 구/신 동작이 동일해 날짜 전용 테스트가 CI에서 실패할 수 없고, 오프셋 정규화 테스트가 기계 독립적 가드다.
 
-### M4. 드래그 재정렬 중 컬렉션 변경 시 크래시/순서 손상
+### M4. 드래그 재정렬 중 컬렉션 변경 시 크래시/순서 손상 — ✅ 수정됨
 `Views/PopoverWindow.xaml.cs` `ReorderSurface`: `BeginDrag`(:1058-1085)에서 `_home`/`_centers`를 1회 스냅샷하지만 `ShiftOthers`(:1150-1179)·`OnPointerMoved`(:997-1013)·`ComputeTarget`(:1114-1141)은 **라이브** `_count()`로 인덱싱
 팝오버 열기가 강제 갱신을 트리거하므로, 드래그 중 결과가 도착해 `UsageViewModel.Apply`가 카드를 추가/제거하면 `panel.Children.Count > _home.Length` → 포인터 이동 핸들러에서 `IndexOutOfRangeException`(미처리 → 앱 크래시), 또는 `Commit`이 낡은 인덱스로 `Cards.Move` 호출 → `ArgumentOutOfRangeException`/순서 손상. 설정 그리드의 `RebuildCards`도 동일 노출.
 **수정 방향**: 드래그 중 `CollectionChanged` 구독으로 활성 드래그 취소/정착, `ShiftOthers`/`Commit`에서 `_home.Length`와 라이브 카운트 양쪽으로 인덱스 검증.
+**실제 수정**: 구독 대신 **제스처가 스스로 검증**하는 방식을 택했다 — 라이브 카운트를 스냅샷 길이와 대조해, 포인터 이동 중 어긋나면 제스처를 포기하고(`Abandon`), 커밋 시점에 어긋나면 변형만 되돌린 채 이동을 생략한다. 구독 수명 관리가 아예 사라지고 두 서피스에 동일하게 적용된다. 인덱스 계산은 순수 `Views/ReorderPlan`으로 분리해 스냅샷 범위를 벗어날 수 없게 하고 단위 테스트를 붙였다.
+부수로 드러난 이중 커밋도 함께 수정했다: `OnPointerReleased`의 `ReleasePointerCaptures()`가 `OnPointerEnded`를 동기 재진입시켜 `Settle`이 2회 실행되고, WinUI에서 `Storyboard.Stop()`이 `Completed`를 발생시키므로 `Move`가 2회 걸려 순서가 손상될 수 있었다. 해제 순서를 바로잡고 커밋 시 제스처 id를 소각해 드롭당 1회만 커밋되게 했다.
 
 ### M5. 접근성: 아이콘 전용 버튼·스위치·드롭다운의 UIA 이름 부재
 `Views/PopoverWindow.xaml` — 새로고침(:491-498), 설정 톱니(:499-506), 뒤로(:533-536), 연결 해제 X(:113-117), 서비스 추가(:713-719), 업데이트(:725-731) 버튼이 `FontIcon`만 포함해 UIA Name이 비어 있음(WinUI는 툴팁을 자동 승격하지 않음). `ToggleSwitch` 3개(의도적으로 On/Off 내용 비움)와 `ComboBox` 2개도 이름 없음 — 스크린 리더가 용도 없이 "토글 스위치/콤보 상자"만 낭독. 코드베이스가 패턴을 이미 알고 있으나(`NotificationOptionsButton`:577) 나머지에 미적용.
@@ -52,7 +56,7 @@
 `Views/PopoverWindow.xaml:713-719` — AGENTS.md §Settings panel은 "+" 버튼이 **스크롤 본문 안**, 인증 카드 다음이라 명시하지만 실제로는 Row 2 푸터 바(더구나 `DataContext=Update`인 영역) 안에 있음. 코드 비하인드 핸들러와 파스타임 툴팁 덕에 동작만 할 뿐.
 **수정 방향**: 버튼을 `AuthRepeater` 뒤 스크롤 안으로 이동하거나 AGENTS.md를 실태에 맞게 수정 — 둘 중 하나로 정합화.
 
-### M8. `UsageCoordinator.Dispose`가 진행 중 갱신과 레이스
+### M8. `UsageCoordinator.Dispose`가 진행 중 갱신과 레이스 — ✅ 수정됨
 `Services/UsageCoordinator.cs:483-502` + `RefreshCoreAsync` finally(:281)
 `Dispose`가 `_cts` 취소 직후 `_cts`·`_refreshGate`를 `_loopTask`나 진행 중 갱신을 기다리지 않고 폐기. (a) 게이트를 쥔 갱신이 폐기된 세마포어에 `Release()` → `ObjectDisposedException`이 `OperationCanceledException` 전용 처리를 탈출해 `async void` 핸들러(`OnPopoverOpened`/`RefreshAfterWake`)로 유출, (b) 종료와 경합한 `RefreshAsync`가 폐기된 `_cts.Token` 참조. 종료/언어 재시작 시에만 발생하나 "깨끗한 티어다운" 의도를 무산시킴.
 **수정 방향**: `_disposed` 선설정 후 `RefreshAsync` 조기 반환, 루프 태스크를 짧게 대기 후 폐기 — 또는 세마포어는 폐기하지 않고 `Release`를 플래그로 가드.
@@ -69,8 +73,9 @@
 ### L1. 알림 토글 적용 경로가 읽기 실패 시 fail-open
 `App.xaml.cs:303-305` + `NotificationSettingsStore.cs:31-35` — `store.Load()`가 읽기 실패 시 **전체 켜짐 기본값** 반환. 양쪽 다 끈 사용자가 일시적 읽기 실패 중 한 종류를 토글하면 `desired = 기본값.With(변경)`이 **다른 종류까지 재활성화**하고 `TrySave` 성공으로 영속화 — AGENTS.md가 패널 열기 경로에 금지한 바로 그 "un-mute" 시나리오. **수정**: `TryLoad` 사용, 실패 시 현재 표시 중인 환경설정을 기준으로.
 
-### L2. 일시적 자격 증명 파일 읽기 오류가 `Invalid`로 보고 → 허위 "로그아웃" + 불필요한 CLI 스폰
+### L2. 일시적 자격 증명 파일 읽기 오류가 `Invalid`로 보고 → 허위 "로그아웃" + 불필요한 CLI 스폰 — ✅ 수정됨
 `Services/CliCredentialSource.cs` `ReadJson` — CLI가 토큰을 회전 기록하는 순간의 공유 위반/반쯤 쓰인 JSON(읽기 전용 정책이 감내하려던 바로 그 순간)이 진짜 손상과 구분 없이 `Invalid`. 프로바이더는 무의미한 위임 갱신 CLI를 스폰하고, 재읽기도 충돌하면 `AuthenticationRequiredException` → 인증 카드가 다음 라이브 페치까지 "로그아웃"으로 표시. **수정**: `IOException`(일시)과 파싱 오류(손상) 구분, 1회 재시도 또는 별도 상태.
+**실제 수정**: 제안과 달리 **둘 다 재시도**한다(3회, 60ms 간격). 반쯤 쓰인 파일은 `JsonException`으로 나타나므로 파싱 오류를 "손상"으로 단정할 수 없고, 한 번의 읽기로는 회전 중과 진짜 손상을 구분할 방법이 없다 — 재시도가 유일한 판별 수단이다. 대신 권한 오류(`UnauthorizedAccessException`)는 대기로 해결되지 않으므로 즉시 실패하고, 끝내 읽히지 않으면 종전대로 `Invalid`. 별도 상태는 추가하지 않았다(인증 카드·프로바이더·코디네이터 계약을 모두 건드리는 데 비해 얻는 것이 없다). 파일 존재 확인은 루프 밖 1회로 두어, 회전 중 사라진 파일이 `Missing`(코디네이터가 성공으로 간주해 last-good을 덮음)으로 강등되지 않게 했다. 대기는 주입 가능한 심으로 두어 테스트가 실제 지연 없이 재시도를 검증한다.
 
 ### L3. Antigravity 루프백 클라이언트의 자체 타임아웃이 재시도 로직을 탈출
 `Providers/Internal/AntigravityLoopbackClient.cs:79-93` + `AntigravityEngineHost.cs:84-101` — `_http.Timeout`(5초) 만료는 `TaskCanceledException`인데 catch 필터는 `HttpRequestException/IOException`만. 위임 모드에서 포트는 열었지만 5초 넘게 걸리는 콜드 스타트 엔진(15초 `ReadyTimeout` 폴 루프가 존재하는 바로 그 사유)이 첫 느린 프로브에서 시도 전체를 중단; 어태치 모드에선 느린 서버 하나가 다음 포트 순회를 막음. 증상은 재시도 설계가 커버해야 할 상황에서 Antigravity 카드가 낡은 채 유지. **수정**: 호출자 토큰이 취소되지 않은 `TaskCanceledException`을 "이 시도 실패, 계속"으로 처리.

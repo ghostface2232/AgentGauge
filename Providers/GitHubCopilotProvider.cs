@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -71,8 +70,8 @@ public sealed class GitHubCopilotProvider : IUsageProvider
             {
                 throw new AuthenticationRequiredException(ToolKind.GitHubCopilot, httpError.StatusCode!.Value);
             }
-            // Other failures propagate so the coordinator keeps the last good snapshot.
-            Debug.WriteLine($"[Gauge] GitHubCopilotProvider usage fetch failed: {ex.Message}");
+            // Other failures propagate so the coordinator keeps the last good snapshot, and
+            // unlogged here because UsageService already records everything that reaches it.
             throw;
         }
     }
@@ -115,8 +114,10 @@ public sealed class GitHubCopilotProvider : IUsageProvider
             return Array.Empty<UsageWindow>();
         }
 
-        // GetDateTimeOffsetOrNull parses with InvariantCulture, not the UI language's culture:
-        // this is API data and must not depend on the ambient culture.
+        // GetDateTimeOffsetOrNull parses with InvariantCulture, not the UI language's culture,
+        // and reads an offset-less value as UTC. Captured responses carry a full Z timestamp,
+        // but the field is undocumented and its name says UTC, so a bare date must not be
+        // read as local time — that would move the reset by the user's own offset.
         var reset = root.GetDateTimeOffsetOrNull("quota_reset_date_utc");
         var windows = new List<UsageWindow>();
         foreach (var quota in snapshots.EnumerateObject())

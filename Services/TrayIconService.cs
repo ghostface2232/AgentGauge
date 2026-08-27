@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -31,9 +30,11 @@ namespace Gauge.Services;
 /// window reports <c>Deactivated</c>; for a tray-only app that never owns the
 /// foreground, Windows' foreground-lock throttles the library's SetForegroundWindow
 /// call, so the menu auto-dismissed while hovering. We work around it by zeroing the
-/// per-user foreground-lock timeout at startup. It is restored on dispose, with an
-/// <see cref="AppDomain.ProcessExit"/> safety net so a crash that bypasses dispose
-/// does not leave the global setting pinned at 0 for the rest of the login session.
+/// per-user foreground-lock timeout at startup via <see cref="ForegroundLockGuard"/>,
+/// which persists the user's value so even a hard kill cannot lose it. It is restored
+/// on dispose, with an <see cref="AppDomain.ProcessExit"/> safety net so a crash that
+/// bypasses dispose does not leave the global setting pinned at 0 for the rest of the
+/// login session.
 ///
 /// The menu carries one item per notification kind — the same two the settings card
 /// shows — rather than a single master pause. A master that lived only here could silence
@@ -86,10 +87,9 @@ public sealed class TrayIconService : IDisposable
     private bool _startOnBoot;
     // Mirror of the per-kind notification state, reflected the same way.
     private NotificationPreferences _notifications = NotificationPreferences.Default;
-    // Saved so we can restore the user's foreground-lock setting on exit. Guarded by
-    // _foregroundLockGate because Dispose and the ProcessExit handler can race.
-    private readonly object _foregroundLockGate = new();
-    private uint? _previousForegroundLockTimeout;
+    // Owns zeroing the foreground-lock timeout and restoring the user's value on exit
+    // (once, even when Dispose and the ProcessExit handler race).
+    private readonly ForegroundLockGuard _foregroundLock = new();
     // Held so we can unsubscribe the ProcessExit safety net on dispose.
     private readonly EventHandler _processExitHandler;
     private bool _disposed;
@@ -113,16 +113,16 @@ public sealed class TrayIconService : IDisposable
     public TrayIconService()
     {
         // Make SetForegroundWindow succeed so the SecondWindow menu stays active.
-        DisableForegroundLock();
+        _foregroundLock.Disable();
 
         // Normal exits (tray "종료", update restart) restore the lock through Dispose.
         // A crash never reaches Dispose, so without this the global timeout would stay
         // at 0 — altering focus behavior for every other app — until the next sign-in.
         // ProcessExit runs on CLR shutdown, including the unhandled-exception path, and
         // only fires as the process is ending, so it cannot affect Gauge's own behavior.
-        // RestoreForegroundLock is idempotent, so the Dispose + ProcessExit overlap on a
+        // The guard's Restore is idempotent, so the Dispose + ProcessExit overlap on a
         // normal exit is harmless.
-        _processExitHandler = (_, _) => RestoreForegroundLock();
+        _processExitHandler = (_, _) => _foregroundLock.Restore();
         AppDomain.CurrentDomain.ProcessExit += _processExitHandler;
 
         _thresholdAlertsItem = BuildNotificationKindItem(
@@ -362,7 +362,7 @@ public sealed class TrayIconService : IDisposable
             }
         }
 
-        Debug.WriteLine($"[Gauge] Tray icon asset not found for stem '{stem}{_levelSuffix}'.");
+        DiagnosticsLog.Write("tray", $"Tray icon asset not found for stem '{stem}{_levelSuffix}'.");
         return null;
     }
 
@@ -413,39 +413,6 @@ public sealed class TrayIconService : IDisposable
         return menu;
     }
 
-    private void DisableForegroundLock()
-    {
-        uint current = 0;
-        if (NativeMethods.SystemParametersInfoGet(
-                NativeMethods.SPI_GETFOREGROUNDLOCKTIMEOUT, 0, ref current, 0))
-        {
-            _previousForegroundLockTimeout = current;
-        }
-
-        _ = NativeMethods.SystemParametersInfoSet(
-            NativeMethods.SPI_SETFOREGROUNDLOCKTIMEOUT, 0, IntPtr.Zero, NativeMethods.SPIF_SENDCHANGE);
-    }
-
-    private void RestoreForegroundLock()
-    {
-        // Dispose (UI thread) and the ProcessExit safety net (CLR shutdown thread) can
-        // both reach here. Take the saved value once under the lock and clear it so the
-        // restore runs exactly once.
-        uint previous;
-        lock (_foregroundLockGate)
-        {
-            if (_previousForegroundLockTimeout is not uint saved)
-            {
-                return;
-            }
-            previous = saved;
-            _previousForegroundLockTimeout = null;
-        }
-
-        _ = NativeMethods.SystemParametersInfoSet(
-            NativeMethods.SPI_SETFOREGROUNDLOCKTIMEOUT, 0, (IntPtr)previous, NativeMethods.SPIF_SENDCHANGE);
-    }
-
     public void Dispose()
     {
         if (_disposed)
@@ -455,8 +422,12 @@ public sealed class TrayIconService : IDisposable
         _disposed = true;
 
         _uiSettings.ColorValuesChanged -= OnColorValuesChanged;
+        // Restore before unhooking, not after: a restore that the system refuses keeps its
+        // baseline, and leaving the handler subscribed until it has succeeded is what gives
+        // that one more attempt as the process ends. A restore that did succeed leaves no
+        // baseline, so the handler's later call is a no-op.
+        _foregroundLock.Restore();
         AppDomain.CurrentDomain.ProcessExit -= _processExitHandler;
-        RestoreForegroundLock();
         _trayIcon.Dispose();
         _currentIcon?.Dispose();
         _currentIcon = null;
@@ -464,26 +435,10 @@ public sealed class TrayIconService : IDisposable
 
     private static class NativeMethods
     {
-        public const uint SPI_GETFOREGROUNDLOCKTIMEOUT = 0x2000;
-        public const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
-        public const uint SPIF_SENDCHANGE = 0x02;
-
         public const uint MONITOR_DEFAULTTONEAREST = 0x2;
         public const uint SWP_NOSIZE = 0x0001;
         public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;
-
-        // GET writes the current timeout into pvParam (a DWORD by reference).
-        [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SystemParametersInfoGet(
-            uint uiAction, uint uiParam, ref uint pvParam, uint fWinIni);
-
-        // SET passes the new timeout as the pvParam value itself (cast to UINT).
-        [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool SystemParametersInfoSet(
-            uint uiAction, uint uiParam, IntPtr pvParam, uint fWinIni);
 
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();

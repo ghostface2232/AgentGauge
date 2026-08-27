@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Gauge.Localization;
@@ -80,7 +79,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            Debug.WriteLine($"[Gauge] usage cache load failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("cache", $"Usage cache load failed: {ex.GetType().Name}");
             return Array.Empty<UsageSnapshot>();
         }
     }
@@ -106,7 +105,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Debug.WriteLine($"[Gauge] usage cache save failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("cache", $"Usage cache save failed: {ex.GetType().Name}");
         }
     }
 

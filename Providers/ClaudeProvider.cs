@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -162,12 +162,17 @@ public sealed class ClaudeProvider : IUsageProvider
             var cooldown = Backoff.ForAttempt(_consecutive429);
             _cooldownStartedTimestamp = _time.GetTimestamp();
             _cooldownDuration = cooldown;
-            Debug.WriteLine($"[Gauge] ClaudeProvider 429 (x{_consecutive429}); backing off {cooldown.TotalMinutes.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}m");
-
             // Keep showing the last good value if we have one; only surface a failure
             // on a cold start with nothing cached.
             if (_lastSnapshot is not null)
             {
+                // Logged only on this branch: serving the cache returns success, so a
+                // throttled Claude — the usual reason a user reports usage "stuck" —
+                // would otherwise leave no trace. The cold start below propagates, and
+                // UsageService records that one.
+                DiagnosticsLog.Write(
+                    "provider",
+                    $"Claude Code throttled (429 x{_consecutive429}), serving cached; backing off {cooldown.TotalMinutes.ToString("0", CultureInfo.InvariantCulture)}m");
                 return _lastSnapshot with { Plan = credentials.Plan ?? _lastSnapshot.Plan };
             }
             throw;
@@ -197,9 +202,14 @@ public sealed class ClaudeProvider : IUsageProvider
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Debug.WriteLine($"[Gauge] ClaudeProvider usage fetch failed: {ex.Message}");
             if (_lastSnapshot is not null)
             {
+                // Serving the cache turns this into a success downstream, so this is the only
+                // place the failure can be recorded. A propagating one is left to
+                // UsageService, which logs everything that reaches it.
+                DiagnosticsLog.Write(
+                    "provider",
+                    $"Claude Code fetch failed, serving cached: {ex.GetType().Name}: {ex.Message}");
                 return _lastSnapshot with { Plan = credentials.Plan ?? _lastSnapshot.Plan };
             }
             throw;

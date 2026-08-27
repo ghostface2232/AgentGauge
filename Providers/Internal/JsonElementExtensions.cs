@@ -55,15 +55,26 @@ internal static class JsonElementExtensions
             ? value.GetString()
             : null;
 
+    /// <summary>
+    /// An API timestamp, parsed with InvariantCulture (never the UI language's culture) and
+    /// normalized to UTC. A value carrying an offset keeps its instant; one carrying none —
+    /// a bare date such as <c>"2026-09-01"</c>, or a naked datetime — is read as UTC.
+    ///
+    /// The framework default would instead apply the reader's own offset, which for a server
+    /// timestamp is never right: in UTC+9 it would move a reset nine hours earlier and shift
+    /// the notification evaluator's reset-advance comparison with it. No provider here
+    /// reports wall-clock time in the reader's zone, so UTC is the only sound reading of an
+    /// omitted offset. These endpoints are undocumented (GitHub's <c>quota_reset_date_utc</c>
+    /// most of all), so the parse is written to be correct under either shape rather than
+    /// against the one a captured response happened to carry.
+    /// </summary>
     public static DateTimeOffset? GetDateTimeOffsetOrNull(this JsonElement element, string property)
         => element.GetStringOrNull(property) is { } text
-           && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var result)
-            ? result
-            : null;
-
-    public static DateOnly? GetDateOnlyOrNull(this JsonElement element, string property)
-        => element.GetStringOrNull(property) is { } text
-           && DateOnly.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var result)
+           && DateTimeOffset.TryParse(
+               text,
+               CultureInfo.InvariantCulture,
+               DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+               out var result)
             ? result
             : null;
 

@@ -6,6 +6,7 @@ namespace Gauge.Tests;
 public sealed class DiagnosticsLogTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "GaugeLogTest_" + Guid.NewGuid().ToString("N"));
+    private readonly string? _previousOverride = DiagnosticsLog.DirectoryOverride;
 
     public DiagnosticsLogTests() => DiagnosticsLog.DirectoryOverride = _dir;
 
@@ -35,7 +36,9 @@ public sealed class DiagnosticsLogTests : IDisposable
 
     public void Dispose()
     {
-        DiagnosticsLog.DirectoryOverride = null;
+        // Restore the suite-wide override (see TestLogDirectory), not null: clearing it
+        // would send every later test's log line to the real %APPDATA%\Gauge\logs.
+        DiagnosticsLog.DirectoryOverride = _previousOverride;
         try { if (Directory.Exists(_dir)) Directory.Delete(_dir, recursive: true); }
         catch { /* best effort */ }
     }

@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using System.Diagnostics;
+using Gauge.Services;
 
 namespace Gauge.Providers.Internal;
 
@@ -27,7 +27,9 @@ internal sealed class AntigravityEngineHost : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private AntigravityLoopbackClient? _client;
-    private bool _disposed;
+    // Volatile: Dispose runs on the UI thread while a read may resume on the thread
+    // pool; the early-returns below must see the write without a lock.
+    private volatile bool _disposed;
 
     public AntigravityEngineHost(string? installRoot = null)
     {
@@ -40,7 +42,7 @@ internal sealed class AntigravityEngineHost : IDisposable
     /// </summary>
     public async Task<AntigravityReading?> GetReadingAsync(CancellationToken cancellationToken)
     {
-        if (_installRoot is null)
+        if (_disposed || _installRoot is null)
         {
             return null;
         }
@@ -106,7 +108,7 @@ internal sealed class AntigravityEngineHost : IDisposable
         }
         catch (Win32Exception ex)
         {
-            Debug.WriteLine($"[Gauge] Antigravity engine spawn failed: {ex.Message}");
+            DiagnosticsLog.Write("provider", $"Antigravity engine spawn failed: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
         finally
@@ -122,23 +124,27 @@ internal sealed class AntigravityEngineHost : IDisposable
 
     public void Dispose()
     {
-        // Wait out any in-flight read so its job/process teardown completes before we drop the
-        // client. The coordinator cancels first on shutdown, so a cold start unwinds promptly.
-        _gate.Wait();
-        try
+        if (_disposed)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _client?.Dispose();
+            return;
         }
-        finally
+        _disposed = true;
+
+        // Wait briefly for any in-flight read so its job/process teardown completes before
+        // the client is dropped. The wait must be bounded: a read begun from a UI async
+        // void handler resumes on the UI thread — the very thread Dispose blocks — so it
+        // can never release the gate while we wait, and an unbounded Wait() here hung exit
+        // forever. When the gate cannot be taken, leak it and the client instead: the
+        // process is exiting, and the engine tree cannot outlive it regardless, because
+        // KILL_ON_JOB_CLOSE fires when the job handle closes — at the read's own finally,
+        // or at process termination when all handles close.
+        if (_gate.Wait(TimeSpan.FromMilliseconds(500)))
         {
-            _gate.Release();
+            // Holding the sole permit proves no read is in flight; the gate is disposed
+            // without releasing so no later caller can slip past it (they get a disposed
+            // gate, which the provider's failure isolation contains).
             _gate.Dispose();
+            _client?.Dispose();
         }
     }
 }

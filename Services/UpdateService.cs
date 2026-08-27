@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace Gauge.Services;
@@ -36,13 +37,17 @@ public sealed class UpdateService
     // GitHub redirects the old "gauge" path here, so updaters from older builds still
     // resolve releases through the rename.
     private const string Repo = "AgentGauge";
-    private const string AssetName = "GaugeSetup-win-x64.exe";
 
     private readonly HttpClient _http;
     private readonly Version _currentVersion;
     private readonly IInstallerLauncher _launcher;
+    private readonly string _assetName;
 
-    public UpdateService(HttpClient? http = null, Version? currentVersion = null, IInstallerLauncher? launcher = null)
+    public UpdateService(
+        HttpClient? http = null,
+        Version? currentVersion = null,
+        IInstallerLauncher? launcher = null,
+        Architecture? architecture = null)
     {
         // Dedicated client: GitHub requires a User-Agent, and a 60 MB installer
         // download needs a longer timeout than the usage HttpClient allows.
@@ -51,7 +56,24 @@ public sealed class UpdateService
         _http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         _currentVersion = Normalize(currentVersion ?? Assembly.GetExecutingAssembly().GetName().Version);
         _launcher = launcher ?? new ProcessInstallerLauncher();
+        // Key on the PROCESS architecture, not the OS: an x64 build running under
+        // emulation on an ARM64 machine must keep updating itself with the x64 asset.
+        _assetName = AssetNameFor(architecture ?? RuntimeInformation.ProcessArchitecture);
     }
+
+    /// <summary>
+    /// Installer asset for the given process architecture. Names are contract with
+    /// installer/Gauge.iss (OutputBaseFilename) and the release workflow. An ARM64
+    /// build must never be offered the x64 installer — /VERYSILENT would replace it
+    /// with the wrong-architecture payload without the user ever seeing a prompt —
+    /// so while releases ship x64 only, an ARM64 build finds no matching asset and
+    /// reports CheckFailed instead of "updating" itself onto x64.
+    /// </summary>
+    internal static string AssetNameFor(Architecture architecture) => architecture switch
+    {
+        Architecture.Arm64 => "GaugeSetup-win-arm64.exe",
+        _ => "GaugeSetup-win-x64.exe",
+    };
 
     public Version CurrentVersion => _currentVersion;
 
@@ -75,7 +97,7 @@ public sealed class UpdateService
             {
                 foreach (var asset in assets.EnumerateArray())
                 {
-                    if (string.Equals(asset.GetProperty("name").GetString(), AssetName, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(asset.GetProperty("name").GetString(), _assetName, StringComparison.OrdinalIgnoreCase))
                     {
                         downloadUrl = asset.GetProperty("browser_download_url").GetString();
                         break;
@@ -94,7 +116,7 @@ public sealed class UpdateService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] UpdateService.CheckAsync failed: {ex.Message}");
+            DiagnosticsLog.Write("update", $"Release check failed: {ex.GetType().Name}: {ex.Message}");
             return new UpdateCheckResult(UpdateStatus.CheckFailed, _currentVersion, null);
         }
     }
@@ -125,7 +147,9 @@ public sealed class UpdateService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] UpdateService.DownloadAndLaunchAsync failed: {ex.Message}");
+            // Type only: this catch is broad, and an IOException here would carry the
+            // installer's full temp path — which embeds the Windows account name.
+            DiagnosticsLog.Write("update", $"Installer download/launch failed: {ex.GetType().Name}");
             return false;
         }
     }

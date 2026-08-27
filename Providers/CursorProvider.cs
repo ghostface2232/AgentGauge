@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -69,7 +68,8 @@ public sealed class CursorProvider : IUsageProvider
             {
                 throw new AuthenticationRequiredException(ToolKind.Cursor, httpError.StatusCode!.Value);
             }
-            Debug.WriteLine($"[Gauge] CursorProvider usage fetch failed: {ex.Message}");
+            // Propagates unlogged on purpose: UsageService records every failure that
+            // reaches it, so a line here could only duplicate that one.
             throw;
         }
     }
@@ -96,8 +96,9 @@ public sealed class CursorProvider : IUsageProvider
         // evaluator's reset fallback. Throwing keeps the last good snapshot instead.
         var percentUsed = ParsePlanPercentUsed(root)
             ?? throw new JsonException("usage-summary contained no recognized usage percent field.");
-        // GetDateTimeOffsetOrNull parses with InvariantCulture, not CurrentCulture (set by
-        // the UI language): this is API data, so it must not depend on the ambient culture.
+        // GetDateTimeOffsetOrNull parses with InvariantCulture, not CurrentCulture (set by the
+        // UI language): this is API data, so it must depend on neither the ambient culture nor
+        // the reader's time zone.
         var resetTime = root.GetDateTimeOffsetOrNull("billingCycleEnd");
 
         var window = new UsageWindow

@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Gauge.Services;
 
 namespace Gauge.Providers.Internal;
 
@@ -88,7 +88,7 @@ internal static class WindowsListeningPortTable
         }
         catch (Exception ex) when (ex is AccessViolationException or OutOfMemoryException)
         {
-            Debug.WriteLine($"[Gauge] TCP listener table read failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("provider", $"TCP listener table read failed: {ex.GetType().Name}");
             return Array.Empty<TcpListenerRow>();
         }
         finally

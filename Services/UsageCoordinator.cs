@@ -62,7 +62,10 @@ public sealed class UsageCoordinator : IDisposable
 
     private long _lastRefreshStartedTimestamp = NeverRefreshed;
     private Task? _loopTask;
-    private bool _disposed;
+    // Volatile: read by refresh entry points that may resume off the UI thread (and by
+    // tests exercising them cross-thread); the early-return must see Dispose's write
+    // without a lock.
+    private volatile bool _disposed;
 
     /// <summary>Raised after each refresh with the current cached state (on the UI thread).</summary>
     public event EventHandler<UsageState>? Updated;
@@ -151,6 +154,13 @@ public sealed class UsageCoordinator : IDisposable
     /// </summary>
     public async Task RefreshAsync(RefreshReason reason)
     {
+        // A wake/unlock handler can race DisposePipeline and call in after teardown;
+        // that must be a quiet no-op, not an ObjectDisposedException from _cts.
+        if (_disposed)
+        {
+            return;
+        }
+
         var isDebouncedRequest = reason is RefreshReason.PopoverOpened or RefreshReason.Manual;
         var lastStarted = Interlocked.Read(ref _lastRefreshStartedTimestamp);
         if (isDebouncedRequest && lastStarted != NeverRefreshed
@@ -161,16 +171,38 @@ public sealed class UsageCoordinator : IDisposable
             return;
         }
 
+        await RefreshGuardedAsync(
+            reason,
+            waitForExisting: reason is RefreshReason.AuthenticationChanged or RefreshReason.ToolsChanged);
+    }
+
+    /// <summary>
+    /// Runs one refresh cycle with every failure contained. Callers are async void UI
+    /// handlers and the scheduler loop: an escaping exception would crash the process
+    /// (or silently kill the loop), so cancellation and disposal are treated as normal
+    /// shutdown races and anything unexpected is logged instead of rethrown.
+    /// </summary>
+    private async Task RefreshGuardedAsync(RefreshReason reason, bool waitForExisting = false)
+    {
         try
         {
-            await RefreshCoreAsync(
-                reason,
-                _cts.Token,
-                waitForExisting: reason is RefreshReason.AuthenticationChanged or RefreshReason.ToolsChanged);
+            // _cts.Token is read inside the try: Dispose can tear the CTS down between
+            // the _disposed check and here, and that must land in the catch below.
+            await RefreshCoreAsync(reason, _cts.Token, waitForExisting);
         }
         catch (OperationCanceledException)
         {
             // Shutting down; ignore.
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+            // Raced Dispose (the CTS or gate was torn down mid-call); shutting down.
+            // The filter keeps a genuine mid-session ODE from persistence/history
+            // falling through to the logging catch below instead of being masked.
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsLog.Write("coordinator", $"Refresh({reason}) failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -178,11 +210,13 @@ public sealed class UsageCoordinator : IDisposable
     {
         try
         {
-            await RefreshCoreAsync(RefreshReason.Periodic, cancellationToken); // immediate first load
+            // Guarded per cycle so one unexpected failure logs and the scheduler keeps
+            // ticking, rather than dying silently for the rest of the session.
+            await RefreshGuardedAsync(RefreshReason.Periodic); // immediate first load
             using var timer = new PeriodicTimer(SchedulerTickInterval);
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
-                await RefreshCoreAsync(RefreshReason.Periodic, cancellationToken);
+                await RefreshGuardedAsync(RefreshReason.Periodic);
             }
         }
         catch (OperationCanceledException)
@@ -497,7 +531,31 @@ public sealed class UsageCoordinator : IDisposable
             // ignore
         }
 
-        _cts.Dispose();
-        _refreshGate.Dispose();
+        // Let the loop observe the cancel and unwind. A loop cycle runs entirely on the
+        // thread pool, so it exits in milliseconds; the bound only keeps a pathological
+        // hang from stalling exit. A cycle started from a UI async void handler is
+        // different: without ConfigureAwait(false) its continuations need the UI thread,
+        // which Dispose is blocking, so such a cycle CANNOT finish here — its held gate
+        // is what the leak branch below exists for.
+        try
+        {
+            _loopTask?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch (AggregateException)
+        {
+            // The loop's own failure no longer matters during teardown.
+        }
+
+        // Dispose the gate and CTS only when provably idle (the gate could be taken).
+        // A refresh still holding the gate would hit ObjectDisposedException in its
+        // finally-Release and escape into the async void UI handlers; if the gate cannot
+        // be acquired promptly, leak both instead — the process is exiting and neither
+        // holds state that outlives it, while disposing under a holder turns a clean
+        // shutdown into a crash.
+        if (_refreshGate.Wait(TimeSpan.FromMilliseconds(500)))
+        {
+            _refreshGate.Dispose();
+            _cts.Dispose();
+        }
     }
 }

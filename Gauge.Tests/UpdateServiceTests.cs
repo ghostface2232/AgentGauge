@@ -1,4 +1,5 @@
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using Gauge.Services;
 
@@ -53,6 +54,46 @@ public sealed class UpdateServiceTests
         Assert.Equal(UpdateStatus.CheckFailed, (await service.CheckAsync()).Status);
     }
 
+    [Theory]
+    [InlineData(Architecture.X64, "GaugeSetup-win-x64.exe")]
+    [InlineData(Architecture.Arm64, "GaugeSetup-win-arm64.exe")]
+    [InlineData(Architecture.X86, "GaugeSetup-win-x64.exe")]
+    public void SelectsInstallerAssetByProcessArchitecture(Architecture architecture, string expected)
+        => Assert.Equal(expected, UpdateService.AssetNameFor(architecture));
+
+    [Fact]
+    public async Task Arm64BuildNeverAcceptsTheX64Asset()
+    {
+        // A release that ships only the x64 installer must read as CheckFailed on an
+        // ARM64 build — silently installing the wrong-architecture payload is worse
+        // than reporting no update.
+        var x64Only = """
+        {
+          "tag_name": "v9.9.9",
+          "assets": [ { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe" } ]
+        }
+        """;
+        var service = Service(x64Only, architecture: Architecture.Arm64);
+        Assert.Equal(UpdateStatus.CheckFailed, (await service.CheckAsync()).Status);
+    }
+
+    [Fact]
+    public async Task Arm64BuildPicksTheArm64AssetWhenPresent()
+    {
+        var both = """
+        {
+          "tag_name": "v9.9.9",
+          "assets": [
+            { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/x64.exe" },
+            { "name": "GaugeSetup-win-arm64.exe", "browser_download_url": "https://example.test/arm64.exe" }
+          ]
+        }
+        """;
+        var result = await Service(both, architecture: Architecture.Arm64).CheckAsync();
+        Assert.Equal(UpdateStatus.UpdateAvailable, result.Status);
+        Assert.Equal("https://example.test/arm64.exe", result.Release!.DownloadUrl);
+    }
+
     [Fact]
     public async Task NetworkFailureIsCheckFailedNotThrow()
     {
@@ -87,11 +128,15 @@ public sealed class UpdateServiceTests
     }
 
     private static UpdateService Service(
-        string body, HttpStatusCode status = HttpStatusCode.OK, IInstallerLauncher? launcher = null)
+        string body,
+        HttpStatusCode status = HttpStatusCode.OK,
+        IInstallerLauncher? launcher = null,
+        Architecture architecture = Architecture.X64)
         => new(
             new HttpClient(new StubHandler(body, status)),
             new Version(0, 2, 4),
-            launcher ?? new FakeLauncher(result: true));
+            launcher ?? new FakeLauncher(result: true),
+            architecture);
 
     private sealed class FakeLauncher(bool result) : IInstallerLauncher
     {

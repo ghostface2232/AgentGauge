@@ -1,6 +1,6 @@
-using System.Diagnostics;
 using System.Management;
 using System.Runtime.InteropServices;
+using Gauge.Services;
 
 namespace Gauge.Providers.Internal;
 
@@ -66,7 +66,7 @@ internal sealed class AntigravityProcessDiscovery
         }
         catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException or COMException)
         {
-            Debug.WriteLine($"[Gauge] Antigravity process discovery failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("provider", $"Antigravity process discovery failed: {ex.GetType().Name}");
         }
 
         return servers;
@@ -96,7 +96,7 @@ internal sealed class AntigravityProcessDiscovery
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // The process may have exited between the WMI query and the port lookup.
-            Debug.WriteLine($"[Gauge] Antigravity port lookup failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("provider", $"Antigravity port lookup failed: {ex.GetType().Name}");
             ports = Array.Empty<int>();
         }
 
