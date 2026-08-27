@@ -50,20 +50,24 @@ public sealed class UsageService
     /// <summary>
     /// Queries the selected providers in parallel. The coordinator uses this for periodic
     /// provider-specific cadences while forced refreshes still call every enabled provider.
+    /// The interaction tells throttled providers whether a rate-limit cooldown may hold
+    /// this fetch back (background) or must be bypassed (user-initiated).
     /// </summary>
     public async Task<IReadOnlyList<ProviderSnapshotResult>> GetSnapshotsAsync(
         IEnumerable<IUsageProvider> providers,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        FetchInteraction interaction = FetchInteraction.Background)
     {
-        var tasks = providers.Select(provider => GetIsolatedAsync(provider, cancellationToken));
+        var tasks = providers.Select(provider => GetIsolatedAsync(provider, interaction, cancellationToken));
         return await Task.WhenAll(tasks);
     }
 
-    private static async Task<ProviderSnapshotResult> GetIsolatedAsync(IUsageProvider provider, CancellationToken cancellationToken)
+    private static async Task<ProviderSnapshotResult> GetIsolatedAsync(
+        IUsageProvider provider, FetchInteraction interaction, CancellationToken cancellationToken)
     {
         try
         {
-            var snapshot = await provider.GetSnapshotAsync(cancellationToken);
+            var snapshot = await provider.GetSnapshotAsync(interaction, cancellationToken);
             return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Snapshot = snapshot };
         }
         catch (Exception ex)

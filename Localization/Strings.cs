@@ -21,6 +21,7 @@ internal static class Strings
         ["Tooltip_Refresh"]   = ["새로고침",          "Refresh",           "更新"],
         ["Status_RefreshIssue"] = ["갱신 실패",        "Refresh failed",    "更新失敗"],
         ["Tooltip_RefreshIssue"] = ["마지막 갱신 실패 · 이전 값을 표시 중", "Last refresh failed · showing previous data", "最終更新に失敗・以前のデータを表示中"],
+        ["Status_Refreshing"]  = ["새로고침 중…",      "Refreshing…",       "更新中…"],
         ["Tooltip_Back"]      = ["뒤로",             "Back",              "戻る"],
         ["AddService"]        = ["서비스 추가",        "Add service",       "サービスを追加"],
         ["NoServicesToAdd"]   = ["추가할 서비스가 없습니다", "No services to add", "追加できるサービスがありません"],

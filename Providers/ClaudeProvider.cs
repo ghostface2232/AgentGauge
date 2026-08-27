@@ -1,9 +1,5 @@
-using System.Globalization;
-using System.Net;
 using System.Net.Http;
 using System.Text.Json;
-using System.Security.Cryptography;
-using System.Text;
 using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers.Internal;
@@ -22,25 +18,23 @@ namespace Gauge.Providers;
 /// RATE LIMITING: this endpoint is throttled hard. Measured behavior is ~3 reads in a
 /// short window, then 429 with a penalty cooldown (and no Retry-After header), and the
 /// bucket is shared per account/IP — so over-polling here also starves the real CLI.
-/// To stay well under that, the provider is stateful:
-///   • it hits the network at most once per <see cref="MinFetchInterval"/> and serves
-///     its last good snapshot in between (so the coordinator's 60s cycle and every
-///     popover-open forced refresh do NOT each make a call);
-///   • on 429 it backs off exponentially (<see cref="BaseCooldown"/>…<see cref="MaxCooldown"/>);
-///   • while throttled/cooling down it returns the cached snapshot as a success, so the
-///     card keeps showing the last good value instead of flipping to "no data".
-/// It also sends the <c>claude-code</c> User-Agent, which the endpoint buckets less
-/// aggressively than arbitrary agents.
+/// The shared fetch layer (<see cref="UsageProviderBase"/>) therefore runs with the
+/// strictest policy: at most one network call per 5 minutes on the happy path, the
+/// 2→4→…→30-minute cooldown escalation on retryable statuses (Retry-After would win if
+/// Anthropic ever sent one), and the cached snapshot served on any failure so the card
+/// keeps its last good value instead of flipping to "no data". It also sends the
+/// <c>claude-code</c> User-Agent, which the endpoint buckets less aggressively than
+/// arbitrary agents.
 ///
 /// The plan label (Max 5x/20x, Pro, …) comes from the credentials file, so it is
 /// reported even before the first successful usage call.
 ///
 /// EXPIRED TOKEN: the CLI's access token lives only a few hours, so after an overnight
-/// boot it is expired before Claude Code is ever launched. When an <see cref="IClaudeTokenRefresher"/>
+/// boot it is expired before Claude Code is ever launched. When an <see cref="IDelegatedTokenRefresher"/>
 /// is supplied, a stale/rejected token triggers a delegated refresh (the CLI refreshes
 /// its own token) and a re-read, so usage works without first opening Claude Code.
 /// </summary>
-public sealed class ClaudeProvider : IUsageProvider
+public sealed class ClaudeProvider : UsageProviderBase
 {
     private const string UsageUrl = "https://api.anthropic.com/api/oauth/usage";
 
@@ -50,197 +44,43 @@ public sealed class ClaudeProvider : IUsageProvider
     // The endpoint buckets the claude-code product agent more leniently than others.
     private const string UserAgent = "claude-code/2.1.179";
 
-    // Don't touch the network more often than this on the happy path; 5h/weekly
-    // windows move slowly, so this is plenty granular and keeps us far under the limit.
-    private static readonly TimeSpan MinFetchInterval = TimeSpan.FromMinutes(5);
-
-    // 429 backoff (no Retry-After is sent, so we pick our own schedule): doubles per
-    // consecutive 429 up to the cap — 2, 4, 8, 16, 30(cap), 30, … minutes.
-    private static readonly BackoffPolicy Backoff = new(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(30));
+    private static readonly UsageFetchPolicy Policy = new()
+    {
+        // 5h/weekly windows move slowly, so this cap is plenty granular and keeps us
+        // far under the endpoint's limit.
+        MinFetchInterval = TimeSpan.FromMinutes(5),
+        // No Retry-After is sent, so this schedule picks the cooldowns: 2, 4, 8, 16,
+        // 30(cap), 30, … minutes per consecutive retryable failure.
+        RetryBackoff = new BackoffPolicy(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(30)),
+        ServeCachedOnAnyFailure = true,
+    };
 
     private readonly HttpClient _http;
-    private readonly ICredentialSource _credentials;
-    private readonly IDelegatedTokenRefresher? _refresher;
-    private readonly TimeProvider _time;
-
-    // Only ever accessed from the coordinator's serialized refresh (one call at a
-    // time), so no locking is needed.
-    private UsageSnapshot? _lastSnapshot;
-    private long? _lastSuccessTimestamp;
-    private long? _cooldownStartedTimestamp;
-    private TimeSpan _cooldownDuration;
-    private int _consecutive429;
-    private string? _credentialFingerprint;
-    private bool _credentialFingerprintInitialized;
 
     public ClaudeProvider(
         HttpClient http,
         ICredentialSource credentials,
         IDelegatedTokenRefresher? refresher = null,
         TimeProvider? time = null)
+        : base(credentials, Policy, refresher, time)
     {
         _http = http;
-        _credentials = credentials;
-        _refresher = refresher;
-        _time = time ?? TimeProvider.System;
     }
 
-    public ToolKind Tool => ToolKind.ClaudeCode;
-    public string ToolName => ToolCatalog.For(ToolKind.ClaudeCode).DisplayName;
+    public override ToolKind Tool => ToolKind.ClaudeCode;
 
-    public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
-    {
-        var credentialResult = await _credentials.ReadAsync(ToolKind.ClaudeCode, cancellationToken);
+    protected override string? PlanFromCredential(ToolCredential? credential) => credential?.Plan;
 
-        // The local access token expires after a few hours, so after an overnight boot it
-        // is already expired before Claude Code is ever launched. Rather than fail, ask the
-        // CLI to refresh its own token (it owns the refresh-token rotation, so this can't
-        // break its login), then re-read the freshened credentials. Done before the
-        // fingerprint check below so a successful refresh doesn't read as an account switch.
-        if (credentialResult.Status == CredentialReadStatus.Invalid && _refresher is not null
-            && await _refresher.TryRefreshAsync(cancellationToken))
-        {
-            credentialResult = await _credentials.ReadAsync(ToolKind.ClaudeCode, cancellationToken);
-        }
-
-        var credentials = credentialResult.Credential;
-        var nowTimestamp = _time.GetTimestamp();
-
-        // A CLI re-login/account switch must not serve the prior account's 5-minute
-        // cache. Keep only a one-way fingerprint, never the token itself.
-        var fingerprint = credentials?.AccessToken is { Length: > 0 } accessToken
-            ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(accessToken)))
-            : null;
-        if (_credentialFingerprintInitialized && !StringComparer.Ordinal.Equals(_credentialFingerprint, fingerprint))
-        {
-            _lastSnapshot = null;
-            _lastSuccessTimestamp = null;
-            _cooldownStartedTimestamp = null;
-            _cooldownDuration = default;
-            _consecutive429 = 0;
-        }
-        _credentialFingerprint = fingerprint;
-        _credentialFingerprintInitialized = true;
-
-        if (credentialResult.Status == CredentialReadStatus.Invalid)
-        {
-            throw new AuthenticationRequiredException(ToolKind.ClaudeCode, HttpStatusCode.Unauthorized);
-        }
-
-        // Serve the cached snapshot without a network call when we fetched recently or
-        // are in a 429 cooldown. Refresh the (cheap, file-based) plan label so a plan
-        // change still shows promptly.
-        var inCooldown = _cooldownStartedTimestamp is { } cooldownStarted
-            && _time.GetElapsedTime(cooldownStarted, nowTimestamp) < _cooldownDuration;
-        var fetchedRecently = _lastSuccessTimestamp is { } lastSuccess
-            && _time.GetElapsedTime(lastSuccess, nowTimestamp) < MinFetchInterval;
-        if (_lastSnapshot is not null && (inCooldown || fetchedRecently))
-        {
-            return _lastSnapshot with { Plan = credentials?.Plan ?? _lastSnapshot.Plan };
-        }
-
-        if (credentials?.AccessToken is not { Length: > 0 } token)
-        {
-            // No usable token: report the plan (if known) with no windows. Don't throw,
-            // so this reads as "no data yet" rather than a transient failure.
-            return new UsageSnapshot
-            {
-                ToolName = ToolName,
-                Plan = credentials?.Plan,
-                Windows = Array.Empty<UsageWindow>(),
-                CapturedAt = _time.GetUtcNow(),
-            };
-        }
-
-        try
-        {
-            return RecordSuccess(await FetchWindowsAsync(token, cancellationToken), credentials.Plan);
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            _consecutive429++;
-            var cooldown = Backoff.ForAttempt(_consecutive429);
-            _cooldownStartedTimestamp = _time.GetTimestamp();
-            _cooldownDuration = cooldown;
-            // Keep showing the last good value if we have one; only surface a failure
-            // on a cold start with nothing cached.
-            if (_lastSnapshot is not null)
-            {
-                // Logged only on this branch: serving the cache returns success, so a
-                // throttled Claude — the usual reason a user reports usage "stuck" —
-                // would otherwise leave no trace. The cold start below propagates, and
-                // UsageService records that one.
-                DiagnosticsLog.Write(
-                    "provider",
-                    $"Claude Code throttled (429 x{_consecutive429}), serving cached; backing off {cooldown.TotalMinutes.ToString("0", CultureInfo.InvariantCulture)}m");
-                return _lastSnapshot with { Plan = credentials.Plan ?? _lastSnapshot.Plan };
-            }
-            throw;
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-        {
-            // The server rejected the token even though the file looked valid (e.g. it
-            // expired between read and call, or was revoked). Try one delegated refresh,
-            // and if the CLI hands us a fresh token, retry the fetch once before giving up.
-            if (_refresher is not null && await _refresher.TryRefreshAsync(cancellationToken))
-            {
-                var refreshed = await _credentials.ReadAsync(ToolKind.ClaudeCode, cancellationToken);
-                if (refreshed.Status == CredentialReadStatus.Available
-                    && refreshed.Credential?.AccessToken is { Length: > 0 } freshToken)
-                {
-                    try
-                    {
-                        return RecordSuccess(await FetchWindowsAsync(freshToken, cancellationToken), refreshed.Credential.Plan);
-                    }
-                    catch (HttpRequestException retryEx) when (retryEx.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                    {
-                        throw new AuthenticationRequiredException(ToolKind.ClaudeCode, retryEx.StatusCode!.Value);
-                    }
-                }
-            }
-            throw new AuthenticationRequiredException(ToolKind.ClaudeCode, ex.StatusCode!.Value);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            if (_lastSnapshot is not null)
-            {
-                // Serving the cache turns this into a success downstream, so this is the only
-                // place the failure can be recorded. A propagating one is left to
-                // UsageService, which logs everything that reaches it.
-                DiagnosticsLog.Write(
-                    "provider",
-                    $"Claude Code fetch failed, serving cached: {ex.GetType().Name}: {ex.Message}");
-                return _lastSnapshot with { Plan = credentials.Plan ?? _lastSnapshot.Plan };
-            }
-            throw;
-        }
-    }
-
-    private UsageSnapshot RecordSuccess(List<UsageWindow> windows, string? plan)
-    {
-        _consecutive429 = 0;
-        _cooldownStartedTimestamp = null;
-        _cooldownDuration = default;
-        _lastSuccessTimestamp = _time.GetTimestamp();
-        _lastSnapshot = new UsageSnapshot
-        {
-            ToolName = ToolName,
-            Plan = plan,
-            Windows = windows,
-            CapturedAt = _time.GetUtcNow(),
-        };
-        return _lastSnapshot;
-    }
-
-    private async Task<List<UsageWindow>> FetchWindowsAsync(string token, CancellationToken cancellationToken)
+    protected override async Task<UsageSnapshot> FetchSnapshotAsync(
+        ToolCredential credential, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
-        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {credential.AccessToken}");
         request.Headers.TryAddWithoutValidation("anthropic-beta", OAuthBetaHeader);
         request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        EnsureUsageSuccess(response);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, default, cancellationToken);
@@ -257,7 +97,7 @@ public sealed class ClaudeProvider : IUsageProvider
         }
         windows.AddRange(ParseScopedWeeklyLimits(root));
 
-        return windows;
+        return Snapshot(credential.Plan, windows);
     }
 
     /// <summary>
@@ -306,13 +146,13 @@ public sealed class ClaudeProvider : IUsageProvider
                 || limit.GetDoubleOrNull("percent") is not { } percent
                 || !double.IsFinite(percent)
                 || limit.GetObjectOrNull("scope")?.GetObjectOrNull("model") is not { } model
-                || NormalizeText(model.GetStringOrNull("display_name")) is not { } modelName)
+                || ProviderText.Normalize(model.GetStringOrNull("display_name")) is not { } modelName)
             {
                 continue;
             }
 
-            var identity = NormalizeText(model.GetStringOrNull("id")) ?? modelName;
-            var slug = Slug(identity);
+            var identity = ProviderText.Normalize(model.GetStringOrNull("id")) ?? modelName;
+            var slug = ProviderText.Slug(identity);
             if (slug.Length == 0 || slug == "all-models" || !seenIds.Add(slug))
             {
                 continue;
@@ -331,28 +171,5 @@ public sealed class ClaudeProvider : IUsageProvider
         }
 
         return windows;
-    }
-
-    private static string? NormalizeText(string? value)
-        => value?.Trim() is { Length: > 0 } text ? text : null;
-
-    private static string Slug(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        var lastWasDash = false;
-        foreach (var character in value.ToLowerInvariant())
-        {
-            if (char.IsLetterOrDigit(character))
-            {
-                builder.Append(character);
-                lastWasDash = false;
-            }
-            else if (!lastWasDash && builder.Length > 0)
-            {
-                builder.Append('-');
-                lastWasDash = true;
-            }
-        }
-        return builder.ToString().TrimEnd('-');
     }
 }

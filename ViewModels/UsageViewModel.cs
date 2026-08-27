@@ -177,6 +177,23 @@ public sealed partial class UsageViewModel : ObservableObject
     /// </summary>
     public double HighestUsageRatio { get; private set; }
 
+    /// <summary>
+    /// Marks the named tools' cards as having a refresh in flight. Cleared by the next
+    /// <see cref="Apply"/>: every refresh cycle (and every cached re-emit) concludes with
+    /// an applied state, so the indicator can never stick. Names without a card (a tool
+    /// that has never succeeded) are simply ignored.
+    /// </summary>
+    public void SetRefreshing(IReadOnlyCollection<string> toolNames)
+    {
+        foreach (var card in Cards)
+        {
+            if (toolNames.Contains(card.ToolName))
+            {
+                card.IsRefreshing = true;
+            }
+        }
+    }
+
     public void Apply(UsageState state)
     {
         // The usage surface shows every tool Gauge has a record for — i.e. one that has
@@ -194,6 +211,13 @@ public sealed partial class UsageViewModel : ObservableObject
             .Select(w => w.UsedRatio)
             .DefaultIfEmpty(0)
             .Max();
+
+        // Any applied state concludes the in-flight indicator: a real cycle lands here
+        // via Updated, and a cached re-emit means nothing newer is coming for now.
+        foreach (var card in Cards)
+        {
+            card.IsRefreshing = false;
+        }
 
         LastUpdatedAt = state.LastUpdatedAt;
         LastUpdatedText = state.LastUpdatedAt is { } updated

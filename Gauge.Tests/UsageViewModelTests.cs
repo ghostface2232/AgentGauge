@@ -182,6 +182,22 @@ public sealed class UsageViewModelTests
         public void Save(IReadOnlyCollection<ToolKind> e) => _state = e.ToList();
     }
 
+    [Fact]
+    public void SetRefreshingMarksNamedCardsAndApplyClears()
+    {
+        var viewModel = new UsageViewModel();
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+
+        viewModel.SetRefreshing(new[] { "Codex", "Cursor" }); // Cursor has no card → ignored
+
+        Assert.False(viewModel.Cards.Single(c => c.ToolName == "Claude Code").IsRefreshing);
+        Assert.True(viewModel.Cards.Single(c => c.ToolName == "Codex").IsRefreshing);
+
+        // Any applied state (a completed cycle or a cached re-emit) concludes the indicator.
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+        Assert.All(viewModel.Cards, card => Assert.False(card.IsRefreshing));
+    }
+
     private static UsageState State(params CachedUsage[] tools) => new()
     {
         Tools = tools,

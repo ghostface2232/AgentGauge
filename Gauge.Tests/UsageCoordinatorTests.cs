@@ -18,6 +18,43 @@ public sealed class UsageCoordinatorTests
         Assert.Equal(TimeSpan.FromMinutes(minutes), UsageCoordinator.PeriodicIntervalFor(tool));
     }
 
+    [Theory]
+    [InlineData(RefreshReason.Manual, FetchInteraction.UserInitiated)]
+    [InlineData(RefreshReason.AuthenticationChanged, FetchInteraction.UserInitiated)]
+    [InlineData(RefreshReason.ToolsChanged, FetchInteraction.UserInitiated)]
+    [InlineData(RefreshReason.Periodic, FetchInteraction.Background)]
+    [InlineData(RefreshReason.PopoverOpened, FetchInteraction.Background)]
+    public void ExplicitUserActionsFetchAsUserInitiated(RefreshReason reason, FetchInteraction expected)
+    {
+        Assert.Equal(expected, UsageCoordinator.InteractionFor(reason));
+    }
+
+    [Fact]
+    public async Task ManualRefreshReachesProvidersAsUserInitiated()
+    {
+        var provider = new InteractionRecordingProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { provider }));
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        Assert.Equal(FetchInteraction.UserInitiated, Assert.Single(provider.Interactions));
+    }
+
+    [Fact]
+    public async Task RefreshStartedReportsTheToolsBeingFetched()
+    {
+        var claude = new StubProvider("Claude Code");
+        var codex = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { claude, codex }));
+        var started = new List<IReadOnlyList<string>>();
+        coordinator.RefreshStarted += (_, tools) => started.Add(tools);
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        var tools = Assert.Single(started);
+        Assert.Equal(new[] { "Claude Code", "Codex" }, tools);
+    }
+
     [Fact]
     public async Task AuthenticationRefreshBypassesManualDebounce()
     {
@@ -467,6 +504,28 @@ public sealed class UsageCoordinatorTests
         public override long GetTimestamp() => _timestamp;
 
         public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
+    }
+
+    /// <summary>Records which interaction the coordinator handed to each fetch.</summary>
+    private sealed class InteractionRecordingProvider(string name) : IUsageProvider
+    {
+        public List<FetchInteraction> Interactions { get; } = new();
+        public ToolKind Tool => ToolKind.Codex;
+        public string ToolName => name;
+
+        public Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
+            => GetSnapshotAsync(FetchInteraction.Background, cancellationToken);
+
+        public Task<UsageSnapshot> GetSnapshotAsync(FetchInteraction interaction, CancellationToken cancellationToken)
+        {
+            Interactions.Add(interaction);
+            return Task.FromResult(new UsageSnapshot
+            {
+                ToolName = ToolName,
+                CapturedAt = DateTimeOffset.Now,
+                Windows = new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5시간", UsedRatio = .2 } },
+            });
+        }
     }
 
     private sealed class StubProvider(string name) : IUsageProvider

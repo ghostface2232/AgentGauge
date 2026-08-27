@@ -1,4 +1,3 @@
-using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using Gauge.Localization;
@@ -16,79 +15,56 @@ namespace Gauge.Providers;
 ///
 /// Cursor bills by credit consumption over a billing cycle rather than rolling 5h/weekly
 /// windows, so usage is presented as a single percentage bar (plan utilization) with the
-/// billing-cycle end as its reset.
+/// billing-cycle end as its reset. Fetch failures propagate (via the shared layer's
+/// <see cref="UsageFetchPolicy.None"/>) so the coordinator keeps the last good snapshot.
 /// </summary>
-public sealed class CursorProvider : IUsageProvider
+public sealed class CursorProvider : UsageProviderBase
 {
     private const string UsageUrl = "https://cursor.com/api/usage-summary";
 
-    private readonly HttpClient _http;
-    private readonly ICredentialSource _credentials;
+    private static readonly IReadOnlyDictionary<string, string> KnownPlans = new Dictionary<string, string>
+    {
+        ["free"] = "Free",
+        ["hobby"] = "Hobby",
+        ["pro"] = "Pro",
+        ["pro_plus"] = "Pro+",
+        ["pro-plus"] = "Pro+",
+        ["ultra"] = "Ultra",
+        ["business"] = "Business",
+        ["team"] = "Team",
+        ["enterprise"] = "Enterprise",
+    };
 
-    public CursorProvider(HttpClient http, ICredentialSource credentials)
+    private readonly HttpClient _http;
+
+    public CursorProvider(HttpClient http, ICredentialSource credentials, TimeProvider? time = null)
+        : base(credentials, UsageFetchPolicy.None, refresher: null, time)
     {
         _http = http;
-        _credentials = credentials;
     }
 
-    public ToolKind Tool => ToolKind.Cursor;
-    public string ToolName => ToolCatalog.For(ToolKind.Cursor).DisplayName;
+    public override ToolKind Tool => ToolKind.Cursor;
 
-    public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
-    {
-        var credentialResult = await _credentials.ReadAsync(ToolKind.Cursor, cancellationToken);
-        var credentials = credentialResult.Credential;
+    // The session cookie needs both halves; a JWT without its user id cannot authenticate.
+    protected override bool HasUsableCredential(ToolCredential credential)
+        => base.HasUsableCredential(credential) && credential.AccountId is { Length: > 0 };
 
-        if (credentialResult.Status == CredentialReadStatus.Invalid)
-        {
-            throw new AuthenticationRequiredException(ToolKind.Cursor, HttpStatusCode.Unauthorized);
-        }
-
-        // Not logged in: a clean "no data yet" state, not a failure.
-        if (credentials?.AccessToken is not { Length: > 0 } token
-            || credentials.AccountId is not { Length: > 0 } userId)
-        {
-            return Empty();
-        }
-
-        try
-        {
-            var (plan, window) = await FetchUsageAsync(userId, token, cancellationToken);
-            return new UsageSnapshot
-            {
-                ToolName = ToolName,
-                Plan = plan,
-                Windows = window is null ? Array.Empty<UsageWindow>() : new[] { window },
-                CapturedAt = DateTimeOffset.Now,
-            };
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            if (ex is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } httpError)
-            {
-                throw new AuthenticationRequiredException(ToolKind.Cursor, httpError.StatusCode!.Value);
-            }
-            // Propagates unlogged on purpose: UsageService records every failure that
-            // reaches it, so a line here could only duplicate that one.
-            throw;
-        }
-    }
-
-    private async Task<(string? Plan, UsageWindow? Window)> FetchUsageAsync(
-        string userId, string token, CancellationToken cancellationToken)
+    protected override async Task<UsageSnapshot> FetchSnapshotAsync(
+        ToolCredential credential, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
-        request.Headers.TryAddWithoutValidation("Cookie", $"WorkosCursorSessionToken={userId}%3A%3A{token}");
+        request.Headers.TryAddWithoutValidation(
+            "Cookie", $"WorkosCursorSessionToken={credential.AccountId}%3A%3A{credential.AccessToken}");
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        EnsureUsageSuccess(response);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, default, cancellationToken);
         var root = document.RootElement;
 
-        var plan = MapPlan(root.GetStringOrNull("membershipType"));
+        var plan = ProviderText.PlanLabel(root.GetStringOrNull("membershipType"), KnownPlans);
         // Schema drift (renamed blocks, a plan shape with none of the recognized fields)
         // must fail the fetch, not fabricate a 0% "success": a fabricated success would
         // replace the last good snapshot, record a false drop-to-zero into the history DB
@@ -108,7 +84,7 @@ public sealed class CursorProvider : IUsageProvider
             Label = WindowLabels.For(UsageWindowType.BillingCycle),
             ResetTime = resetTime,
         };
-        return (plan, window);
+        return Snapshot(plan, new[] { window });
     }
 
     /// <summary>
@@ -171,26 +147,4 @@ public sealed class CursorProvider : IUsageProvider
     }
 
     private static double Clamp(double value) => Math.Clamp(value, 0.0, 100.0);
-
-    private static string? MapPlan(string? membershipType) => membershipType?.ToLowerInvariant() switch
-    {
-        null or "" => null,
-        "free" => "Free",
-        "hobby" => "Hobby",
-        "pro" => "Pro",
-        "pro_plus" or "pro-plus" => "Pro+",
-        "ultra" => "Ultra",
-        "business" => "Business",
-        "team" => "Team",
-        "enterprise" => "Enterprise",
-        var other => char.ToUpperInvariant(other[0]) + other[1..],
-    };
-
-    private UsageSnapshot Empty() => new()
-    {
-        ToolName = ToolName,
-        Plan = null,
-        Windows = Array.Empty<UsageWindow>(),
-        CapturedAt = DateTimeOffset.Now,
-    };
 }
