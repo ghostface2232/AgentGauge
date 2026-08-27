@@ -66,6 +66,48 @@ public sealed class ForegroundLockGuardTests : IDisposable
     }
 
     [Fact]
+    public void AFailedRestoreKeepsTheBaselineSoItCanBeRetried()
+    {
+        // The live value is still Gauge's zero when the write fails, so dropping the
+        // baseline would strand the user's setting with nothing left to recover it from.
+        var timeout = new FakeTimeout { Current = 200_000 };
+        var guard = new ForegroundLockGuard(timeout, () => _dir);
+        guard.Disable();
+
+        timeout.SetFails = true;
+        guard.Restore();
+
+        Assert.Equal(0u, timeout.Current); // the write did not take
+        Assert.Equal(200_000u, AppSettingsFile.Load(_dir).ForegroundLockTimeoutBaseline);
+
+        // The ProcessExit net (or the next launch, via the persisted baseline) retries.
+        timeout.SetFails = false;
+        guard.Restore();
+
+        Assert.Equal(200_000u, timeout.Current);
+        Assert.Null(AppSettingsFile.Load(_dir).ForegroundLockTimeoutBaseline);
+    }
+
+    [Fact]
+    public void ARestoreDoesNotWriteOverAFileThatBecameUnreadableAfterCapture()
+    {
+        // Readable when the baseline was captured, corrupt by the time the app exits.
+        // Whether the key may be cleared is decided by reading at write time, not by
+        // remembering that the capture wrote one.
+        var timeout = new FakeTimeout { Current = 200_000 };
+        var guard = new ForegroundLockGuard(timeout, () => _dir);
+        guard.Disable();
+
+        var path = Path.Combine(_dir, "settings.json");
+        File.WriteAllText(path, "{ corrupted after capture");
+
+        guard.Restore();
+
+        Assert.Equal(200_000u, timeout.Current);
+        Assert.Equal("{ corrupted after capture", File.ReadAllText(path));
+    }
+
+    [Fact]
     public void UserValueChangedAfterACrashReplacesTheStaleBaseline()
     {
         new ForegroundLockGuard(new FakeTimeout { Current = 200_000 }, () => _dir).Disable(); // crash: no restore
@@ -140,6 +182,9 @@ public sealed class ForegroundLockGuardTests : IDisposable
 
         guard.Restore();
         Assert.Equal(150_000u, timeout.Current);
+        // Nor may the restore write over a file it still cannot parse — that would rewrite
+        // it from defaults and drop every other store's keys (see ForegroundLockGuard.Restore).
+        Assert.Equal("{ not valid json", File.ReadAllText(path));
     }
 
     public void Dispose()
@@ -157,6 +202,7 @@ public sealed class ForegroundLockGuardTests : IDisposable
     {
         public uint Current { get; set; }
         public bool GetFails { get; set; }
+        public bool SetFails { get; set; }
         public List<uint> SetCalls { get; } = new();
         /// <summary>Observation hook invoked on every set, before the value is applied.</summary>
         public Action<uint>? OnSet { get; set; }
@@ -171,6 +217,10 @@ public sealed class ForegroundLockGuardTests : IDisposable
         {
             OnSet?.Invoke(timeout);
             SetCalls.Add(timeout);
+            if (SetFails)
+            {
+                return false; // SystemParametersInfo refused; the live value is unchanged
+            }
             Current = timeout;
             return true;
         }

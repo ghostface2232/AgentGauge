@@ -422,8 +422,12 @@ public sealed class TrayIconService : IDisposable
         _disposed = true;
 
         _uiSettings.ColorValuesChanged -= OnColorValuesChanged;
-        AppDomain.CurrentDomain.ProcessExit -= _processExitHandler;
+        // Restore before unhooking, not after: a restore that the system refuses keeps its
+        // baseline, and leaving the handler subscribed until it has succeeded is what gives
+        // that one more attempt as the process ends. A restore that did succeed leaves no
+        // baseline, so the handler's later call is a no-op.
         _foregroundLock.Restore();
+        AppDomain.CurrentDomain.ProcessExit -= _processExitHandler;
         _trayIcon.Dispose();
         _currentIcon?.Dispose();
         _currentIcon = null;

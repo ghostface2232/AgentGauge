@@ -27,9 +27,10 @@ internal interface IForegroundLockTimeout
 ///    is treated as a crashed instance's leftover and the persisted value is kept as the
 ///    baseline. Anything else — a deliberate user 0 included, since a clean exit always
 ///    clears the key — IS the user's setting and is persisted before the zero is applied.
-///  - <see cref="Restore"/>: put the baseline back and clear the persisted key, exactly
-///    once (Dispose on the UI thread and the ProcessExit safety net can race here), so
-///    the next launch reads the user's then-current value fresh.
+///  - <see cref="Restore"/>: put the baseline back and clear the persisted key — once, and
+///    only once the system has accepted the value (Dispose on the UI thread and the
+///    ProcessExit safety net can race here), so the next launch reads the user's
+///    then-current value fresh. A failed restore keeps both copies for a later attempt.
 ///
 /// The one accepted trade-off: a user who sets the timeout to 0 by hand between a hard
 /// kill and the next launch has that change read as the crash leftover, and the older
@@ -92,7 +93,14 @@ internal sealed class ForegroundLockGuard
         _ = _timeout.TrySet(0);
     }
 
-    /// <summary>Restores the user's timeout exactly once and clears the persisted baseline.</summary>
+    /// <summary>
+    /// Puts the user's timeout back and clears the persisted baseline — once, on success.
+    /// The baseline is taken under the lock so Dispose and the ProcessExit net cannot both
+    /// act on it, and put back if the write to the system fails: the live value is then
+    /// still Gauge's zero, so dropping the baseline would strand the user's setting with
+    /// nothing left to recover it from. Leaving both copies in place lets the ProcessExit
+    /// net — or, after a kill, the next launch — try again.
+    /// </summary>
     public void Restore()
     {
         uint baseline;
@@ -106,8 +114,27 @@ internal sealed class ForegroundLockGuard
             _baseline = null;
         }
 
-        _ = _timeout.TrySet(baseline);
-        AppSettingsFile.Save(_directory(), dto => dto.ForegroundLockTimeoutBaseline = null);
+        if (!_timeout.TrySet(baseline))
+        {
+            lock (_gate)
+            {
+                _baseline ??= baseline;
+            }
+            return;
+        }
+
+        // Clear the key only if the file reads cleanly right now and actually holds one.
+        // settings.json is shared and TrySave is a read-modify-write whose read fails open,
+        // so writing over a file that cannot be parsed would rewrite it from defaults and
+        // drop the tool registration, language, view mode, alert flags and any unknown
+        // keys. Reading here rather than remembering what Disable wrote also covers the
+        // file changing in between, and clears a baseline left behind by an earlier run
+        // whose own persist failed.
+        if (AppSettingsFile.TryLoad(_directory(), out var settings)
+            && settings.ForegroundLockTimeoutBaseline is not null)
+        {
+            AppSettingsFile.Save(_directory(), dto => dto.ForegroundLockTimeoutBaseline = null);
+        }
     }
 
     private sealed class SystemForegroundLockTimeout : IForegroundLockTimeout
