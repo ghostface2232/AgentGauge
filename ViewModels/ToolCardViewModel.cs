@@ -73,9 +73,9 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
     /// <summary>
     /// True while a refresh attempt covering this tool is in flight (set from the
-    /// coordinator's RefreshStarted, cleared by the next applied state). The card header
-    /// shows a small indeterminate bar for it, so stale last-good data visibly has a
-    /// retry running rather than looking abandoned.
+    /// coordinator's RefreshStarted, cleared by its matching RefreshCompleted). The card
+    /// header shows a small indeterminate bar for it, so stale last-good data visibly
+    /// has a retry running rather than looking abandoned.
     /// </summary>
     [ObservableProperty]
     public partial bool IsRefreshing { get; set; }

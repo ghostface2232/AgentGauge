@@ -97,6 +97,27 @@ public sealed class CodexProviderBackoffTests
     }
 
     [Fact]
+    public async Task CooldownWithNothingCachedFailsFastWithoutANetworkCall()
+    {
+        var handler = new SequenceHandler(TooMany(retryAfterSeconds: 600), Ok());
+        var (provider, time) = Provider(handler);
+
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => provider.GetSnapshotAsync(default));
+        Assert.Equal(1, handler.Calls);
+
+        // Background attempts inside the cooldown must not touch the throttling endpoint
+        // even with nothing cached — this is the cold-start case the cooldown protects.
+        time.Advance(TimeSpan.FromMinutes(3));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => provider.GetSnapshotAsync(default));
+        Assert.Equal(1, handler.Calls);
+
+        // A user-initiated refresh still gets a real attempt.
+        var manual = await provider.GetSnapshotAsync(FetchInteraction.UserInitiated, default);
+        Assert.Equal(2, handler.Calls);
+        Assert.NotEmpty(manual.Windows);
+    }
+
+    [Fact]
     public async Task AccountSwitchClearsTheCooldownAndCache()
     {
         var handler = new SequenceHandler(Ok(), TooMany(), Ok());

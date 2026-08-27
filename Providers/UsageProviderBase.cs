@@ -150,6 +150,16 @@ public abstract class UsageProviderBase : IUsageProvider
             return Empty(credential);
         }
 
+        // Cooling down with nothing cached (cold start, or an account switch cleared the
+        // cache): fail fast WITHOUT a network call. Falling through would hammer the
+        // throttling endpoint on every cycle and popover open — the exact traffic the
+        // cooldown exists to stop. The coordinator records the failure and the normal
+        // cadence retries once the cooldown lapses.
+        if (blockedByCooldown)
+        {
+            throw new HttpRequestException($"{ToolName} usage endpoint is in a rate-limit cooldown.");
+        }
+
         try
         {
             return RecordSuccess(await FetchSnapshotAsync(credential, cancellationToken));

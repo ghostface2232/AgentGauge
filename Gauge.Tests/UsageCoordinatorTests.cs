@@ -24,6 +24,9 @@ public sealed class UsageCoordinatorTests
     [InlineData(RefreshReason.ToolsChanged, FetchInteraction.UserInitiated)]
     [InlineData(RefreshReason.Periodic, FetchInteraction.Background)]
     [InlineData(RefreshReason.PopoverOpened, FetchInteraction.Background)]
+    // Wake/unlock refreshes everything like Manual but is not the user asking for this
+    // data, so it must not pierce a provider's rate-limit cooldown.
+    [InlineData(RefreshReason.SystemResumed, FetchInteraction.Background)]
     public void ExplicitUserActionsFetchAsUserInitiated(RefreshReason reason, FetchInteraction expected)
     {
         Assert.Equal(expected, UsageCoordinator.InteractionFor(reason));
@@ -41,18 +44,33 @@ public sealed class UsageCoordinatorTests
     }
 
     [Fact]
-    public async Task RefreshStartedReportsTheToolsBeingFetched()
+    public async Task RefreshStartedAndCompletedBracketTheFetch()
     {
         var claude = new StubProvider("Claude Code");
         var codex = new StubProvider("Codex");
         using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { claude, codex }));
         var started = new List<IReadOnlyList<string>>();
+        var completed = new List<IReadOnlyList<string>>();
         coordinator.RefreshStarted += (_, tools) => started.Add(tools);
+        coordinator.RefreshCompleted += (_, tools) => completed.Add(tools);
 
         await coordinator.RefreshAsync(RefreshReason.Manual);
 
-        var tools = Assert.Single(started);
-        Assert.Equal(new[] { "Claude Code", "Codex" }, tools);
+        Assert.Equal(new[] { "Claude Code", "Codex" }, Assert.Single(started));
+        Assert.Equal(new[] { "Claude Code", "Codex" }, Assert.Single(completed));
+    }
+
+    [Fact]
+    public async Task RefreshCompletedFiresEvenWhenEveryProviderFails()
+    {
+        var provider = new StubProvider("Codex") { Throw = true };
+        using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { provider }));
+        var completed = new List<IReadOnlyList<string>>();
+        coordinator.RefreshCompleted += (_, tools) => completed.Add(tools);
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        Assert.Equal(new[] { "Codex" }, Assert.Single(completed));
     }
 
     [Fact]

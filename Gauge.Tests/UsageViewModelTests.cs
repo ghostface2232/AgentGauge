@@ -183,7 +183,7 @@ public sealed class UsageViewModelTests
     }
 
     [Fact]
-    public void SetRefreshingMarksNamedCardsAndApplyClears()
+    public void RefreshIndicatorFollowsStartAndCompleteNotApply()
     {
         var viewModel = new UsageViewModel();
         viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
@@ -193,8 +193,12 @@ public sealed class UsageViewModelTests
         Assert.False(viewModel.Cards.Single(c => c.ToolName == "Claude Code").IsRefreshing);
         Assert.True(viewModel.Cards.Single(c => c.ToolName == "Codex").IsRefreshing);
 
-        // Any applied state (a completed cycle or a cached re-emit) concludes the indicator.
+        // A cached re-emit mid-fetch (debounce / gate bypass) must NOT hide the indicator.
         viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+        Assert.True(viewModel.Cards.Single(c => c.ToolName == "Codex").IsRefreshing);
+
+        // Only the matching completion concludes it.
+        viewModel.ClearRefreshing(new[] { "Codex" });
         Assert.All(viewModel.Cards, card => Assert.False(card.IsRefreshing));
     }
 

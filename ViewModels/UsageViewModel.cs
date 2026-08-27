@@ -178,18 +178,27 @@ public sealed partial class UsageViewModel : ObservableObject
     public double HighestUsageRatio { get; private set; }
 
     /// <summary>
-    /// Marks the named tools' cards as having a refresh in flight. Cleared by the next
-    /// <see cref="Apply"/>: every refresh cycle (and every cached re-emit) concludes with
-    /// an applied state, so the indicator can never stick. Names without a card (a tool
-    /// that has never succeeded) are simply ignored.
+    /// Marks the named tools' cards as having a refresh in flight (coordinator
+    /// RefreshStarted). Cleared only by <see cref="ClearRefreshing"/> from the matching
+    /// RefreshCompleted — NOT by <see cref="Apply"/>, because a debounced or
+    /// gate-bypassed request re-emits the cached state mid-fetch and would hide the
+    /// indicator while its fetch is still running. Names without a card (a tool that has
+    /// never succeeded) are simply ignored.
     /// </summary>
     public void SetRefreshing(IReadOnlyCollection<string> toolNames)
+        => MarkRefreshing(toolNames, refreshing: true);
+
+    /// <summary>Concludes the in-flight indicator for the named tools' cards.</summary>
+    public void ClearRefreshing(IReadOnlyCollection<string> toolNames)
+        => MarkRefreshing(toolNames, refreshing: false);
+
+    private void MarkRefreshing(IReadOnlyCollection<string> toolNames, bool refreshing)
     {
         foreach (var card in Cards)
         {
             if (toolNames.Contains(card.ToolName))
             {
-                card.IsRefreshing = true;
+                card.IsRefreshing = refreshing;
             }
         }
     }
@@ -211,13 +220,6 @@ public sealed partial class UsageViewModel : ObservableObject
             .Select(w => w.UsedRatio)
             .DefaultIfEmpty(0)
             .Max();
-
-        // Any applied state concludes the in-flight indicator: a real cycle lands here
-        // via Updated, and a cached re-emit means nothing newer is coming for now.
-        foreach (var card in Cards)
-        {
-            card.IsRefreshing = false;
-        }
 
         LastUpdatedAt = state.LastUpdatedAt;
         LastUpdatedText = state.LastUpdatedAt is { } updated

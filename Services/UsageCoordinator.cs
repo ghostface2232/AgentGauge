@@ -13,6 +13,11 @@ public enum RefreshReason
     // The set of enabled tools changed (user added/removed a service). Refresh
     // immediately (not debounced) so cards appear/disappear right away.
     ToolsChanged,
+    // Wake-from-sleep / session-unlock. Refreshes every provider like Manual (and
+    // shares its 10s debounce so a resume-then-unlock pair collapses), but it is NOT a
+    // user's explicit ask for this data, so it must not pierce a rate-limit cooldown —
+    // a lock/unlock-heavy day would otherwise keep poking a throttling endpoint.
+    SystemResumed,
 }
 
 /// <summary>
@@ -73,10 +78,20 @@ public sealed class UsageCoordinator : IDisposable
 
     /// <summary>
     /// Raised (on the UI thread) when a refresh cycle starts fetching, with the display
-    /// names of the tools being fetched. The next <see cref="Updated"/> concludes it, so
-    /// the popover can show a small per-card refresh-in-progress indicator in between.
+    /// names of the tools being fetched; the matching <see cref="RefreshCompleted"/>
+    /// concludes it. The pair drives the popover's small per-card refresh-in-progress
+    /// indicator. <see cref="Updated"/> is NOT the conclusion: a debounced or
+    /// gate-bypassed request re-emits the cached state mid-fetch, and clearing on that
+    /// would hide the indicator while the fetch it reports is still running.
     /// </summary>
     public event EventHandler<IReadOnlyList<string>>? RefreshStarted;
+
+    /// <summary>
+    /// Raised (on the UI thread) when the fetch announced by <see cref="RefreshStarted"/>
+    /// has finished, with the same tool names — on success, failure, and cancellation
+    /// alike, so the indicator can never stick.
+    /// </summary>
+    public event EventHandler<IReadOnlyList<string>>? RefreshCompleted;
     public event EventHandler<ToolKind>? AuthenticationRequired;
 
     /// <summary>
@@ -169,7 +184,8 @@ public sealed class UsageCoordinator : IDisposable
             return;
         }
 
-        var isDebouncedRequest = reason is RefreshReason.PopoverOpened or RefreshReason.Manual;
+        var isDebouncedRequest = reason
+            is RefreshReason.PopoverOpened or RefreshReason.Manual or RefreshReason.SystemResumed;
         var lastStarted = Interlocked.Read(ref _lastRefreshStartedTimestamp);
         if (isDebouncedRequest && lastStarted != NeverRefreshed
             && _time.GetElapsedTime(lastStarted) < ForcedRefreshDebounce)
@@ -249,6 +265,7 @@ public sealed class UsageCoordinator : IDisposable
             return;
         }
 
+        List<string>? fetchingTools = null;
         try
         {
             var enabledProviders = _usageService.GetEnabledProviders();
@@ -296,7 +313,8 @@ public sealed class UsageCoordinator : IDisposable
                 _lastProviderAttemptTimestamps[provider.Tool] = attemptTimestamp;
             }
 
-            RaiseRefreshStarted(providersToRefresh.Select(provider => provider.ToolName).ToList());
+            fetchingTools = providersToRefresh.Select(provider => provider.ToolName).ToList();
+            RaiseToolListEvent(RefreshStarted, fetchingTools);
 
             // Snapshot the cached capture-times before merging so a genuine live fetch can
             // be told apart from a re-served cache (see ReportAuthenticationOutcomes).
@@ -323,6 +341,12 @@ public sealed class UsageCoordinator : IDisposable
         }
         finally
         {
+            // In the finally so failure and cancellation conclude the started fetch too —
+            // an indicator that only cleared on success could stick forever.
+            if (fetchingTools is not null)
+            {
+                RaiseToolListEvent(RefreshCompleted, fetchingTools);
+            }
             _refreshGate.Release();
         }
     }
@@ -452,9 +476,8 @@ public sealed class UsageCoordinator : IDisposable
         else handler(this, tool);
     }
 
-    private void RaiseRefreshStarted(IReadOnlyList<string> toolNames)
+    private void RaiseToolListEvent(EventHandler<IReadOnlyList<string>>? handler, IReadOnlyList<string> toolNames)
     {
-        var handler = RefreshStarted;
         if (handler is null) return;
         if (_dispatcher is not null) _dispatcher.TryEnqueue(() => handler(this, toolNames));
         else handler(this, toolNames);
