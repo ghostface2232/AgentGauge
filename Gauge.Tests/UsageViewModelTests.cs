@@ -182,6 +182,26 @@ public sealed class UsageViewModelTests
         public void Save(IReadOnlyCollection<ToolKind> e) => _state = e.ToList();
     }
 
+    [Fact]
+    public void RefreshIndicatorFollowsStartAndCompleteNotApply()
+    {
+        var viewModel = new UsageViewModel();
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+
+        viewModel.SetRefreshing(new[] { "Codex", "Cursor" }); // Cursor has no card → ignored
+
+        Assert.False(viewModel.Cards.Single(c => c.ToolName == "Claude Code").IsRefreshing);
+        Assert.True(viewModel.Cards.Single(c => c.ToolName == "Codex").IsRefreshing);
+
+        // A cached re-emit mid-fetch (debounce / gate bypass) must NOT hide the indicator.
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+        Assert.True(viewModel.Cards.Single(c => c.ToolName == "Codex").IsRefreshing);
+
+        // Only the matching completion concludes it.
+        viewModel.ClearRefreshing(new[] { "Codex" });
+        Assert.All(viewModel.Cards, card => Assert.False(card.IsRefreshing));
+    }
+
     private static UsageState State(params CachedUsage[] tools) => new()
     {
         Tools = tools,

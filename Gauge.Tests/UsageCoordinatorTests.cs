@@ -18,6 +18,61 @@ public sealed class UsageCoordinatorTests
         Assert.Equal(TimeSpan.FromMinutes(minutes), UsageCoordinator.PeriodicIntervalFor(tool));
     }
 
+    [Theory]
+    [InlineData(RefreshReason.Manual, FetchInteraction.UserInitiated)]
+    [InlineData(RefreshReason.AuthenticationChanged, FetchInteraction.UserInitiated)]
+    [InlineData(RefreshReason.ToolsChanged, FetchInteraction.UserInitiated)]
+    [InlineData(RefreshReason.Periodic, FetchInteraction.Background)]
+    [InlineData(RefreshReason.PopoverOpened, FetchInteraction.Background)]
+    // Wake/unlock refreshes everything like Manual but is not the user asking for this
+    // data, so it must not pierce a provider's rate-limit cooldown.
+    [InlineData(RefreshReason.SystemResumed, FetchInteraction.Background)]
+    public void ExplicitUserActionsFetchAsUserInitiated(RefreshReason reason, FetchInteraction expected)
+    {
+        Assert.Equal(expected, UsageCoordinator.InteractionFor(reason));
+    }
+
+    [Fact]
+    public async Task ManualRefreshReachesProvidersAsUserInitiated()
+    {
+        var provider = new InteractionRecordingProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { provider }));
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        Assert.Equal(FetchInteraction.UserInitiated, Assert.Single(provider.Interactions));
+    }
+
+    [Fact]
+    public async Task RefreshStartedAndCompletedBracketTheFetch()
+    {
+        var claude = new StubProvider("Claude Code");
+        var codex = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { claude, codex }));
+        var started = new List<IReadOnlyList<string>>();
+        var completed = new List<IReadOnlyList<string>>();
+        coordinator.RefreshStarted += (_, tools) => started.Add(tools);
+        coordinator.RefreshCompleted += (_, tools) => completed.Add(tools);
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        Assert.Equal(new[] { "Claude Code", "Codex" }, Assert.Single(started));
+        Assert.Equal(new[] { "Claude Code", "Codex" }, Assert.Single(completed));
+    }
+
+    [Fact]
+    public async Task RefreshCompletedFiresEvenWhenEveryProviderFails()
+    {
+        var provider = new StubProvider("Codex") { Throw = true };
+        using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { provider }));
+        var completed = new List<IReadOnlyList<string>>();
+        coordinator.RefreshCompleted += (_, tools) => completed.Add(tools);
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+
+        Assert.Equal(new[] { "Codex" }, Assert.Single(completed));
+    }
+
     [Fact]
     public async Task AuthenticationRefreshBypassesManualDebounce()
     {
@@ -467,6 +522,28 @@ public sealed class UsageCoordinatorTests
         public override long GetTimestamp() => _timestamp;
 
         public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
+    }
+
+    /// <summary>Records which interaction the coordinator handed to each fetch.</summary>
+    private sealed class InteractionRecordingProvider(string name) : IUsageProvider
+    {
+        public List<FetchInteraction> Interactions { get; } = new();
+        public ToolKind Tool => ToolKind.Codex;
+        public string ToolName => name;
+
+        public Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
+            => GetSnapshotAsync(FetchInteraction.Background, cancellationToken);
+
+        public Task<UsageSnapshot> GetSnapshotAsync(FetchInteraction interaction, CancellationToken cancellationToken)
+        {
+            Interactions.Add(interaction);
+            return Task.FromResult(new UsageSnapshot
+            {
+                ToolName = ToolName,
+                CapturedAt = DateTimeOffset.Now,
+                Windows = new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5시간", UsedRatio = .2 } },
+            });
+        }
     }
 
     private sealed class StubProvider(string name) : IUsageProvider

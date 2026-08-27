@@ -62,6 +62,33 @@ public sealed class ClaudeProviderBackoffTests
     }
 
     [Fact]
+    public async Task UserInitiatedRefreshBypassesTheCooldownButNotTheFiveMinuteCap()
+    {
+        var handler = new SequenceHandler(Ok(), TooMany(), Ok());
+        var (provider, time) = Provider(handler);
+
+        await provider.GetSnapshotAsync(default);
+        time.Now = Start.AddMinutes(6);
+        await provider.GetSnapshotAsync(default); // 429 → 2m cooldown
+
+        time.Now = Start.AddMinutes(7); // inside the cooldown: background is blocked...
+        await provider.GetSnapshotAsync(default);
+        Assert.Equal(2, handler.Calls);
+
+        // ...but the user's explicit refresh gets a real attempt (the 5-minute
+        // happy-path cap doesn't apply either: the last SUCCESS is 7 minutes old).
+        var manual = await provider.GetSnapshotAsync(FetchInteraction.UserInitiated, default);
+        Assert.Equal(3, handler.Calls);
+        Assert.NotEmpty(manual.Windows);
+
+        // A success within the cap is still served from cache even for a manual
+        // refresh — that cap bounds cost, not staleness.
+        time.Now = Start.AddMinutes(8);
+        await provider.GetSnapshotAsync(FetchInteraction.UserInitiated, default);
+        Assert.Equal(3, handler.Calls);
+    }
+
+    [Fact]
     public async Task CacheExpiryUsesMonotonicTimeWhenWallClockMovesBackward()
     {
         var handler = new SequenceHandler(Ok(), Ok());

@@ -1,4 +1,5 @@
 using Gauge.Models;
+using Gauge.Providers;
 using Microsoft.UI.Dispatching;
 
 namespace Gauge.Services;
@@ -12,6 +13,11 @@ public enum RefreshReason
     // The set of enabled tools changed (user added/removed a service). Refresh
     // immediately (not debounced) so cards appear/disappear right away.
     ToolsChanged,
+    // Wake-from-sleep / session-unlock. Refreshes every provider like Manual (and
+    // shares its 10s debounce so a resume-then-unlock pair collapses), but it is NOT a
+    // user's explicit ask for this data, so it must not pierce a rate-limit cooldown —
+    // a lock/unlock-heavy day would otherwise keep poking a throttling endpoint.
+    SystemResumed,
 }
 
 /// <summary>
@@ -69,6 +75,23 @@ public sealed class UsageCoordinator : IDisposable
 
     /// <summary>Raised after each refresh with the current cached state (on the UI thread).</summary>
     public event EventHandler<UsageState>? Updated;
+
+    /// <summary>
+    /// Raised (on the UI thread) when a refresh cycle starts fetching, with the display
+    /// names of the tools being fetched; the matching <see cref="RefreshCompleted"/>
+    /// concludes it. The pair drives the popover's small per-card refresh-in-progress
+    /// indicator. <see cref="Updated"/> is NOT the conclusion: a debounced or
+    /// gate-bypassed request re-emits the cached state mid-fetch, and clearing on that
+    /// would hide the indicator while the fetch it reports is still running.
+    /// </summary>
+    public event EventHandler<IReadOnlyList<string>>? RefreshStarted;
+
+    /// <summary>
+    /// Raised (on the UI thread) when the fetch announced by <see cref="RefreshStarted"/>
+    /// has finished, with the same tool names — on success, failure, and cancellation
+    /// alike, so the indicator can never stick.
+    /// </summary>
+    public event EventHandler<IReadOnlyList<string>>? RefreshCompleted;
     public event EventHandler<ToolKind>? AuthenticationRequired;
 
     /// <summary>
@@ -161,7 +184,8 @@ public sealed class UsageCoordinator : IDisposable
             return;
         }
 
-        var isDebouncedRequest = reason is RefreshReason.PopoverOpened or RefreshReason.Manual;
+        var isDebouncedRequest = reason
+            is RefreshReason.PopoverOpened or RefreshReason.Manual or RefreshReason.SystemResumed;
         var lastStarted = Interlocked.Read(ref _lastRefreshStartedTimestamp);
         if (isDebouncedRequest && lastStarted != NeverRefreshed
             && _time.GetElapsedTime(lastStarted) < ForcedRefreshDebounce)
@@ -241,6 +265,7 @@ public sealed class UsageCoordinator : IDisposable
             return;
         }
 
+        List<string>? fetchingTools = null;
         try
         {
             var enabledProviders = _usageService.GetEnabledProviders();
@@ -288,6 +313,9 @@ public sealed class UsageCoordinator : IDisposable
                 _lastProviderAttemptTimestamps[provider.Tool] = attemptTimestamp;
             }
 
+            fetchingTools = providersToRefresh.Select(provider => provider.ToolName).ToList();
+            RaiseToolListEvent(RefreshStarted, fetchingTools);
+
             // Snapshot the cached capture-times before merging so a genuine live fetch can
             // be told apart from a re-served cache (see ReportAuthenticationOutcomes).
             Dictionary<string, DateTimeOffset?> priorCaptured;
@@ -295,7 +323,8 @@ public sealed class UsageCoordinator : IDisposable
             {
                 priorCaptured = _cache.ToDictionary(kv => kv.Key, kv => kv.Value.Snapshot?.CapturedAt);
             }
-            var results = await _usageService.GetSnapshotsAsync(providersToRefresh, cancellationToken);
+            var results = await _usageService.GetSnapshotsAsync(
+                providersToRefresh, cancellationToken, InteractionFor(reason));
             var enabledToolNames = enabledProviders.Select(provider => provider.ToolName).ToHashSet();
             var purgedTools = MergeIntoCache(results, enabledToolNames);
             ReportAuthenticationOutcomes(results, priorCaptured);
@@ -312,6 +341,12 @@ public sealed class UsageCoordinator : IDisposable
         }
         finally
         {
+            // In the finally so failure and cancellation conclude the started fetch too —
+            // an indicator that only cleared on success could stick forever.
+            if (fetchingTools is not null)
+            {
+                RaiseToolListEvent(RefreshCompleted, fetchingTools);
+            }
             _refreshGate.Release();
         }
     }
@@ -421,11 +456,31 @@ public sealed class UsageCoordinator : IDisposable
         }
     }
 
+    /// <summary>
+    /// Which fetches a provider's rate-limit cooldown may hold back: explicit user
+    /// actions (the refresh button, a completed sign-in, adding a tool) always get a
+    /// real attempt, while the scheduler's cycles and the popover-open forced refresh
+    /// are background traffic the cooldown exists to protect against.
+    /// </summary>
+    internal static FetchInteraction InteractionFor(RefreshReason reason) => reason switch
+    {
+        RefreshReason.Manual or RefreshReason.AuthenticationChanged or RefreshReason.ToolsChanged
+            => FetchInteraction.UserInitiated,
+        _ => FetchInteraction.Background,
+    };
+
     private void Raise(EventHandler<ToolKind>? handler, ToolKind tool)
     {
         if (handler is null) return;
         if (_dispatcher is not null) _dispatcher.TryEnqueue(() => handler(this, tool));
         else handler(this, tool);
+    }
+
+    private void RaiseToolListEvent(EventHandler<IReadOnlyList<string>>? handler, IReadOnlyList<string> toolNames)
+    {
+        if (handler is null) return;
+        if (_dispatcher is not null) _dispatcher.TryEnqueue(() => handler(this, toolNames));
+        else handler(this, toolNames);
     }
 
     /// <summary>Merges a refresh cycle's results into the cache; returns true if any stale tool was purged.</summary>

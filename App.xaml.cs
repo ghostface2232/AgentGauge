@@ -171,6 +171,10 @@ public partial class App : Application
         _notificationService = new UsageNotificationService();
         _notificationService.SetPreferences(notificationPreferences);
         _coordinator.Updated += OnUsageUpdated;
+        // These arrive on the UI thread; the started/completed pair drives the small
+        // per-card refresh-in-progress bar in the popover header.
+        _coordinator.RefreshStarted += OnRefreshStarted;
+        _coordinator.RefreshCompleted += OnRefreshCompleted;
         _coordinator.AuthenticationRequired += OnAuthenticationRequired;
         _coordinator.AuthenticationRecovered += OnAuthenticationRecovered;
         // Adding/removing a service re-fetches immediately so its card appears/disappears.
@@ -228,6 +232,12 @@ public partial class App : Application
             && _authentication.TryGetValue(kind, out var provider)
             && provider.State.Status == AuthenticationStatus.Missing);
     }
+
+    private void OnRefreshStarted(object? sender, IReadOnlyList<string> toolNames)
+        => _viewModel?.SetRefreshing(toolNames);
+
+    private void OnRefreshCompleted(object? sender, IReadOnlyList<string> toolNames)
+        => _viewModel?.ClearRefreshing(toolNames);
 
     private void OnUsageUpdated(object? sender, UsageState state)
     {
@@ -428,7 +438,7 @@ public partial class App : Application
         await Task.Delay(TimeSpan.FromSeconds(5));
         if (_coordinator is { } coordinator)
         {
-            await coordinator.RefreshAsync(RefreshReason.Manual);
+            await coordinator.RefreshAsync(RefreshReason.SystemResumed);
         }
     }
 

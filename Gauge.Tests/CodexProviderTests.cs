@@ -207,7 +207,7 @@ public sealed class CodexProviderTests
     {
         var provider = new CodexProvider(
             new HttpClient(new StubHandler("{}", HttpStatusCode.InternalServerError)), Available("t"));
-        await Assert.ThrowsAsync<HttpRequestException>(() => provider.GetSnapshotAsync(default));
+        await Assert.ThrowsAnyAsync<HttpRequestException>(() => provider.GetSnapshotAsync(default));
     }
 
     private static async Task<UsageSnapshot> Snapshot(string json, ICredentialSource source)

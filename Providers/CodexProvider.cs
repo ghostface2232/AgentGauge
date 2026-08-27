@@ -1,11 +1,9 @@
 using System.Net.Http;
-using System.Text;
 using System.Text.Json;
 using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers.Internal;
 using Gauge.Services;
-using System.Net;
 
 namespace Gauge.Providers;
 
@@ -17,9 +15,15 @@ namespace Gauge.Providers;
 /// window's <c>limit_window_seconds</c>, not from its primary/secondary position: during
 /// plan simplification the weekly window can be returned as primary with no secondary.
 ///
-/// A missing credential is a clean empty-data result. Network and API failures
-/// propagate so the coordinator keeps showing its last good snapshot rather than
-/// replacing it with an empty success.
+/// THROTTLING: wham/usage is the same endpoint the Codex CLI itself polls every 60s, so
+/// the happy path needs no per-provider cap (unlike Claude) — every scheduler cycle and
+/// popover-open refresh fetches live. But that same unconditional fetching means a
+/// policy tightening on OpenAI's side would hit on every popover open, so retryable
+/// statuses (429/5xx) arm the shared cooldown: its Retry-After is honored when sent,
+/// background fetches serve the cached snapshot until it lapses, and a user-initiated
+/// refresh still always goes out. Other failures (network, parse) propagate so the
+/// coordinator keeps its last good snapshot and marks the card stale; only a missing
+/// token is a clean "no data" state.
 ///
 /// EXPIRED TOKEN: the Codex access token is a ChatGPT-issued JWT that lives ~10 days, so
 /// after a long idle it is already expired at boot. When an <see cref="IDelegatedTokenRefresher"/>
@@ -27,120 +31,62 @@ namespace Gauge.Providers;
 /// its own token via <c>codex doctor</c>) and a re-read, so usage works without first
 /// opening Codex.
 /// </summary>
-public sealed class CodexProvider : IUsageProvider
+public sealed class CodexProvider : UsageProviderBase
 {
     private const string UsageUrl = "https://chatgpt.com/backend-api/wham/usage";
 
-    private readonly HttpClient _http;
-    private readonly ICredentialSource _credentials;
-    private readonly IDelegatedTokenRefresher? _refresher;
-
-    public CodexProvider(HttpClient http, ICredentialSource credentials, IDelegatedTokenRefresher? refresher = null)
+    private static readonly UsageFetchPolicy Policy = new()
     {
-        _http = http;
-        _credentials = credentials;
-        _refresher = refresher;
-    }
-
-    public ToolKind Tool => ToolKind.Codex;
-    public string ToolName => ToolCatalog.For(ToolKind.Codex).DisplayName;
-
-    public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
-    {
-        var credentialResult = await _credentials.ReadAsync(ToolKind.Codex, cancellationToken);
-
-        // The Codex access token is a ~10-day ChatGPT JWT, so after a long idle it is
-        // already expired at boot (reported Invalid by the credential source). Rather than
-        // fail until Codex is opened, ask the CLI to refresh its own token (it owns the
-        // refresh-token rotation, so this can't break its login), then re-read. Done before
-        // the no-token check below so a successful refresh is picked up.
-        if (credentialResult.Status == CredentialReadStatus.Invalid && _refresher is not null
-            && await _refresher.TryRefreshAsync(cancellationToken))
-        {
-            credentialResult = await _credentials.ReadAsync(ToolKind.Codex, cancellationToken);
-        }
-
-        var credentials = credentialResult.Credential;
-
-        if (credentialResult.Status == CredentialReadStatus.Invalid)
-        {
-            throw new AuthenticationRequiredException(ToolKind.Codex, HttpStatusCode.Unauthorized);
-        }
-
-        // No token (not logged in): a legitimate "no data yet" state, not a failure.
-        if (credentials?.AccessToken is not { Length: > 0 } token)
-        {
-            return new UsageSnapshot
-            {
-                ToolName = ToolName,
-                Plan = null,
-                Windows = Array.Empty<UsageWindow>(),
-                CapturedAt = DateTimeOffset.Now,
-            };
-        }
-
-        // wham/usage is the same endpoint the Codex CLI itself polls every 60s, so our
-        // 3-minute cadence needs no extra throttling. Let fetch failures (network/429)
-        // propagate rather than swallowing them into an empty success — that way the
-        // coordinator keeps the last good snapshot instead of clearing the card.
-        try
-        {
-            return BuildSnapshot(await FetchUsageAsync(token, credentials.AccountId, cancellationToken));
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-        {
-            // The server rejected a token that looked valid locally (e.g. revoked, or it
-            // expired between read and call). Try one delegated refresh and, if the CLI
-            // hands us a fresh token, retry the fetch once before giving up.
-            if (_refresher is not null && await _refresher.TryRefreshAsync(cancellationToken))
-            {
-                var refreshed = await _credentials.ReadAsync(ToolKind.Codex, cancellationToken);
-                if (refreshed.Status == CredentialReadStatus.Available
-                    && refreshed.Credential?.AccessToken is { Length: > 0 } freshToken)
-                {
-                    try
-                    {
-                        return BuildSnapshot(await FetchUsageAsync(freshToken, refreshed.Credential.AccountId, cancellationToken));
-                    }
-                    catch (HttpRequestException retryEx) when (retryEx.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                    {
-                        throw new AuthenticationRequiredException(ToolKind.Codex, retryEx.StatusCode!.Value);
-                    }
-                }
-            }
-            throw new AuthenticationRequiredException(ToolKind.Codex, ex.StatusCode!.Value);
-        }
-        // Anything else propagates unlogged on purpose: UsageService records every failure
-        // that reaches it, so a catch here could only duplicate that line.
-    }
-
-    private UsageSnapshot BuildSnapshot((string? Plan, List<UsageWindow> Windows) result) => new()
-    {
-        ToolName = ToolName,
-        Plan = result.Plan,
-        Windows = result.Windows,
-        CapturedAt = DateTimeOffset.Now,
+        // Same escalation as Claude when the server sends no Retry-After: 2, 4, 8, 16,
+        // 30(cap) minutes. The first step sits under the 3-minute periodic cadence, so
+        // an isolated 429 costs at most one popover-open freshness window.
+        RetryBackoff = new BackoffPolicy(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(30)),
     };
 
-    private async Task<(string? Plan, List<UsageWindow> Windows)> FetchUsageAsync(
-        string token, string? accountId, CancellationToken cancellationToken)
+    private static readonly IReadOnlyDictionary<string, string> KnownPlans = new Dictionary<string, string>
+    {
+        ["plus"] = "Plus",
+        ["pro"] = "Pro",
+        ["free"] = "Free",
+        ["go"] = "Go",
+        ["business"] = "Business",
+        ["team"] = "Team",
+        ["enterprise"] = "Enterprise",
+    };
+
+    private readonly HttpClient _http;
+
+    public CodexProvider(
+        HttpClient http,
+        ICredentialSource credentials,
+        IDelegatedTokenRefresher? refresher = null,
+        TimeProvider? time = null)
+        : base(credentials, Policy, refresher, time)
+    {
+        _http = http;
+    }
+
+    public override ToolKind Tool => ToolKind.Codex;
+
+    protected override async Task<UsageSnapshot> FetchSnapshotAsync(
+        ToolCredential credential, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
-        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {credential.AccessToken}");
         request.Headers.TryAddWithoutValidation("User-Agent", "Gauge/1.0");
-        if (!string.IsNullOrEmpty(accountId))
+        if (!string.IsNullOrEmpty(credential.AccountId))
         {
-            request.Headers.TryAddWithoutValidation("ChatGPT-Account-Id", accountId);
+            request.Headers.TryAddWithoutValidation("ChatGPT-Account-Id", credential.AccountId);
         }
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        EnsureUsageSuccess(response);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, default, cancellationToken);
         var root = document.RootElement;
 
-        var plan = MapPlan(root.GetStringOrNull("plan_type"));
+        var plan = ProviderText.PlanLabel(root.GetStringOrNull("plan_type"), KnownPlans);
 
         var windows = new List<UsageWindow>();
         if (root.GetObjectOrNull("rate_limit") is { } rateLimit)
@@ -156,7 +102,7 @@ public sealed class CodexProvider : IUsageProvider
         }
         windows.AddRange(ParseAdditionalRateLimits(root));
 
-        return (plan, windows);
+        return Snapshot(plan, windows);
     }
 
     /// <summary>
@@ -240,8 +186,8 @@ public sealed class CodexProvider : IUsageProvider
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in additional.EnumerateArray())
         {
-            var name = NormalizeText(entry.GetStringOrNull("limit_name"));
-            var feature = NormalizeText(entry.GetStringOrNull("metered_feature"));
+            var name = ProviderText.Normalize(entry.GetStringOrNull("limit_name"));
+            var feature = ProviderText.Normalize(entry.GetStringOrNull("metered_feature"));
             var displayName = name ?? feature;
             var identity = feature ?? name;
             if (displayName is null || identity is null
@@ -250,7 +196,7 @@ public sealed class CodexProvider : IUsageProvider
                 continue;
             }
 
-            var slug = Slug(identity);
+            var slug = ProviderText.Slug(identity);
             if (slug.Length == 0)
             {
                 continue;
@@ -273,40 +219,4 @@ public sealed class CodexProvider : IUsageProvider
 
         return windows;
     }
-
-    private static string? NormalizeText(string? value)
-        => value?.Trim() is { Length: > 0 } text ? text : null;
-
-    private static string Slug(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        var lastWasDash = false;
-        foreach (var character in value.ToLowerInvariant())
-        {
-            if (char.IsLetterOrDigit(character))
-            {
-                builder.Append(character);
-                lastWasDash = false;
-            }
-            else if (!lastWasDash && builder.Length > 0)
-            {
-                builder.Append('-');
-                lastWasDash = true;
-            }
-        }
-        return builder.ToString().TrimEnd('-');
-    }
-
-    private static string? MapPlan(string? planType) => planType?.ToLowerInvariant() switch
-    {
-        null or "" => null,
-        "plus" => "Plus",
-        "pro" => "Pro",
-        "free" => "Free",
-        "go" => "Go",
-        "business" => "Business",
-        "team" => "Team",
-        "enterprise" => "Enterprise",
-        var other => char.ToUpperInvariant(other[0]) + other[1..],
-    };
 }
