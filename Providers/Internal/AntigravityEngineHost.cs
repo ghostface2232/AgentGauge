@@ -1,5 +1,5 @@
 using System.ComponentModel;
-using System.Diagnostics;
+using Gauge.Services;
 
 namespace Gauge.Providers.Internal;
 
@@ -108,7 +108,7 @@ internal sealed class AntigravityEngineHost : IDisposable
         }
         catch (Win32Exception ex)
         {
-            Debug.WriteLine($"[Gauge] Antigravity engine spawn failed: {ex.Message}");
+            DiagnosticsLog.Write("provider", $"Antigravity engine spawn failed: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
         finally

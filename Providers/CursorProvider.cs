@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -69,7 +68,8 @@ public sealed class CursorProvider : IUsageProvider
             {
                 throw new AuthenticationRequiredException(ToolKind.Cursor, httpError.StatusCode!.Value);
             }
-            Debug.WriteLine($"[Gauge] CursorProvider usage fetch failed: {ex.Message}");
+            // Propagates unlogged on purpose: UsageService records every failure that
+            // reaches it, so a line here could only duplicate that one.
             throw;
         }
     }

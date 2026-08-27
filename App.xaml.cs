@@ -360,7 +360,7 @@ public partial class App : Application
         // instance registers. It returns only on failure; the pipeline is already torn
         // down then, so exit — the persisted language applies on the next manual launch.
         var reason = Microsoft.Windows.AppLifecycle.AppInstance.Restart("--language-changed");
-        System.Diagnostics.Debug.WriteLine($"[Gauge] language restart failed: {reason}");
+        DiagnosticsLog.Write("app", $"Language restart failed: {reason}");
         Exit();
     }
 

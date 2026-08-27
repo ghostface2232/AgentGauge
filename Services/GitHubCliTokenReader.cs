@@ -95,7 +95,7 @@ public sealed class GitHubCliTokenReader : IGitHubCliTokenReader
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
         {
             // Never include the token or gh output in diagnostics; the type name is enough.
-            Debug.WriteLine($"[Gauge] gh auth token failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("auth", $"gh auth token failed: {ex.GetType().Name}");
             return null;
         }
     }

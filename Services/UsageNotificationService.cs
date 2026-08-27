@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using CommunityToolkit.WinUI.Notifications;
 using Gauge.Localization;
 using Gauge.Models;
@@ -27,7 +26,7 @@ public sealed class UsageNotificationService : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] Toast activation subscribe failed: {ex.Message}");
+            DiagnosticsLog.Write("notify", $"Toast activation subscribe failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -101,7 +100,7 @@ public sealed class UsageNotificationService : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] Toast Show failed: {ex.Message}");
+            DiagnosticsLog.Write("notify", $"Toast show failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -115,7 +114,7 @@ public sealed class UsageNotificationService : IDisposable
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] Toast activation unsubscribe failed: {ex.Message}");
+            DiagnosticsLog.Write("notify", $"Toast activation unsubscribe failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

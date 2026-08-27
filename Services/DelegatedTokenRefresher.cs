@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace Gauge.Services;
 
 /// <summary>
@@ -98,7 +96,7 @@ public sealed class DelegatedTokenRefresher : IDelegatedTokenRefresher
         {
             var result = await _runner.RunHiddenAsync(executable, _arguments, _processTimeout, cancellationToken);
             SetCooldown(result.TimedOut ? RetryCooldown : SuccessCooldown);
-            Debug.WriteLine($"[Gauge] {_command} delegated refresh ran (exit={result.ExitCode}, timedOut={result.TimedOut})");
+            DiagnosticsLog.Write("auth", $"{_command} delegated refresh ran (exit={result.ExitCode}, timedOut={result.TimedOut})");
             return true;
         }
         catch (OperationCanceledException)
@@ -108,7 +106,7 @@ public sealed class DelegatedTokenRefresher : IDelegatedTokenRefresher
         catch (Exception ex)
         {
             SetCooldown(RetryCooldown);
-            Debug.WriteLine($"[Gauge] {_command} delegated refresh failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("auth", $"{_command} delegated refresh failed: {ex.GetType().Name}");
             return false;
         }
     }

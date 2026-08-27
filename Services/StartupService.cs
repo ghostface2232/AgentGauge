@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Microsoft.Win32;
 
 namespace Gauge.Services;
@@ -22,7 +21,7 @@ public sealed class StartupService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] StartupService.IsEnabled failed: {ex.Message}");
+            DiagnosticsLog.Write("settings", $"Run-key read failed: {ex.GetType().Name}: {ex.Message}");
             return false;
         }
     }
@@ -54,7 +53,7 @@ public sealed class StartupService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] StartupService.SetEnabled({enabled}) failed: {ex.Message}");
+            DiagnosticsLog.Write("settings", $"Run-key write ({enabled}) failed: {ex.GetType().Name}: {ex.Message}");
         }
 
         // Report the real state so the menu check can reflect any failure.

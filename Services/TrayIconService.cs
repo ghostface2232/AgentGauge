@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -363,7 +362,7 @@ public sealed class TrayIconService : IDisposable
             }
         }
 
-        Debug.WriteLine($"[Gauge] Tray icon asset not found for stem '{stem}{_levelSuffix}'.");
+        DiagnosticsLog.Write("tray", $"Tray icon asset not found for stem '{stem}{_levelSuffix}'.");
         return null;
     }
 

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -111,11 +110,8 @@ public sealed class CodexProvider : IUsageProvider
             }
             throw new AuthenticationRequiredException(ToolKind.Codex, ex.StatusCode!.Value);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            Debug.WriteLine($"[Gauge] CodexProvider usage fetch failed: {ex.Message}");
-            throw;
-        }
+        // Anything else propagates unlogged on purpose: UsageService records every failure
+        // that reaches it, so a catch here could only duplicate that line.
     }
 
     private UsageSnapshot BuildSnapshot((string? Plan, List<UsageWindow> Windows) result) => new()

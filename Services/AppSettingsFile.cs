@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -96,7 +95,7 @@ internal static class AppSettingsFile
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            Debug.WriteLine($"[Gauge] settings load failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("settings", $"settings.json load failed: {ex.GetType().Name}");
             settings = new AppSettingsDto();
             return false;
         }
@@ -132,7 +131,7 @@ internal static class AppSettingsFile
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Debug.WriteLine($"[Gauge] settings save failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("settings", $"settings.json save failed: {ex.GetType().Name}");
             return false;
         }
     }

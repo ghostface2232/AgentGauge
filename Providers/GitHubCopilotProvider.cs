@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
@@ -71,8 +70,8 @@ public sealed class GitHubCopilotProvider : IUsageProvider
             {
                 throw new AuthenticationRequiredException(ToolKind.GitHubCopilot, httpError.StatusCode!.Value);
             }
-            // Other failures propagate so the coordinator keeps the last good snapshot.
-            Debug.WriteLine($"[Gauge] GitHubCopilotProvider usage fetch failed: {ex.Message}");
+            // Other failures propagate so the coordinator keeps the last good snapshot, and
+            // unlogged here because UsageService already records everything that reaches it.
             throw;
         }
     }

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Gauge.Localization;
 using Gauge.Models;
@@ -60,7 +59,7 @@ public sealed class CursorCredentialSource : ICredentialSource
         catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException)
         {
             // Never log the DB contents/token. The type name is enough to diagnose.
-            Debug.WriteLine($"[Gauge] Cursor state.vscdb read failed: {ex.GetType().Name}");
+            DiagnosticsLog.Write("auth", $"Cursor state.vscdb read failed: {ex.GetType().Name}");
             return Invalid(Loc.Get("Cred_CursorReadFailed"));
         }
 

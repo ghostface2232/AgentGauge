@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Gauge.Localization;
 using Gauge.Models;
@@ -120,7 +119,7 @@ public sealed class CliCredentialSource : ICredentialSource
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
             // Never include file contents or token values in diagnostics.
-            Debug.WriteLine($"[Gauge] Credential read failed for {tool}: {ex.GetType().Name}");
+            DiagnosticsLog.Write("auth", $"Credential read failed for {tool}: {ex.GetType().Name}");
             return Invalid(tool, Loc.Get("Cred_ReadFailed"));
         }
     }

@@ -116,7 +116,7 @@ public sealed class UpdateService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] UpdateService.CheckAsync failed: {ex.Message}");
+            DiagnosticsLog.Write("update", $"Release check failed: {ex.GetType().Name}: {ex.Message}");
             return new UpdateCheckResult(UpdateStatus.CheckFailed, _currentVersion, null);
         }
     }
@@ -147,7 +147,9 @@ public sealed class UpdateService
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Gauge] UpdateService.DownloadAndLaunchAsync failed: {ex.Message}");
+            // Type only: this catch is broad, and an IOException here would carry the
+            // installer's full temp path — which embeds the Windows account name.
+            DiagnosticsLog.Write("update", $"Installer download/launch failed: {ex.GetType().Name}");
             return false;
         }
     }
