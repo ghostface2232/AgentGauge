@@ -42,6 +42,35 @@ public sealed class GitHubCopilotProviderTests
     }
 
     [Fact]
+    public async Task BareResetDateIsReadAsUtcNotLocalTime()
+    {
+        // quota_reset_date_utc is undocumented and its name says UTC, so a bare date must
+        // mean UTC midnight. Read as local time it would move the reset by the reader's own
+        // offset — nine hours early in UTC+9 — and shift the evaluator's reset-advance
+        // comparison with it.
+        //
+        // Honest limit: on a UTC machine the two readings ARE the same instant with the same
+        // offset, so nothing here can fail on the UTC CI runner. This pins the contract and
+        // catches a regression on any machine that is not UTC; the machine-independent guard
+        // is the offset case below.
+        Assert.Equal(
+            new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero), await ResetTimeFor("2026-07-01"));
+    }
+
+    [Fact]
+    public async Task ResetTimestampWithAnOffsetKeepsItsInstant()
+    {
+        // Reading offset-less values as UTC must not cost the ordinary case: a value stating
+        // its own zone still denotes the same moment, merely re-expressed in UTC. Unlike the
+        // bare-date case this fails everywhere if the normalization is dropped, so it is the
+        // guard that runs on CI.
+        var reset = await ResetTimeFor("2026-07-01T09:00:00+09:00");
+
+        Assert.Equal(new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero), reset);
+        Assert.Equal(TimeSpan.Zero, reset.Value.Offset);
+    }
+
+    [Fact]
     public async Task EachQuotaCarriesItsOwnLabelAndKey()
     {
         // Every quota is a BillingCycle window, so the type-derived label would read "Usage"
@@ -193,6 +222,19 @@ public sealed class GitHubCopilotProviderTests
 
     private static async Task<UsageSnapshot> Snapshot(string json)
         => await new GitHubCopilotProvider(new HttpClient(new StubHandler(json)), TokenSource()).GetSnapshotAsync(default);
+
+    /// <summary>
+    /// The reset every window shares, from the live response with its reset value swapped
+    /// for <paramref name="rawResetValue"/>. Single: all quotas take the account-level reset,
+    /// so a shape that parsed differently per window would show up here as more than one.
+    /// </summary>
+    private static async Task<DateTimeOffset?> ResetTimeFor(string rawResetValue)
+    {
+        var json = LiveFreeJson.Replace(
+            "\"2026-07-01T00:00:00Z\"", $"\"{rawResetValue}\"", StringComparison.Ordinal);
+        var snapshot = await Snapshot(json);
+        return Assert.Single(snapshot.Windows.Select(w => w.ResetTime).Distinct());
+    }
 
     private static ICredentialSource TokenSource(string token = "gho_token") => new StubSource(
         new CredentialReadResult

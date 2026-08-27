@@ -30,11 +30,12 @@
 `usage-summary` 응답 형태가 바뀌어(필드 개명, 인식 필드 없는 플랜) 퍼센트 우선순위 체인이 전부 실패하면 `0`으로 폴백해 **0% 사용의 성공 스냅샷**을 반환한다. 코디네이터는 이를 라이브 성공으로 취급 — 마지막 정상값 교체·영속화, `usage-history.db`에 가짜 0 하락 기록(ETA 분류기가 사이클 리셋으로 오인), 평가기의 reset-fallback 오탐 가능. 다른 프로바이더(Copilot/Antigravity)는 사용 불가한 버킷을 **건너뛰지** 0으로 가정하지 않으며, "실패가 last-good을 잘못된 데이터로 대체해선 안 된다"는 스펙과 모순.
 **수정 방향**: 인식 필드가 하나도 없으면 `ParsePlanPercentUsed`가 `null` 반환 → 윈도 생략 또는 throw로 last-good 유지.
 
-### M3. Copilot 월간 초기화 시각을 로컬 시간으로 파싱할 가능성
+### M3. Copilot 월간 초기화 시각을 로컬 시간으로 파싱할 가능성 — ✅ 수정됨
 `Providers/GitHubCopilotProvider.cs:120` + `Providers/Internal/JsonElementExtensions.cs:60-63`
 `quota_reset_date_utc`가 날짜만 있는 문자열(예: `"2026-09-01"`)로 오면 `DateTimeOffset.TryParse(…, RoundtripKind)`가 **로컬 오프셋**을 적용 — UTC+9에서는 실제 UTC 초기화보다 9시간 이른 시각으로 표시되고, 평가기의 reset-advance 비교도 어긋난다. 날짜 전용 파서 `GetDateOnlyOrNull`(:64)이 정의만 되고 **저장소 어디서도 미사용**인 점이 이 지점의 원래 의도였음을 시사.
 **주의**: 현재 테스트 픽스처는 full timestamp(`"2026-07-01T00:00:00Z"`)를 사용 — AGENTS.md의 "라이브 응답을 먼저 확인" 원칙대로 실제 응답이 날짜 전용인지 확인 후 수정할 것.
 **수정 방향**: 실측 확인 후 `AssumeUniversal` 적용 또는 `GetDateOnlyOrNull` → UTC 자정 사용.
+**실제 수정**: 라이브 응답 형태를 확정하지 못했으므로 **어느 형태든 옳게** 파싱하도록 고쳤다 — `GetDateTimeOffsetOrNull`이 `AssumeUniversal | AdjustToUniversal`로 파싱해, 오프셋이 있는 값은 시점을 그대로 유지하고 오프셋이 없는 값(날짜 전용·시각 전용)은 UTC로 읽는다. 오프셋을 가진 입력의 시점은 증명적으로 불변이고 모든 소비자가 시점 기준이므로, Cursor·Claude·Antigravity에 대한 관측 가능한 변화 없이 같은 함정을 함께 제거한다. 미사용이던 `GetDateOnlyOrNull`은 역할이 흡수되어 삭제. 단, UTC 머신에서는 구/신 동작이 동일해 날짜 전용 테스트가 CI에서 실패할 수 없고, 오프셋 정규화 테스트가 기계 독립적 가드다.
 
 ### M4. 드래그 재정렬 중 컬렉션 변경 시 크래시/순서 손상 — ✅ 수정됨
 `Views/PopoverWindow.xaml.cs` `ReorderSurface`: `BeginDrag`(:1058-1085)에서 `_home`/`_centers`를 1회 스냅샷하지만 `ShiftOthers`(:1150-1179)·`OnPointerMoved`(:997-1013)·`ComputeTarget`(:1114-1141)은 **라이브** `_count()`로 인덱싱
