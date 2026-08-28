@@ -257,17 +257,23 @@
                                                 AutomationProperties.Name="{loc:Localize Key=Tooltip_RefreshIssue}"
                                                 ToolTipService.ToolTip="{loc:Localize Key=Tooltip_RefreshIssue}"
                                                 Visibility="{Binding HasRefreshIssue, Converter={StaticResource BoolToVis}}" />
-                                            <!-- Small indeterminate bar while a refresh attempt covering
+                                            <!-- Small indeterminate ring while a refresh attempt covering
                                                  this tool is in flight. It lives in the header — not beside
                                                  each row's reset caption — because a refresh is per-tool,
                                                  the header exists in both bar and gauge modes, and sitting
-                                                 right of the stale badge lets "갱신 실패 + bar" read as
-                                                 "stale, but a retry is running". IsIndeterminate is bound
-                                                 too so the animation only runs while visible. -->
-                                            <ProgressBar
-                                                Width="36"
+                                                 right of the stale badge lets "갱신 실패 + ring" read as
+                                                 "stale, but a retry is running". Gray (secondary text
+                                                 brush) rather than accent so it reads as ambient status,
+                                                 not a call to action. IsActive is bound too so the
+                                                 animation only runs while visible. -->
+                                            <ProgressRing
+                                                Width="14"
+                                                Height="14"
+                                                MinWidth="14"
+                                                MinHeight="14"
                                                 VerticalAlignment="Center"
-                                                IsIndeterminate="{Binding IsRefreshing}"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                IsActive="{Binding IsRefreshing}"
                                                 AutomationProperties.Name="{loc:Localize Key=Status_Refreshing}"
                                                 ToolTipService.ToolTip="{loc:Localize Key=Status_Refreshing}"
                                                 Visibility="{Binding IsRefreshing, Converter={StaticResource BoolToVis}}" />
