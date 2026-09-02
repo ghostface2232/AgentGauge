@@ -141,6 +141,30 @@ public sealed class CodexProviderTests
         Assert.Equal(UsageWindowType.FiveHour, additional.Type);
     }
 
+    [Fact]
+    public async Task GptReserveUsesTheUserFacingLunaReserveNameWithoutChangingItsIdentity()
+    {
+        const string json = """
+        {
+          "additional_rate_limits": [
+            {
+              "limit_name": "gpt-reserve",
+              "metered_feature": "gpt-reserve",
+              "rate_limit": {
+                "primary_window": { "used_percent": 8, "limit_window_seconds": 604800 }
+              }
+            }
+          ]
+        }
+        """;
+
+        var snapshot = await Snapshot(json, Available("t"));
+
+        var reserve = Assert.Single(snapshot.Windows);
+        Assert.Equal("Luna Reserve", reserve.GroupLabel);
+        Assert.Equal("codex-additional-gpt-reserve-604800", reserve.Id);
+    }
+
     [Theory]
     [InlineData("plus", "Plus")]
     [InlineData("go", "Go")]

@@ -188,7 +188,7 @@ public sealed class CodexProvider : UsageProviderBase
         {
             var name = ProviderText.Normalize(entry.GetStringOrNull("limit_name"));
             var feature = ProviderText.Normalize(entry.GetStringOrNull("metered_feature"));
-            var displayName = name ?? feature;
+            var displayName = AdditionalLimitDisplayName(name ?? feature);
             var identity = feature ?? name;
             if (displayName is null || identity is null
                 || entry.GetObjectOrNull("rate_limit") is not { } rateLimit)
@@ -219,4 +219,9 @@ public sealed class CodexProvider : UsageProviderBase
 
         return windows;
     }
+
+    private static string? AdditionalLimitDisplayName(string? raw)
+        => raw is not null && ProviderText.Slug(raw) == "gpt-reserve"
+            ? "Luna Reserve"
+            : raw;
 }
