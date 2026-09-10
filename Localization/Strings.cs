@@ -64,6 +64,12 @@ internal static class Strings
                                  "ログインしているツールがありません。\n設定からログインしてください。"],
         ["Action_OpenSettings"] = ["설정 열기",       "Open settings",     "設定を開く"],
         ["NoData"]            = ["데이터 없음",         "No data",           "データなし"],
+        // Manual rate-limit resets the account holds. The chip is terse; the tooltip and
+        // automation peer spell it out.
+        ["ResetCredits"]      = ["초기화 {0}회",        "{0} resets",        "リセット {0}回"],       // {0} = count
+        ["Tooltip_ResetCredits"] = ["사용할 수 있는 사용량 초기화 {0}회",
+                                 "{0} rate-limit resets available",
+                                 "利用可能な使用量リセット {0}回"],
         ["Tray_NoData"]       = ["{0} 데이터 없음",     "{0} no data",       "{0} データなし"],       // {0} = tool
         ["Tray_Tooltip"]      = ["AgentGauge — {0}\n갱신: {1}", "AgentGauge — {0}\nUpdated: {1}", "AgentGauge — {0}\n更新: {1}"], // {0}=summary {1}=time
 

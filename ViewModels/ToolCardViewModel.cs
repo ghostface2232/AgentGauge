@@ -23,6 +23,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
         ToolName = cached.ToolName;
         StatusText = string.Empty;
         Plan = string.Empty;
+        ResetCreditsText = string.Empty;
+        ResetCreditsDescription = string.Empty;
         Update(cached);
     }
 
@@ -60,6 +62,19 @@ public sealed partial class ToolCardViewModel : ObservableObject
     [ObservableProperty]
     public partial bool HasPlan { get; set; }
 
+    /// <summary>Chip text for the manual rate-limit resets the account holds (e.g. "초기화 2회").</summary>
+    [ObservableProperty]
+    public partial string ResetCreditsText { get; set; }
+
+    /// <summary>Spelled-out form of <see cref="ResetCreditsText"/> for the tooltip and the
+    /// automation peer, since the chip itself is deliberately terse.</summary>
+    [ObservableProperty]
+    public partial string ResetCreditsDescription { get; set; }
+
+    /// <summary>True when the tool reports at least one reset held (controls the chip).</summary>
+    [ObservableProperty]
+    public partial bool HasResetCredits { get; set; }
+
     [ObservableProperty]
     public partial bool HasAnyData { get; set; }
 
@@ -93,6 +108,14 @@ public sealed partial class ToolCardViewModel : ObservableObject
         var plan = cached.Snapshot?.Plan;
         Plan = plan ?? string.Empty;
         HasPlan = !string.IsNullOrEmpty(plan);
+
+        // Like the plan label, this rides the retained snapshot so it survives a failed
+        // refresh. A zero balance is the ordinary state and carries no information, so the
+        // chip is shown only for a balance the user actually has.
+        var resets = cached.Snapshot?.ResetCredits ?? 0;
+        HasResetCredits = resets > 0;
+        ResetCreditsText = resets > 0 ? Loc.Format("ResetCredits", resets) : string.Empty;
+        ResetCreditsDescription = resets > 0 ? Loc.Format("Tooltip_ResetCredits", resets) : string.Empty;
 
         var windows = OrderForDisplay(cached.Snapshot?.Windows ?? Array.Empty<UsageWindow>());
 

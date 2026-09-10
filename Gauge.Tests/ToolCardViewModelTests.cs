@@ -137,6 +137,41 @@ public sealed class ToolCardViewModelTests
         Assert.True(card.GaugeGroups[1].ShowDivider);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    public void ResetCreditChipIsHiddenWithoutAHeldBalance(int? credits)
+    {
+        // Zero is the ordinary state for a plan that has the feature, and null is a tool that
+        // has no such thing; neither is worth a chip.
+        var card = new ToolCardViewModel(Cached("Codex", credits, Window(null, null, UsageWindowType.FiveHour)));
+
+        Assert.False(card.HasResetCredits);
+        Assert.Empty(card.ResetCreditsText);
+        Assert.Empty(card.ResetCreditsDescription);
+    }
+
+    [Fact]
+    public void ResetCreditChipShowsTheHeldBalanceWithASpelledOutDescription()
+    {
+        var card = new ToolCardViewModel(Cached("Codex", 2, Window(null, null, UsageWindowType.FiveHour)));
+
+        Assert.True(card.HasResetCredits);
+        Assert.Equal("초기화 2회", card.ResetCreditsText);
+        Assert.Equal("사용할 수 있는 사용량 초기화 2회", card.ResetCreditsDescription);
+    }
+
+    [Fact]
+    public void ResetCreditChipClearsWhenTheBalanceIsSpent()
+    {
+        var card = new ToolCardViewModel(Cached("Codex", 1, Window(null, null, UsageWindowType.FiveHour)));
+
+        card.Update(Cached("Codex", 0, Window(null, null, UsageWindowType.FiveHour)));
+
+        Assert.False(card.HasResetCredits);
+        Assert.Empty(card.ResetCreditsText);
+    }
+
     private static UsageWindow Window(string? id, string? group, UsageWindowType type) => new()
     {
         Id = id,
@@ -146,10 +181,19 @@ public sealed class ToolCardViewModelTests
         UsedRatio = 0.1,
     };
 
-    private static CachedUsage Cached(string toolName, params UsageWindow[] windows) => new()
+    private static CachedUsage Cached(string toolName, params UsageWindow[] windows)
+        => Cached(toolName, null, windows);
+
+    private static CachedUsage Cached(string toolName, int? resetCredits, params UsageWindow[] windows) => new()
     {
         ToolName = toolName,
-        Snapshot = new UsageSnapshot { ToolName = toolName, CapturedAt = DateTimeOffset.UtcNow, Windows = windows },
+        Snapshot = new UsageSnapshot
+        {
+            ToolName = toolName,
+            CapturedAt = DateTimeOffset.UtcNow,
+            Windows = windows,
+            ResetCredits = resetCredits,
+        },
         LastUpdatedAt = DateTimeOffset.UtcNow,
     };
 }

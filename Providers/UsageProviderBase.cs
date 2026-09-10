@@ -260,11 +260,13 @@ public abstract class UsageProviderBase : IUsageProvider
     /// </summary>
     protected virtual string? PlanFromCredential(ToolCredential? credential) => null;
 
-    protected UsageSnapshot Snapshot(string? plan, IReadOnlyList<UsageWindow> windows) => new()
+    protected UsageSnapshot Snapshot(
+        string? plan, IReadOnlyList<UsageWindow> windows, int? resetCredits = null) => new()
     {
         ToolName = ToolName,
         Plan = plan,
         Windows = windows,
+        ResetCredits = resetCredits,
         CapturedAt = Time.GetUtcNow(),
     };
 

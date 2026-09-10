@@ -227,6 +227,39 @@ public sealed class CodexProviderTests
     }
 
     [Fact]
+    public async Task ReadsHeldResetCreditsRatherThanTheCurrentlyApplicableOnes()
+    {
+        // applicable_available_count is the subset spendable against the limit in force, so it
+        // reads 0 whenever nothing is capped. The card wants the balance held, not that subset.
+        const string json = """
+        {
+          "plan_type": "plus",
+          "rate_limit": { "primary_window": { "used_percent": 3, "limit_window_seconds": 18000 } },
+          "rate_limit_reset_credits": { "available_count": 3, "applicable_available_count": 0 }
+        }
+        """;
+
+        var snapshot = await Snapshot(json, Available("t"));
+
+        Assert.Equal(3, snapshot.ResetCredits);
+    }
+
+    [Theory]
+    [InlineData("""{ "rate_limit_reset_credits": { "available_count": 0 } }""", 0)]
+    [InlineData("""{ "rate_limit_reset_credits": {} }""", null)]
+    [InlineData("""{ "rate_limit_reset_credits": null }""", null)]
+    [InlineData("{}", null)]
+    [InlineData("""{ "rate_limit_reset_credits": { "available_count": "2" } }""", null)]
+    public async Task MissingOrMistypedResetCreditsStayAbsentInsteadOfBecomingZero(string json, int? expected)
+    {
+        // A plan without the feature must not be reported as a spent balance, so only a real
+        // number becomes a count; everything else stays null.
+        var snapshot = await Snapshot(json, Available("t"));
+
+        Assert.Equal(expected, snapshot.ResetCredits);
+    }
+
+    [Fact]
     public async Task ServerErrorPropagatesInsteadOfEmptySuccess()
     {
         var provider = new CodexProvider(

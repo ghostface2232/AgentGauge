@@ -20,6 +20,14 @@
                  text needs (values are Fluent's dark status foregrounds). High contrast
                  defers entirely to the system palette. -->
             <ResourceDictionary.ThemeDictionaries>
+                <!-- The reset-credit chip is a held allowance, not a usage state, so it
+                     deliberately sits outside the ok/caution/danger palette above: a quiet blue
+                     tint that reads as information rather than as another level. The fill is
+                     translucent because it lands on the acrylic card, and the foreground is a
+                     solid value picked for small text on that tint in each theme. There is no
+                     outline: the card already carries one, so a second edge that close reads as
+                     clutter. High contrast therefore swaps to the system highlight pair, which
+                     stays a visible chip without one. -->
                 <ResourceDictionary x:Key="Default">
                     <SolidColorBrush x:Key="UsageOkBrush" Color="#2E9E4F" />
                     <SolidColorBrush x:Key="UsageCautionBrush" Color="#FEAD0C" />
@@ -27,6 +35,8 @@
                     <SolidColorBrush x:Key="UsageOkTextBrush" Color="#6CCB5F" />
                     <SolidColorBrush x:Key="UsageCautionTextBrush" Color="#FEAD0C" />
                     <SolidColorBrush x:Key="UsageDangerTextBrush" Color="#FF99A4" />
+                    <SolidColorBrush x:Key="ResetChipFillBrush" Color="#3D2F6FED" />
+                    <SolidColorBrush x:Key="ResetChipTextBrush" Color="#A8CBFF" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="UsageOkBrush" Color="#2E9E4F" />
@@ -35,6 +45,8 @@
                     <SolidColorBrush x:Key="UsageOkTextBrush" Color="#0F7B0F" />
                     <SolidColorBrush x:Key="UsageCautionTextBrush" Color="#9D5D00" />
                     <SolidColorBrush x:Key="UsageDangerTextBrush" Color="#C42B1C" />
+                    <SolidColorBrush x:Key="ResetChipFillBrush" Color="#242F6FED" />
+                    <SolidColorBrush x:Key="ResetChipTextBrush" Color="#0B4A94" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="HighContrast">
                     <SolidColorBrush x:Key="UsageOkBrush" Color="{ThemeResource SystemColorHighlightColor}" />
@@ -43,6 +55,8 @@
                     <SolidColorBrush x:Key="UsageOkTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
                     <SolidColorBrush x:Key="UsageCautionTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
                     <SolidColorBrush x:Key="UsageDangerTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="ResetChipFillBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+                    <SolidColorBrush x:Key="ResetChipTextBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
