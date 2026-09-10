@@ -22,6 +22,8 @@ public enum LoginKind
 /// </summary>
 public sealed record ToolDescriptor
 {
+    /// <summary>Public Statuspage-compatible service health URL; null means no polling.</summary>
+    public Uri? StatusPageUrl { get; init; }
     public required ToolKind Kind { get; init; }
 
     /// <summary>Card label, e.g. "Claude Code", "Codex".</summary>
@@ -52,6 +54,7 @@ public static class ToolCatalog
     {
         Kind = ToolKind.ClaudeCode,
         DisplayName = "Claude Code",
+        StatusPageUrl = new("https://status.anthropic.com/"),
         LoginCommand = "claude",
         LoginArguments = "/login",
     };
@@ -60,6 +63,7 @@ public static class ToolCatalog
     {
         Kind = ToolKind.Codex,
         DisplayName = "Codex",
+        StatusPageUrl = new("https://status.openai.com/"),
         LoginCommand = "codex",
         LoginArguments = "login",
     };
@@ -68,6 +72,7 @@ public static class ToolCatalog
     {
         Kind = ToolKind.Cursor,
         DisplayName = "Cursor",
+        StatusPageUrl = new("https://status.cursor.com/"),
         // No CLI login: the user signs into the Cursor app; Gauge reads its local token.
         LoginCommand = "",
         LoginArguments = "",
@@ -91,6 +96,7 @@ public static class ToolCatalog
     {
         Kind = ToolKind.GitHubCopilot,
         DisplayName = "GitHub Copilot",
+        StatusPageUrl = new("https://www.githubstatus.com/"),
         // Sign-in is delegated to the GitHub CLI's device-flow login. Gauge then reads the
         // OAuth token gh stores (or a github-copilot apps.json file) — it never logs in itself.
         LoginCommand = "gh",

@@ -216,9 +216,11 @@ public sealed class TrayIconService : IDisposable
     /// Updates the tooltip with a last-updated time and a short usage summary.
     /// Shell tooltips are length-limited (~127 chars), so keep <paramref name="summary"/> brief.
     /// </summary>
-    public void UpdateToolTip(string summary, DateTimeOffset lastUpdated)
+    public void UpdateToolTip(string summary, DateTimeOffset lastUpdated, string statusSummary = "")
     {
         var text = Loc.Format("Tray_Tooltip", summary, lastUpdated.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
+        // Put incidents first so the shell's 127-character limit cannot hide them behind usage.
+        if (statusSummary.Length > 0) text = statusSummary + "\n" + text;
         _trayIcon.ToolTipText = text.Length > 127 ? text[..127] : text;
     }
 

@@ -20,6 +20,18 @@ public sealed partial class UsageViewModel : ObservableObject
     /// (cards then keep the order the coordinator supplies).</summary>
     private readonly ToolRegistry? _registry;
     private readonly IUsageHistorySource? _history;
+    private IReadOnlyList<ProviderStatus> _serviceStatuses = Array.Empty<ProviderStatus>();
+
+    public string TrayStatusSummary => string.Join(" · ", _serviceStatuses
+        .Where(s => (_registry is null || _registry.IsEnabled(s.Tool)) && ProviderStatusText.IsVisible(s))
+        .Select(s => $"{ToolCatalog.For(s.Tool).DisplayName}: {ProviderStatusText.Label(s)}"));
+
+    public void ApplyServiceStatuses(IReadOnlyList<ProviderStatus> statuses)
+    {
+        _serviceStatuses = statuses;
+        foreach (var card in Cards)
+            card.ApplyServiceStatus(statuses.FirstOrDefault(s => ToolCatalog.For(s.Tool).DisplayName == card.ToolName));
+    }
     /// <summary>Returns true when every registered tool's credential state is known-Missing
     /// (nobody signed in). Optional so tests and older call sites can omit it; without it
     /// the empty state never claims "no tools are signed in".</summary>
@@ -227,6 +239,7 @@ public sealed partial class UsageViewModel : ObservableObject
             : Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
         RefreshCards(recorded);
+        ApplyServiceStatuses(_serviceStatuses);
 
         // A fresh install with nothing signed in doesn't produce "no record" tools: the
         // providers report success with an empty snapshot, which would render one dead

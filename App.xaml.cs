@@ -22,6 +22,8 @@ public partial class App : Application
     private PopoverWindow? _popover;
     private TrayIconService? _trayIcon;
     private UsageCoordinator? _coordinator;
+    private ProviderStatusService? _statusService;
+    private HttpClient? _statusHttpClient;
     private UsageNotificationService? _notificationService;
     private UsageViewModel? _viewModel;
     private SettingsViewModel? _settingsViewModel;
@@ -186,6 +188,17 @@ public partial class App : Application
         _popover.Opened += OnPopoverOpened;
 
         _coordinator.Start();
+        _statusHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        _statusService = new ProviderStatusService(_statusHttpClient, _toolRegistry.IsEnabled);
+        var statusDispatcher = DispatcherQueue.GetForCurrentThread();
+        _statusService.Updated += (_, statuses) => statusDispatcher.TryEnqueue(() =>
+        {
+            if (_statusService is null) return;
+            _viewModel?.ApplyServiceStatuses(statuses);
+            UpdateTrayTooltip();
+            _popover?.RefreshUsageLayout();
+        });
+        _statusService.Start();
         // Waking from sleep or unlocking the session can land anywhere in the providers'
         // cadences, so the popover would otherwise show data as stale as the longest
         // interval. One forced (debounced) refresh brings every card current on wake.
@@ -249,7 +262,7 @@ public partial class App : Application
         _popover?.RefreshUsageLayout();
         if (_viewModel is not null)
         {
-            _trayIcon?.UpdateToolTip(_viewModel.TrayTooltipSummary, _viewModel.LastUpdatedAt ?? DateTimeOffset.Now);
+            UpdateTrayTooltip();
             // Recolor the tray icon by the highest usage ratio (≥70% caution, ≥90% danger).
             _trayIcon?.UpdateUsageLevel(_viewModel.HighestUsageRatio);
         }
@@ -263,8 +276,15 @@ public partial class App : Application
         }
     }
 
+    private void UpdateTrayTooltip()
+    {
+        if (_viewModel is { } vm)
+            _trayIcon?.UpdateToolTip(vm.TrayTooltipSummary, vm.LastUpdatedAt ?? DateTimeOffset.Now, vm.TrayStatusSummary);
+    }
+
     private async void OnToolRegistryChanged(object? sender, EventArgs e)
     {
+        if (_statusService is { } statusService) _ = statusService.RefreshAsync();
         if (_coordinator is not null)
         {
             await _coordinator.RefreshAsync(RefreshReason.ToolsChanged);
@@ -468,6 +488,10 @@ public partial class App : Application
         SystemEvents.SessionSwitch -= OnSessionSwitch;
         _coordinator?.Dispose();
         _coordinator = null;
+        _statusService?.Dispose();
+        _statusService = null;
+        _statusHttpClient?.Dispose();
+        _statusHttpClient = null;
         // The coordinator is cancelled and its loop drained, but a refresh begun from a UI
         // handler can still be unwinding (its continuations queue behind this UI thread).
         // Tear down any delegate engine Gauge launched, along with its sidecar tree; the

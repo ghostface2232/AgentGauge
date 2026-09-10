@@ -149,6 +149,8 @@ The settings screen is a second view hosted **inside** the same popover window (
 
 ## Polling and refresh
 
+- Public service health is separate from usage/authentication: `ProviderStatusService` polls registered Claude, Codex, Cursor and Copilot Statuspage endpoints every 15 minutes on a dedicated unauthenticated client. Antigravity has no configured status source. Unknown/malformed responses never mean healthy; failures retain the last observation with an unconfirmed label and its original check time. The card chip opens the catalog's official status URL; its tooltip states that service-wide health may be unrelated to the account error. Incidents take priority in the length-limited tray tooltip. Status never changes usage caches, auth state, notifications or usage colors.
+
 - A PeriodicTimer ticks once per minute as a scheduler, but refreshes only providers whose own cadence is due: Codex every 3 minutes, Claude/Cursor every 5, Antigravity every 10, and GitHub Copilot every 15. This keeps Codex responsive, respects Claude's ~5-minute network cache, and cuts unnecessary Antigravity delegate-engine launches and monthly Copilot reads. Opening the popover still forces an immediate fresh read of every enabled provider, so the user always sees current data when they look.
 - On each scheduler cycle, call the due providers in parallel, each call isolated in try-catch.
 - Opening the popover triggers one immediate forced refresh, debounced: skip if the last refresh was under 10s ago and show the cached value instead.

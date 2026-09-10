@@ -1,6 +1,6 @@
 # AgentGauge: Privacy Policy
 
-**Effective date:** 2026-08-14
+**Effective date:** 2026-09-10
 **Contact:** baemingwan@gmail.com
 **Repository:** https://github.com/ghostface2232/AgentGauge
 
@@ -31,6 +31,7 @@ AgentGauge communicates only with the following external endpoints. All of them 
 | `chatgpt.com` | Fetch Codex usage | User's OpenAI OAuth token |
 | `cursor.com` | Fetch Cursor usage | User's Cursor session token |
 | `api.github.com` (`/copilot_internal/user`) | Fetch GitHub Copilot usage (only when Copilot is registered) | User's GitHub OAuth token |
+| `status.anthropic.com` / `status.claude.com`, `status.openai.com`, `status.cursor.com`, `www.githubstatus.com` | Read public service health every 15 minutes for registered tools | None (unauthenticated public GET; no token or cookie attached) |
 | `api.github.com` (`/repos/.../releases/latest`) | Check for app updates | None (public release info only; no token attached) |
 | `github.com` / `objects.githubusercontent.com` | Download the release installer, only when the user clicks Update | None (public file; no token attached) |
 
@@ -50,7 +51,7 @@ The only data AgentGauge stores on the user's PC is the following, which contain
 This data can be removed at any time by deleting the files/registry entry. The uninstaller removes the Run key; the `%APPDATA%\Gauge` folder can be deleted manually if desired.
 
 ## 5. Third-Party Sharing / Sale
-AgentGauge does not share or sell personal information to third parties. The communication in Section 3 is strictly usage lookups against the user's own first-party services.
+AgentGauge does not share or sell personal information to third parties. The communication in Section 3 covers usage, public service health, and app updates.
 
 ## 6. Children's Privacy
 AgentGauge is not directed at children and does not knowingly collect children's personal information.

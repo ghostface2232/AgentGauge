@@ -323,6 +323,17 @@
                                             </ctrl:SquircleBorder>
                                         </Grid>
 
+                                        <HyperlinkButton
+                                            Content="{Binding ServiceStatusText}"
+                                            NavigateUri="{Binding StatusPageUrl}"
+                                            HorizontalAlignment="Left" Padding="8,3" MinHeight="24"
+                                            CornerRadius="8"
+                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                                            Foreground="{ThemeResource UsageCautionTextBrush}"
+                                            AutomationProperties.Name="{Binding ServiceStatusDescription}"
+                                            ToolTipService.ToolTip="{Binding ServiceStatusDescription}"
+                                            Visibility="{Binding HasServiceStatus, Converter={StaticResource BoolToVis}}" />
+
                                         <!-- The tool's windows, rendered as bars or gauges per the
                                              app-wide view mode. Both share the same Windows source;
                                              exactly one is visible (IsBarMode / IsGaugeMode), and the

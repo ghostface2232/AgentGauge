@@ -31,6 +31,21 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// <summary>Stable across updates; used to reconcile cards.</summary>
     public string ToolName { get; }
 
+    [ObservableProperty]
+    public partial bool HasServiceStatus { get; set; }
+    [ObservableProperty]
+    public partial string ServiceStatusText { get; set; } = "";
+    [ObservableProperty]
+    public partial string ServiceStatusDescription { get; set; } = "";
+    public Uri? StatusPageUrl => ToolCatalog.All.FirstOrDefault(d => d.DisplayName == ToolName)?.StatusPageUrl;
+
+    public void ApplyServiceStatus(ProviderStatus? status)
+    {
+        HasServiceStatus = status is not null && ProviderStatusText.IsVisible(status);
+        ServiceStatusText = status is null ? "" : ProviderStatusText.Label(status);
+        ServiceStatusDescription = status is null ? "" : ProviderStatusText.Description(status);
+    }
+
     /// <summary>One row per window the tool exposes, in provider order.</summary>
     public ObservableCollection<UsageWindowRowViewModel> Windows { get; } = new();
 
