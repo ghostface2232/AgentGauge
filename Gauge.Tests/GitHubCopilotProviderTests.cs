@@ -67,6 +67,7 @@ public sealed class GitHubCopilotProviderTests
         var reset = await ResetTimeFor("2026-07-01T09:00:00+09:00");
 
         Assert.Equal(new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero), reset);
+        Assert.NotNull(reset);
         Assert.Equal(TimeSpan.Zero, reset.Value.Offset);
     }
 
