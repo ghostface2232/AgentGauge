@@ -51,6 +51,32 @@ public sealed class UsageCacheStoreTests : IDisposable
     }
 
     [Fact]
+    public void SaveThenLoadRestoresResetCreditsIncludingItsAbsence()
+    {
+        // The chip rides the retained snapshot, so a restart must not turn a held balance into
+        // nothing — nor an absent one (a tool with no such allowance) into a zero balance.
+        var store = new UsageCacheStore(_dir);
+        store.Save(new[]
+        {
+            Snapshot("Codex", resetCredits: 4),
+            Snapshot("Claude Code", resetCredits: null),
+        });
+
+        var loaded = new UsageCacheStore(_dir).Load();
+
+        Assert.Equal(4, Assert.Single(loaded, s => s.ToolName == "Codex").ResetCredits);
+        Assert.Null(Assert.Single(loaded, s => s.ToolName == "Claude Code").ResetCredits);
+    }
+
+    private static UsageSnapshot Snapshot(string toolName, int? resetCredits) => new()
+    {
+        ToolName = toolName,
+        CapturedAt = DateTimeOffset.UtcNow,
+        ResetCredits = resetCredits,
+        Windows = new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5h", UsedRatio = 0.1 } },
+    };
+
+    [Fact]
     public void SaveThenLoadRestoresPerWindowStableId()
     {
         // Antigravity exposes two windows of the same Type; their stable Ids must survive the

@@ -24,6 +24,14 @@ public sealed record UsageSnapshot
     /// </summary>
     public required IReadOnlyList<UsageWindow> Windows { get; init; }
 
+    /// <summary>
+    /// How many manual rate-limit resets the account still holds, for tools that sell or
+    /// grant them (Codex). This is a count of resets, not a utilization, so it belongs on
+    /// the snapshot rather than in <see cref="Windows"/> — it has no ratio, no reset time,
+    /// and no window to attach to. Null for every tool that exposes no such allowance.
+    /// </summary>
+    public int? ResetCredits { get; init; }
+
     /// <summary>When this snapshot was captured.</summary>
     public DateTimeOffset CapturedAt { get; init; }
 }

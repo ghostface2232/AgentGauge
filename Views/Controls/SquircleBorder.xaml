@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Gauge.Views.Controls.SquircleBorder"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    SizeChanged="OnSizeChanged">
+
+    <!-- A Border stand-in whose outline is a squircle instead of a circular-corner
+         rounded rectangle. The shape is one closed Path rebuilt on size or property
+         change (RebuildShape); Child sits over it in the same cell, inset by Padding. -->
+    <Grid>
+        <Path x:Name="ShapePath"
+              Fill="{x:Bind Fill, Mode=OneWay}"
+              Stroke="{x:Bind Stroke, Mode=OneWay}"
+              StrokeThickness="{x:Bind StrokeThickness, Mode=OneWay}"
+              StrokeLineJoin="Round" />
+        <ContentPresenter x:Name="Inner"
+                          Content="{x:Bind Child, Mode=OneWay}"
+                          Padding="{x:Bind Padding, Mode=OneWay}"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch" />
+    </Grid>
+</UserControl>

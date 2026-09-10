@@ -227,10 +227,20 @@
                                     BorderThickness="1"
                                     CornerRadius="8">
                                     <StackPanel Spacing="10">
-                                        <!-- Tool name + plan tier (lighter, e.g. "Max 5x" / "Plus"). -->
+                                        <!-- Tool name + plan tier (lighter, e.g. "Max 5x" / "Plus") on
+                                             the left; the reset-credit chip pushed to the right edge,
+                                             where its separation from the name/plan run says it is a
+                                             balance the account holds rather than a property of the
+                                             plan. -->
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
                                         <StackPanel
+                                            Grid.Column="0"
                                             Orientation="Horizontal"
-                                            Margin="0,0,0,4"
+                                            VerticalAlignment="Center"
                                             Spacing="6">
                                             <TextBlock
                                                 VerticalAlignment="Center"
@@ -278,6 +288,40 @@
                                                 ToolTipService.ToolTip="{loc:Localize Key=Status_Refreshing}"
                                                 Visibility="{Binding IsRefreshing, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
+                                            <!-- Manual rate-limit resets the account holds (Codex).
+                                                 A chip rather than another plain caption, because this
+                                                 is a countable balance and not a property of the plan;
+                                                 the squircle keeps it from reading as a clickable pill,
+                                                 and the tinted fill alone carries it — an outline would
+                                                 add a second edge next to the card's own. The chip text
+                                                 is terse, so the spelled-out form goes to the tooltip
+                                                 and the automation peer. -->
+                                            <ctrl:SquircleBorder
+                                                Grid.Column="1"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Center"
+                                                Radius="8"
+                                                Smoothing="0.75"
+                                                Padding="8,4,9,5"
+                                                Fill="{ThemeResource ResetChipFillBrush}"
+                                                AutomationProperties.Name="{Binding ResetCreditsDescription}"
+                                                ToolTipService.ToolTip="{Binding ResetCreditsDescription}"
+                                                Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVis}}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon
+                                                        VerticalAlignment="Center"
+                                                        FontSize="10"
+                                                        Glyph="&#xE72C;"
+                                                        Foreground="{ThemeResource ResetChipTextBrush}" />
+                                                    <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        FontSize="11"
+                                                        Text="{Binding ResetCreditsText}"
+                                                        Foreground="{ThemeResource ResetChipTextBrush}"
+                                                        Style="{StaticResource CaptionTextBlockStyle}" />
+                                                </StackPanel>
+                                            </ctrl:SquircleBorder>
+                                        </Grid>
 
                                         <!-- The tool's windows, rendered as bars or gauges per the
                                              app-wide view mode. Both share the same Windows source;

@@ -102,8 +102,22 @@ public sealed class CodexProvider : UsageProviderBase
         }
         windows.AddRange(ParseAdditionalRateLimits(root));
 
-        return Snapshot(plan, windows);
+        return Snapshot(plan, windows, ParseResetCredits(root));
     }
+
+    /// <summary>
+    /// Codex accounts can hold a number of manual rate-limit resets:
+    /// <c>rate_limit_reset_credits: { available_count, applicable_available_count }</c>.
+    /// <c>available_count</c> is the balance held; <c>applicable_available_count</c> is the
+    /// subset spendable against the limit currently in force, so it reads 0 whenever nothing
+    /// is capped — the balance is what a status display wants. The object is absent on plans
+    /// without the feature, which stays null rather than becoming a zero balance.
+    /// </summary>
+    private static int? ParseResetCredits(JsonElement root)
+        => root.GetObjectOrNull("rate_limit_reset_credits")?.GetInt64OrNull("available_count")
+            is { } count && count >= 0
+            ? (int)Math.Min(count, int.MaxValue)
+            : null;
 
     /// <summary>
     /// Parses one rate-limit window: <c>{ "used_percent": 0–100, "reset_at": epochSeconds }</c>.
