@@ -57,6 +57,9 @@ public sealed class UsageCoordinator : IDisposable
     private readonly IUsageCachePersistence? _persistence;
     private readonly IUsageHistoryRecorder? _history;
     private readonly TimeProvider _time;
+    private readonly Func<AdaptiveRefreshSignals> _readAdaptiveSignals;
+    private long _lastPopoverOpenedTimestamp = NeverRefreshed;
+    private AdaptiveRefreshDecision? _lastAdaptiveDecision;
 
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly CancellationTokenSource _cts = new();
@@ -105,13 +108,15 @@ public sealed class UsageCoordinator : IDisposable
         DispatcherQueue? dispatcher = null,
         IUsageCachePersistence? persistence = null,
         IUsageHistoryRecorder? history = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        Func<AdaptiveRefreshSignals>? readAdaptiveSignals = null)
     {
         _usageService = usageService;
         _dispatcher = dispatcher;
         _persistence = persistence;
         _history = history;
         _time = time ?? TimeProvider.System;
+        _readAdaptiveSignals = readAdaptiveSignals ?? (() => default);
         RehydrateFromDisk();
     }
 
@@ -184,6 +189,10 @@ public sealed class UsageCoordinator : IDisposable
             return;
         }
 
+        // Record even a debounced open: interaction and a successful fetch are different signals.
+        if (reason == RefreshReason.PopoverOpened)
+            Interlocked.Exchange(ref _lastPopoverOpenedTimestamp, _time.GetTimestamp());
+
         var isDebouncedRequest = reason
             is RefreshReason.PopoverOpened or RefreshReason.Manual or RefreshReason.SystemResumed;
         var lastStarted = Interlocked.Read(ref _lastRefreshStartedTimestamp);
@@ -237,7 +246,7 @@ public sealed class UsageCoordinator : IDisposable
             // Guarded per cycle so one unexpected failure logs and the scheduler keeps
             // ticking, rather than dying silently for the rest of the session.
             await RefreshGuardedAsync(RefreshReason.Periodic); // immediate first load
-            using var timer = new PeriodicTimer(SchedulerTickInterval);
+            using var timer = new PeriodicTimer(SchedulerTickInterval, _time);
             while (await timer.WaitForNextTickAsync(cancellationToken))
             {
                 await RefreshGuardedAsync(RefreshReason.Periodic);
@@ -270,10 +279,12 @@ public sealed class UsageCoordinator : IDisposable
         {
             var enabledProviders = _usageService.GetEnabledProviders();
             var attemptTimestamp = _time.GetTimestamp();
+            var adaptive = reason == RefreshReason.Periodic ? GetAdaptiveDecision(attemptTimestamp) : default;
             var providersToRefresh = reason switch
             {
                 RefreshReason.Periodic => enabledProviders
-                    .Where(provider => IsDue(provider.Tool, attemptTimestamp, PeriodicIntervalFor(provider.Tool)))
+                    .Where(provider => IsDue(provider.Tool, attemptTimestamp,
+                        adaptive.IntervalFor(PeriodicIntervalFor(provider.Tool))))
                     .ToList(),
                 RefreshReason.PopoverOpened => enabledProviders
                     .Where(provider => IsDue(provider.Tool, attemptTimestamp, ForcedIntervalFor(provider.Tool)))
@@ -361,6 +372,20 @@ public sealed class UsageCoordinator : IDisposable
         => interval <= TimeSpan.Zero
             || !_lastProviderAttemptTimestamps.TryGetValue(tool, out var previous)
             || _time.GetElapsedTime(previous, nowTimestamp) >= interval;
+
+    private AdaptiveRefreshDecision GetAdaptiveDecision(long nowTimestamp)
+    {
+        var lastOpen = Interlocked.Read(ref _lastPopoverOpenedTimestamp);
+        var decision = AdaptiveRefreshPolicy.Evaluate(lastOpen == NeverRefreshed
+            ? null : _time.GetElapsedTime(lastOpen, nowTimestamp), _readAdaptiveSignals());
+        if (decision != _lastAdaptiveDecision)
+        {
+            // Only policy transitions are logged, never account/provider identity or activity traces.
+            DiagnosticsLog.Write("refresh", $"reason={decision.Reason} multiplier={decision.Multiplier} cap=30m");
+            _lastAdaptiveDecision = decision;
+        }
+        return decision;
+    }
 
     /// <summary>
     /// Provider-specific background cadence. User-triggered and authentication/tool changes

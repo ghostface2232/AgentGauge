@@ -36,6 +36,7 @@ public partial class App : Application
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
     private UsageHistoryStore? _historyStore;
+    private volatile bool _sessionLocked;
 
     public App()
     {
@@ -169,7 +170,10 @@ public partial class App : Application
         _popover.BindViewModel(_viewModel);
 
         _coordinator = new UsageCoordinator(
-            usageService, DispatcherQueue.GetForCurrentThread(), new UsageCacheStore(), _historyStore);
+            usageService, DispatcherQueue.GetForCurrentThread(), new UsageCacheStore(), _historyStore,
+            readAdaptiveSignals: () => new AdaptiveRefreshSignals(
+                Windows.System.Power.PowerManager.EnergySaverStatus == Windows.System.Power.EnergySaverStatus.On,
+                _sessionLocked));
         _notificationService = new UsageNotificationService();
         _notificationService.SetPreferences(notificationPreferences);
         _coordinator.Updated += OnUsageUpdated;
@@ -444,8 +448,10 @@ public partial class App : Application
 
     private void OnSessionSwitch(object? sender, SessionSwitchEventArgs e)
     {
+        if (e.Reason == SessionSwitchReason.SessionLock) _sessionLocked = true;
         if (e.Reason == SessionSwitchReason.SessionUnlock)
         {
+            _sessionLocked = false;
             RefreshAfterWake();
         }
     }

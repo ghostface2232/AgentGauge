@@ -485,6 +485,57 @@ public sealed class UsageCoordinatorTests
         Assert.Equal(2, provider.CallCount);
     }
 
+    [Fact]
+    public async Task AdaptiveCadenceKeepsStartupImmediateAndManualRefreshResponsive()
+    {
+        var time = new MutableTime();
+        var provider = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService([provider]), time: time);
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+        Assert.Equal(1, provider.CallCount);
+        time.Advance(TimeSpan.FromMinutes(29));
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+        Assert.Equal(1, provider.CallCount);
+        time.Advance(TimeSpan.FromMinutes(1));
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+        Assert.Equal(2, provider.CallCount);
+        // Opening within the fetch debounce must still mark interaction as recent.
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        time.Advance(TimeSpan.FromMinutes(3));
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+        Assert.Equal(3, provider.CallCount);
+        time.Advance(TimeSpan.FromSeconds(11));
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+        Assert.Equal(4, provider.CallCount);
+    }
+
+    [Fact]
+    public async Task LockAndPowerConstraintsDoNotChangeExplicitOrWakeRefreshSemantics()
+    {
+        var time = new MutableTime();
+        var signals = new AdaptiveRefreshSignals(false, true);
+        var provider = new StubProvider("Codex");
+        using var coordinator = new UsageCoordinator(new UsageService([provider]), time: time,
+            readAdaptiveSignals: () => signals);
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        time.Advance(TimeSpan.FromMinutes(3));
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+        Assert.Equal(1, provider.CallCount);
+        signals = new(true, false);
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+        Assert.Equal(1, provider.CallCount);
+        await coordinator.RefreshAsync(RefreshReason.SystemResumed);
+        Assert.Equal(2, provider.CallCount);
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Equal(3, provider.CallCount);
+        signals = default;
+        time.Advance(TimeSpan.FromMinutes(2));
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        time.Advance(TimeSpan.FromMinutes(3));
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+        Assert.Equal(5, provider.CallCount);
+    }
+
     private static UsageSnapshot Seed(string name) => new()
     {
         ToolName = name,
