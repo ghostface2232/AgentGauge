@@ -102,10 +102,10 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     public bool HasEta => !string.IsNullOrEmpty(EtaText);
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasPaceWarning))]
+    [NotifyPropertyChangedFor(nameof(HasPace))]
     public partial string PaceText { get; set; }
 
-    public bool HasPaceWarning => !string.IsNullOrEmpty(PaceText);
+    public bool HasPace => !string.IsNullOrEmpty(PaceText);
 
     [ObservableProperty]
     public partial UsageLevel PaceLevel { get; set; }

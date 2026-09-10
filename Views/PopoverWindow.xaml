@@ -423,10 +423,11 @@
                                                                 Visibility="{Binding HasCounts, Converter={StaticResource BoolToVis}}" />
                                                             <TextBlock
                                                                 Text="{Binding PaceText}"
+                                                                ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Pace}"
                                                                 TextWrapping="Wrap"
                                                                 Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}, ConverterParameter=text}"
                                                                 Style="{StaticResource CaptionTextBlockStyle}"
-                                                                Visibility="{Binding HasPaceWarning, Converter={StaticResource BoolToVis}}" />
+                                                                Visibility="{Binding HasPace, Converter={StaticResource BoolToVis}}" />
                                                             <!-- Measured burn-rate projection ("2시간 후
                                                                  소진 예상"); informational, so it keeps
                                                                  the dimmed caption styling. -->
@@ -515,9 +516,10 @@
                                                                             TextAlignment="Center"
                                                                             TextWrapping="Wrap"
                                                                             Text="{Binding PaceText}"
+                                                                            ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Pace}"
                                                                             Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}, ConverterParameter=text}"
                                                                             Style="{StaticResource CaptionTextBlockStyle}"
-                                                                            Visibility="{Binding HasPaceWarning, Converter={StaticResource BoolToVis}}" />
+                                                                            Visibility="{Binding HasPace, Converter={StaticResource BoolToVis}}" />
                                                                         <TextBlock
                                                                             HorizontalAlignment="Center"
                                                                             TextAlignment="Center"

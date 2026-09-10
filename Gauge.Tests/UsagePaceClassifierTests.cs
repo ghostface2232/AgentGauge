@@ -7,58 +7,72 @@ public sealed class UsagePaceClassifierTests
 {
     private static readonly DateTimeOffset Now = new(2026, 7, 30, 12, 0, 0, TimeSpan.Zero);
 
-    [Fact]
-    public void AheadOfEvenPaceShowsCompactWarning()
+    [Theory]
+    [InlineData(.60, .25, "−35% · 적자", UsageLevel.Danger)]
+    [InlineData(.42, .25, "−17% · 적자", UsageLevel.Caution)]
+    [InlineData(.32, .25, "−7% · 적자", UsageLevel.Ok)]
+    [InlineData(.20, .45, "+25% · 여유", UsageLevel.Ok)]
+    [InlineData(.25, .25, "0% · 적정", UsageLevel.Ok)]
+    [InlineData(.251, .25, "0% · 적정", UsageLevel.Ok)]
+    [InlineData(0, .25, "+25% · 여유", UsageLevel.Ok)]
+    [InlineData(1, .25, "−75% · 적자", UsageLevel.Danger)]
+    public void ShowsSignedDifferenceFromItsOwnCycle(double used, double elapsed, string expected, UsageLevel level)
     {
-        var window = Window(used: 0.60, elapsed: 0.25);
+        Assert.Equal((expected, level), UsagePaceClassifier.ForRow(Window(used, elapsed), Now));
+    }
 
-        var (text, level) = UsagePaceClassifier.ForRow(window, Now);
-
-        Assert.Equal("빠르게 소진 중", text);
-        Assert.Equal(UsageLevel.Danger, level);
+    [Theory]
+    [InlineData(5)]
+    [InlineData(168)]
+    [InlineData(720)]
+    public void ExactlyThreePercentOpensGateForEveryDuration(int hours)
+    {
+        var duration = TimeSpan.FromHours(hours);
+        var window = Window(.3, .03) with { Duration = duration, ResetTime = Now + duration * .97 };
+        Assert.Equal("−27% · 적자", UsagePaceClassifier.ForRow(window, Now).Text);
+        Assert.Empty(UsagePaceClassifier.ForRow(window with { ResetTime = window.ResetTime!.Value.AddTicks(1) }, Now).Text);
+        Assert.Empty(UsagePaceClassifier.ForRow(window with { ResetTime = Now + duration }, Now).Text);
     }
 
     [Fact]
-    public void SmallLeadOrMissingDurationStaysQuiet()
+    public void MissingOrInvalidCycleShowsEnDash()
     {
-        Assert.Empty(UsagePaceClassifier.ForRow(Window(used: 0.32, elapsed: 0.25), Now).Text);
-
-        var withoutDuration = Window(used: 0.80, elapsed: 0.25) with { Duration = null };
-        Assert.Empty(UsagePaceClassifier.ForRow(withoutDuration, Now).Text);
-    }
-
-    [Fact]
-    public void ModerateLeadUsesCautionLevel()
-    {
-        var (text, level) = UsagePaceClassifier.ForRow(Window(used: 0.42, elapsed: 0.25), Now);
-        Assert.Equal("빠르게 소진 중", text);
-        Assert.Equal(UsageLevel.Caution, level);
-    }
-
-    [Fact]
-    public void VeryEarlyCycleStaysQuiet()
-    {
-        var fiveHour = Window(used: 0.30, elapsed: 0.02) with
+        var window = Window(.8, .25);
+        foreach (var invalid in new[]
         {
-            Type = UsageWindowType.FiveHour,
-            Duration = TimeSpan.FromHours(5),
-            ResetTime = Now.AddHours(4.9),
-        };
+            window with { Duration = null }, window with { Duration = TimeSpan.Zero },
+            window with { Duration = TimeSpan.FromHours(-1) }, window with { ResetTime = null },
+            window with { ResetTime = Now }, window with { ResetTime = Now.AddDays(-1) },
+            window with { ResetTime = Now.AddDays(8) }, window with { UsedRatio = double.NaN },
+            window with { UsedRatio = double.PositiveInfinity },
+        }) Assert.Equal(("–", UsageLevel.Ok), UsagePaceClassifier.ForRow(invalid, Now));
+    }
 
-        Assert.Empty(UsagePaceClassifier.ForRow(fiveHour, Now).Text);
+    [Fact]
+    public void AnotherWindowCannotSupplyMissingPaceData()
+    {
+        var card = new ToolCardViewModel(new CachedUsage
+        {
+            ToolName = "Codex",
+            Snapshot = new UsageSnapshot
+            {
+                ToolName = "Codex", Windows =
+                [Window(.6, .25) with { Id = "weekly", ResetTime = DateTimeOffset.UtcNow.AddDays(5.25) },
+                 Window(.3, .25) with { Id = "scoped", GroupLabel = "Model", Duration = null }],
+            },
+        });
+        Assert.Equal("–", Assert.Single(card.Windows, w => w.Key == "scoped").PaceText);
+        Assert.True(Assert.Single(card.Windows, w => w.Key == "scoped").HasPace);
+        Assert.Contains("적자", Assert.Single(card.Windows, w => w.Key == "weekly").PaceText);
     }
 
     private static UsageWindow Window(double used, double elapsed)
     {
         var duration = TimeSpan.FromDays(7);
-        var reset = Now + TimeSpan.FromTicks((long)(duration.Ticks * (1 - elapsed)));
         return new UsageWindow
         {
-            Type = UsageWindowType.Weekly,
-            UsedRatio = used,
-            Label = "주간",
-            ResetTime = reset,
-            Duration = duration,
+            Type = UsageWindowType.Weekly, UsedRatio = used, Label = "주간",
+            ResetTime = Now + duration * (1 - elapsed), Duration = duration,
         };
     }
 }

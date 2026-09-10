@@ -99,7 +99,10 @@ internal static class Strings
         ["Reset_InHours"]     = ["{0}시간 후 초기화",  "Resets in {0}h",    "{0}時間後にリセット"],
         ["Reset_InMinutes"]   = ["{0}분 후 초기화",    "Resets in {0}m",    "{0}分後にリセット"],
         ["DateFormat_MonthDay"] = ["M월 d일",         "MMM d",             "M月d日"],
-        ["Pace_FastDepletion"] = ["빠르게 소진 중", "Depleting quickly", "急速に消費中"],
+        ["Pace_OnPace"] = ["0% · 적정", "0% · On pace", "0% · 適正ペース"],
+        ["Pace_Deficit"] = ["−{0}% · 적자", "−{0}% · Deficit", "−{0}% · 不足"],
+        ["Pace_Reserve"] = ["+{0}% · 여유", "+{0}% · Reserve", "+{0}% · 余裕"],
+        ["Tooltip_Pace"] = ["균등 소비 기준과의 차이(%포인트). +는 여유, −는 적자입니다. 해당 주기의 3%가 지난 후 표시하며, 계산할 수 없으면 –로 표시합니다.", "Difference from even consumption in percentage points. + means reserve; − means deficit. Shown after 3% of this cycle; – means unavailable.", "均等消費との差（パーセントポイント）。+は余裕、−は不足です。この周期の3%経過後に表示し、算出できない場合は–を表示します。"],
         // ETA-to-exhaustion captions (from the measured recent burn rate; see UsageEtaClassifier).
         ["Eta_InDays"]        = ["{0}일 후 소진 예상",       "Runs out in ~{0} days", "{0}日後に使い切る見込み"],
         ["Eta_InDay"]         = ["{0}일 후 소진 예상",       "Runs out in ~{0} day",  "{0}日後に使い切る見込み"], // singular (English)
