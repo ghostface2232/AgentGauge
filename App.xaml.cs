@@ -35,6 +35,21 @@ public partial class App : Application
     private ViewModeSettingsStore? _viewModeSettingsStore;
     private DisplayBasisSettingsStore? _displayBasisSettingsStore;
     private SparklineSettingsStore? _sparklineSettingsStore;
+    // The last values known to have reached settings.json. A save that the file refuses
+    // reverts its surface to the value here, never to a fresh read: an unreadable
+    // settings.json is indistinguishable from an absent one and reads as this build's
+    // defaults, so a read error would masquerade as the user's choice — and for the
+    // notification kinds, whose default is on, would un-mute someone who muted.
+    private NotificationPreferences _notificationPreferences = NotificationPreferences.Default;
+    // Whether the preferences above came from a read that actually succeeded. Only the
+    // notification kinds need this: their toggle MERGES onto the value (`With` keeps the
+    // other kind), so an unread file's all-on default would be written back over a kind the
+    // user muted. The three below are written whole, so the value they revert to is always
+    // the same one their surface is already showing and cannot disagree with it.
+    private bool _notificationPreferencesRead;
+    private UsageViewMode _viewMode;
+    private UsageDisplayBasis _displayBasis;
+    private bool _showSparkline = true;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
@@ -150,16 +165,19 @@ public partial class App : Application
         // applies/reconciles the change (see OnGlobal* handlers below). The initial state
         // comes from the persisted notifications flag and the real Run-key startup state.
         _notificationSettingsStore = new NotificationSettingsStore();
-        var notificationPreferences = _notificationSettingsStore.Load();
-        _trayIcon.SetNotificationPreferences(notificationPreferences);
+        // The surfaces need something to show even when the file cannot be read, and the
+        // all-on default is that something — but remember that it is a guess, so no later
+        // toggle merges a muted kind away against it.
+        _notificationPreferencesRead = _notificationSettingsStore.TryLoad(out _notificationPreferences);
+        _trayIcon.SetNotificationPreferences(_notificationPreferences);
         _viewModeSettingsStore = new ViewModeSettingsStore();
-        var viewMode = _viewModeSettingsStore.Load();
+        _viewMode = _viewModeSettingsStore.Load();
         _displayBasisSettingsStore = new DisplayBasisSettingsStore();
-        var displayBasis = _displayBasisSettingsStore.Load();
+        _displayBasis = _displayBasisSettingsStore.Load();
         _sparklineSettingsStore = new SparklineSettingsStore();
-        var showSparkline = _sparklineSettingsStore.Load();
+        _showSparkline = _sparklineSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(
-            notificationPreferences, _startupService.IsEnabled(), viewMode, displayBasis, showSparkline);
+            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
@@ -181,9 +199,9 @@ public partial class App : Application
         // appended so trend/ETA features have data; a broken history DB never blocks startup.
         _historyStore = new UsageHistoryStore();
         _viewModel = new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
-        _viewModel.SetViewMode(viewMode);
-        _viewModel.SetDisplayBasis(displayBasis);
-        _viewModel.SetShowSparkline(showSparkline);
+        _viewModel.SetViewMode(_viewMode);
+        _viewModel.SetDisplayBasis(_displayBasis);
+        _viewModel.SetShowSparkline(_showSparkline);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
 
@@ -193,7 +211,7 @@ public partial class App : Application
                 Windows.System.Power.PowerManager.EnergySaverStatus == Windows.System.Power.EnergySaverStatus.On,
                 _sessionLocked));
         _notificationService = new UsageNotificationService();
-        _notificationService.SetPreferences(notificationPreferences);
+        _notificationService.SetPreferences(_notificationPreferences);
         foreach (var kind in _toolRegistry.Enabled)
             _notificationService.SetToolHidden(ToolCatalog.For(kind).DisplayName, _toolRegistry.IsHidden(kind));
         _toolRegistry.VisibilityChanged += OnToolVisibilityChanged;
@@ -362,6 +380,12 @@ public partial class App : Application
     {
         if (_settingsViewModel is null) return;
 
+        // The notice speaks for one specific thing that just happened, so a fresh visit
+        // starts without it; whatever is true this time puts it straight back.
+        _settingsViewModel.Global.SettingsNotice = null;
+
+        RecoverSettingsFileIfNeeded();
+
         // Reflect any state changed while the panel was closed — the tray menu can flip both
         // start-on-boot and the notification kinds — before showing the toggles.
         var startOnBoot = _startupService?.IsEnabled() ?? false;
@@ -369,6 +393,8 @@ public partial class App : Application
         {
             // The kind switches ARE the notification gate now, so the live service is armed
             // from the same values they display; neither can claim what the other isn't doing.
+            _notificationPreferences = notifications;
+            _notificationPreferencesRead = true;
             _notificationService?.SetPreferences(notifications);
             _settingsViewModel.Global.SyncFromSystem(notifications, startOnBoot);
         }
@@ -395,23 +421,115 @@ public partial class App : Application
         {
             return;
         }
-        // A toggle that never reached disk must revert on both surfaces rather than lying.
-        // Unlike start-on-boot we must NOT confirm by re-reading: an unreadable settings.json
-        // is indistinguishable from an absent one, and absent means "every alert on", so a
-        // transient read error would flip both switches back on and start toasting. A missing
-        // registry Run value genuinely means "off", which is why that one can re-read safely.
-        // Trust the write's own result instead.
-        var current = _notificationSettingsStore.Load();
-        var desired = current.With(change.Kind, change.Enabled);
-        var applied = _notificationSettingsStore.TrySave(desired) ? desired : current;
+        // This toggle merges: flipping one kind keeps whatever the other kind is, so it
+        // needs a base that is genuinely the user's. If startup could not read the file the
+        // base is only the all-on default, and merging onto it would persist the OTHER kind
+        // as on — un-muting someone who muted. Retry the read once here (the failure may
+        // have been transient) and, failing that, change nothing: put both surfaces back to
+        // what they were showing. Only the settings panel otherwise repairs this, and the
+        // tray menu carries the same two switches without going through it.
+        if (!_notificationPreferencesRead)
+        {
+            _notificationPreferencesRead = _notificationSettingsStore.TryLoad(out _notificationPreferences);
+        }
+        if (!_notificationPreferencesRead)
+        {
+            ReportSettingsWrite(false);
+            _trayIcon?.SetNotificationPreferences(_notificationPreferences);
+            _settingsViewModel?.Global.SyncNotifications(_notificationPreferences);
+            return;
+        }
+
+        // A toggle that never reached disk must revert on both surfaces rather than lying,
+        // so the write's own result decides. The value it reverts to is the one we already
+        // know is persisted, NOT a fresh read: an unreadable settings.json is
+        // indistinguishable from an absent one, and absent means "every alert on", so a
+        // read error would look like a user who wants toasts and un-mute the service. A
+        // missing registry Run value genuinely means "off", which is why start-on-boot can
+        // confirm by re-reading and this cannot.
+        var desired = _notificationPreferences.With(change.Kind, change.Enabled);
+        var applied = ReportSettingsWrite(_notificationSettingsStore.TrySave(desired))
+            ? desired
+            : _notificationPreferences;
+        _notificationPreferences = applied;
         _notificationService?.SetPreferences(applied);
         _trayIcon?.SetNotificationPreferences(applied);
         _settingsViewModel?.Global.SyncNotifications(applied);
     }
 
+    /// <summary>
+    /// Replaces settings.json when it has stopped being readable, which is otherwise a dead
+    /// end: every write is refused and goes on being refused, so nothing the user changes
+    /// would survive a restart. Done here rather than from inside the write path because
+    /// this is where the user is looking at their settings — the one moment the app can both
+    /// replace the file and say that it did.
+    ///
+    /// The replacement is seeded with what this process still holds so the reset costs as
+    /// little as possible, and the parts App does not own are written back by the services
+    /// that do. That is not housekeeping: a blank document reads as every default, and the
+    /// notification kinds default to ON, so leaving it blank would un-mute a user who muted.
+    /// The one preference deliberately left out is any that was never read successfully —
+    /// there is nothing to carry over, only a guess.
+    /// </summary>
+    private void RecoverSettingsFileIfNeeded()
+    {
+        if (_settingsViewModel is null) return;
+
+        var recovered = AppSettingsFile.TryRecoverCorrupt(
+            AppSettingsFile.DefaultDirectory,
+            dto =>
+            {
+                dto.Language = Loc.Current.ToCode();
+                dto.ViewMode = _viewMode == UsageViewMode.Gauge ? "gauge" : "bar";
+                dto.DisplayBasis = _displayBasis == UsageDisplayBasis.Remaining ? "remaining" : "used";
+                dto.ShowSparkline = _showSparkline;
+                if (_notificationPreferencesRead)
+                {
+                    dto.NotificationsEnabled = _notificationPreferences.Enabled;
+                    dto.NotifyThresholds = _notificationPreferences.Thresholds;
+                    dto.NotifyResets = _notificationPreferences.Resets;
+                }
+            },
+            out var sidecar);
+        if (!recovered)
+        {
+            return;
+        }
+
+        // Owned elsewhere, so written by their owners rather than duplicated above: the
+        // registry knows the tools and their visibility, and the tray guard is the only
+        // holder of the foreground-lock baseline once it has been captured.
+        _toolRegistry?.Repersist();
+        _trayIcon?.RepersistForegroundLockBaseline();
+        _settingsViewModel.Global.SettingsNotice = Loc.Format("Settings_FileReset", sidecar);
+    }
+
+    /// <summary>
+    /// Records whether a settings.json write reached disk and returns that same result, so
+    /// every apply path can wrap its save in one call. The refusals below are otherwise
+    /// mute — the switch just snaps back — and a control that moves on its own with no
+    /// explanation reads as a bug rather than as the disk saying no. One shared row speaks
+    /// for all of them: the cause is always the same file, and a successful write clears it.
+    /// </summary>
+    private bool ReportSettingsWrite(bool saved)
+    {
+        if (_settingsViewModel is { } settings)
+        {
+            settings.Global.SettingsNotice = saved ? null : Loc.Get("Settings_SaveFailed");
+        }
+        return saved;
+    }
+
     private void OnGlobalDisplayBasisChanged(object? sender, UsageDisplayBasis basis)
     {
-        _displayBasisSettingsStore?.Save(basis);
+        // The dropdown already moved itself; a write that settings.json refused must move it
+        // back rather than leave the screen showing a basis the next launch would not honour.
+        if (!ReportSettingsWrite(_displayBasisSettingsStore?.TrySave(basis) == true))
+        {
+            _settingsViewModel?.Global.SetDisplayBasis(_displayBasis);
+            return;
+        }
+        _displayBasis = basis;
         // Rows re-derive their percent in place; the card height is unchanged, so no
         // re-measure is needed.
         _viewModel?.SetDisplayBasis(basis);
@@ -419,7 +537,12 @@ public partial class App : Application
 
     private void OnGlobalSparklineToggled(object? sender, bool show)
     {
-        _sparklineSettingsStore?.Save(show);
+        if (!ReportSettingsWrite(_sparklineSettingsStore?.TrySave(show) == true))
+        {
+            _settingsViewModel?.Global.SetShowSparkline(_showSparkline);
+            return;
+        }
+        _showSparkline = show;
         // The sparkline sits inside the existing primary row, so hiding it changes no
         // card height and no re-measure is needed.
         _viewModel?.SetShowSparkline(show);
@@ -427,7 +550,12 @@ public partial class App : Application
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)
     {
-        _viewModeSettingsStore?.Save(mode);
+        if (!ReportSettingsWrite(_viewModeSettingsStore?.TrySave(mode) == true))
+        {
+            _settingsViewModel?.Global.SetViewMode(_viewMode);
+            return;
+        }
+        _viewMode = mode;
         _viewModel?.SetViewMode(mode);
         // Bar and gauge cards differ in height; re-measure so the popover resizes to fit
         // (a no-op while the settings view is up — returning to usage re-measures anyway).
@@ -442,7 +570,7 @@ public partial class App : Application
         }
         // The UI language is fixed per process lifetime (XAML strings resolve at parse
         // time), so applying a new language means: persist the override, then restart.
-        if (!LanguageService.SaveOverride(language))
+        if (!ReportSettingsWrite(LanguageService.SaveOverride(language)))
         {
             // Keep the running app intact when the preference could not reach disk;
             // otherwise it would restart into the old language for no effect.

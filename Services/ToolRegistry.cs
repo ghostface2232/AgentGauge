@@ -166,6 +166,18 @@ public sealed class ToolRegistry
         return true;
     }
 
+    /// <summary>
+    /// Writes the current registration and visibility back out without changing either.
+    /// Used after settings.json had to be replaced: the file is new and empty, while this
+    /// registry still holds the list the user actually registered. Raises no event — nothing
+    /// about the set or its order changed, only where it is stored.
+    /// </summary>
+    public void Repersist()
+    {
+        _store.Save(_enabled);
+        _store.SaveHidden(_hidden);
+    }
+
     private void Persist(bool membershipChanged)
     {
         _store.Save(_enabled);

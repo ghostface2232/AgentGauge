@@ -16,6 +16,13 @@ public sealed class SparklineSettingsStore
 
     public bool Load() => AppSettingsFile.Load(_directory()).ShowSparkline ?? true;
 
-    public void Save(bool show)
-        => AppSettingsFile.Save(_directory(), dto => dto.ShowSparkline = show);
+    public void Save(bool show) => _ = TrySave(show);
+
+    /// <summary>
+    /// The result-reporting form of <see cref="Save"/>. False means the choice did not reach
+    /// disk — the caller must keep showing the previous state rather than a preference that
+    /// would be gone on the next launch.
+    /// </summary>
+    public bool TrySave(bool show)
+        => AppSettingsFile.TrySave(_directory(), dto => dto.ShowSparkline = show);
 }
