@@ -1,0 +1,57 @@
+using Gauge.Models;
+using Gauge.ViewModels;
+
+namespace Gauge.Tests;
+
+public sealed class UsageBurndownTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 9, 14, 12, 0, 0, TimeSpan.Zero);
+    private static UsageWindow Window => new() { Type = UsageWindowType.FiveHour, Label = "Session", UsedRatio = .6,
+        Duration = TimeSpan.FromHours(5), ResetTime = Now.AddHours(2) };
+    private static UsageSample[] Samples => [new(Now.AddHours(-2), .2), new(Now.AddHours(-1), .4), new(Now, .6)];
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void InsufficientHistoryLeavesNoPlot(int count) =>
+        Assert.Empty(UsageBurndown.Build(Window, Samples.Take(count).ToList(), Now));
+
+    [Fact]
+    public void RemainingAndIdealShareTimeAxis()
+    {
+        var points = UsageBurndown.Build(Window, Samples, Now);
+        Assert.Equal(3, points.Count);
+        Assert.Equal(0, points[0].X);
+        Assert.Equal(1, points[2].X);
+        Assert.Equal(.8, points[0].Remaining, 8);
+        Assert.Equal(.4, points[2].Remaining, 8);
+        Assert.Equal(.4, points[2].IdealRemaining!.Value, 8);
+        Assert.Equal(points[1], UsageBurndown.Nearest(points, .55));
+    }
+
+    [Fact]
+    public void ResetAndInvalidReadingsNeverJoinCycles()
+    {
+        Assert.Empty(UsageBurndown.Build(Window, [.. Samples, new(Now.AddSeconds(1), .1)], Now.AddSeconds(1)));
+        Assert.Empty(UsageBurndown.Build(Window, [Samples[0], Samples[1], new(Now, double.NaN)], Now));
+        Assert.Empty(UsageBurndown.Build(Window with { ResetTime = Now.AddHours(4.5) }, Samples, Now));
+    }
+
+    [Fact]
+    public void UnknownDurationOmitsIdealAndHoverRestoresLatestCaption()
+    {
+        var row = new UsageWindowRowViewModel(Window);
+        row.Burndown = UsageBurndown.Build(Window with { Duration = null }, Samples, Now);
+        Assert.All(row.Burndown, p => Assert.Null(p.IdealRemaining));
+        row.HoverBurndown(.5);
+        Assert.Contains("60%", row.CaptionText);
+        row.ResetText = "new reset";
+        Assert.Contains("60%", row.CaptionText);
+        row.HoverBurndown(null);
+        Assert.Equal("new reset", row.CaptionText);
+        row.Burndown = [];
+        row.HoverBurndown(.5);
+        Assert.Equal("new reset", row.CaptionText);
+    }
+}

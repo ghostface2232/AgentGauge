@@ -20,7 +20,7 @@ public sealed class PopoverXamlContractTests
     {
         var document = XDocument.Load(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
         var xaml = document.Root!.Name.Namespace;
-        var captionBindings = new[] { "ResetText", "CountsText", "PaceText", "EtaText" };
+        var captionBindings = new[] { "CaptionText", "CountsText", "PaceText", "EtaText" };
 
         var captions = document.Descendants(xaml + "StackPanel").Single(panel =>
             panel.Elements(xaml + "TextBlock").Any(text =>

@@ -170,10 +170,10 @@ public sealed partial class ToolCardViewModel : ObservableObject
             }
             // ETA from the recorded burn rate. GetRecent is memory-backed after its first
             // read, so this stays cheap on the UI thread.
-            existing.EtaText = _history is null
-                ? string.Empty
-                : UsageEtaClassifier.ForRow(
-                    window, _history.GetRecent(ToolName, window.Key, UsageEtaClassifier.Lookback));
+            var samples = _history?.GetRecent(ToolName, window.Key, UsageBurndown.Lookback) ?? [];
+            existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
+            existing.Burndown = UsageBurndown.Build(window, samples, DateTimeOffset.UtcNow);
+            existing.HoverBurndown(null);
         }
 
         AssignGroupHeaders(windows);

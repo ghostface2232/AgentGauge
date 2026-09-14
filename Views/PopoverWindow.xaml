@@ -371,6 +371,7 @@
                                                                 <ColumnDefinition Width="Auto" />
                                                                 <ColumnDefinition Width="*" />
                                                                 <ColumnDefinition Width="Auto" />
+                                                                <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
                                                             <TextBlock
                                                                 Grid.Column="0"
@@ -399,9 +400,12 @@
                                                                         Background="{Binding Level, Converter={StaticResource LevelToBrush}}" />
                                                                 </Grid>
                                                             </Border>
+                                                            <ctrl:UsageSparkline Grid.Column="2" Width="64" Height="16"
+                                                                VerticalAlignment="Center" Points="{Binding Burndown}"
+                                                                Visibility="{Binding HasBurndown, Converter={StaticResource BoolToVis}}" />
                                                             <!-- Always show the number, not color alone (accessibility). -->
                                                             <TextBlock
-                                                                Grid.Column="2"
+                                                                Grid.Column="3"
                                                                 MinWidth="40"
                                                                 TextAlignment="Right"
                                                                 VerticalAlignment="Center"
@@ -413,7 +417,7 @@
                                                             Spacing="2">
                                                             <TextBlock
                                                                 Opacity="0.7"
-                                                                Text="{Binding ResetText}"
+                                                                Text="{Binding CaptionText}" MaxLines="1" TextTrimming="CharacterEllipsis"
                                                                 TextWrapping="Wrap"
                                                                 Style="{StaticResource CaptionTextBlockStyle}" />
                                                             <!-- Absolute counts (e.g. "128 / 300") when the

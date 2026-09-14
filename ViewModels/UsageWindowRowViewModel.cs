@@ -113,6 +113,22 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     [ObservableProperty]
     public partial UsageLevel Level { get; set; }
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBurndown))]
+    public partial IReadOnlyList<BurndownPoint> Burndown { get; set; } = [];
+    public bool HasBurndown => Burndown.Count >= UsageBurndown.MinimumSamples;
+    private string? _hoverCaption;
+    public string CaptionText => _hoverCaption ?? ResetText;
+    partial void OnResetTextChanged(string value) => OnPropertyChanged(nameof(CaptionText));
+
+    public void HoverBurndown(double? x)
+    {
+        _hoverCaption = x is { } position && UsageBurndown.Nearest(Burndown, position) is { } point
+            ? Loc.Format("Burndown_Hover", point.Sample.CapturedAt.ToLocalTime().ToString("HH:mm", Loc.Culture), point.Remaining * 100)
+            : null;
+        OnPropertyChanged(nameof(CaptionText));
+    }
+
     public void Update(UsageWindow window)
     {
         Label = window.Label;
