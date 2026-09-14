@@ -23,13 +23,6 @@ public static class UsageEtaClassifier
     private const int MinimumSamples = 3;
     private const double MinimumUsedRatio = 0.05;
 
-    /// <summary>
-    /// A ratio drop of at least this much between consecutive samples is a cycle reset;
-    /// earlier samples are discarded so a fresh cycle never averages against the old one.
-    /// Smaller decreases are provider jitter/rounding and are left to the regression.
-    /// </summary>
-    private const double ResetDropThreshold = 0.05;
-
     /// <summary>ETA caption for a row, or empty when the projection should stay quiet.</summary>
     public static string ForRow(
         UsageWindow window, IReadOnlyList<UsageSample> samples, DateTimeOffset? now = null)
@@ -62,10 +55,12 @@ public static class UsageEtaClassifier
         var cutoff = now - Lookback;
         var recent = samples.Where(s => s.CapturedAt >= cutoff && s.CapturedAt <= now).ToList();
 
+        // Samples before the newest cycle boundary belong to the previous allowance;
+        // averaging across it would fit the slope to a drop that never happened.
         var start = 0;
         for (var i = 1; i < recent.Count; i++)
         {
-            if (recent[i].UsedRatio < recent[i - 1].UsedRatio - ResetDropThreshold)
+            if (UsageCycleBoundary.IsReset(recent[i - 1], recent[i]))
             {
                 start = i;
             }

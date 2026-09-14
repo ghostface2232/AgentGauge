@@ -39,6 +39,30 @@ public sealed class UsageBurndownTests
     }
 
     [Fact]
+    public void RecalculatedUsageKeepsHistoryButARolledCycleSplitsIt()
+    {
+        // Duration is left out so only the reset-boundary rule is under test; the separate
+        // cycle-start filter needs a duration and would otherwise trim the same samples.
+        var window = Window with { Duration = null, UsedRatio = .419 };
+        var reset = Now.AddHours(2);
+        UsageSample[] samples =
+        [
+            new(Now.AddHours(-2), .400, reset), new(Now.AddHours(-1), .421, reset), new(Now, .419, reset),
+        ];
+        // 42.1% → 41.9% on the same reset is the provider recalculating, not a new cycle.
+        Assert.Equal(3, UsageBurndown.Build(window, samples, Now).Count);
+
+        samples[2] = samples[2] with { ResetTime = reset.AddHours(5) };
+        Assert.Empty(UsageBurndown.Build(window, samples, Now));
+
+        // Without reset timestamps only a drop past the threshold identifies a new cycle.
+        Assert.Equal(3, UsageBurndown.Build(
+            window, [new(Now.AddHours(-2), .40), new(Now.AddHours(-1), .421), new(Now, .419)], Now).Count);
+        Assert.Empty(UsageBurndown.Build(
+            window, [new(Now.AddHours(-2), .40), new(Now.AddHours(-1), .50), new(Now, .44)], Now));
+    }
+
+    [Fact]
     public void ExpiredSnapshotKeepsCycleStartFilterWithoutIdealLine()
     {
         var start = Now.AddHours(-1);

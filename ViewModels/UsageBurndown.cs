@@ -22,9 +22,11 @@ public static class UsageBurndown
             && duration.Ticks <= reset.UtcTicks ? reset - duration : null;
         var ideal = start is not null && window.ResetTime > now;
         if (start is { } cycleStart) valid.RemoveAll(s => s.CapturedAt < cycleStart);
-        // Never join the end of an old allowance to the beginning of a fresh one.
+        // Never join the end of an old allowance to the beginning of a fresh one. Only a
+        // real cycle boundary splits: a provider recomputing its own utilization slightly
+        // downward must not cost the row its history.
         for (var i = valid.Count - 1; i > 0; i--)
-            if (valid[i].UsedRatio < valid[i - 1].UsedRatio)
+            if (UsageCycleBoundary.IsReset(valid[i - 1], valid[i]))
             {
                 valid = valid.Skip(i).ToList();
                 break;
