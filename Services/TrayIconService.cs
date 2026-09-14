@@ -92,6 +92,9 @@ public sealed class TrayIconService : IDisposable
     // Owns zeroing the foreground-lock timeout and restoring the user's value on exit
     // (once, even when Dispose and the ProcessExit handler race).
     private readonly ForegroundLockGuard _foregroundLock = new();
+    // False for a demo instance running beside the real one: the guard is per-user global
+    // state, so a second owner would restore the user's timeout under the main instance.
+    private readonly bool _manageForegroundLock;
     // Held so we can unsubscribe the ProcessExit safety net on dispose.
     private readonly EventHandler _processExitHandler;
     private bool _disposed;
@@ -112,10 +115,11 @@ public sealed class TrayIconService : IDisposable
     /// <summary>Context menu: "종료".</summary>
     public event EventHandler? ExitRequested;
 
-    public TrayIconService()
+    public TrayIconService(bool manageForegroundLock = true)
     {
+        _manageForegroundLock = manageForegroundLock;
         // Make SetForegroundWindow succeed so the SecondWindow menu stays active.
-        _foregroundLock.Disable();
+        if (_manageForegroundLock) _foregroundLock.Disable();
 
         // Normal exits (tray "종료", update restart) restore the lock through Dispose.
         // A crash never reaches Dispose, so without this the global timeout would stay
@@ -124,7 +128,7 @@ public sealed class TrayIconService : IDisposable
         // only fires as the process is ending, so it cannot affect Gauge's own behavior.
         // The guard's Restore is idempotent, so the Dispose + ProcessExit overlap on a
         // normal exit is harmless.
-        _processExitHandler = (_, _) => _foregroundLock.Restore();
+        _processExitHandler = (_, _) => { if (_manageForegroundLock) _foregroundLock.Restore(); };
         AppDomain.CurrentDomain.ProcessExit += _processExitHandler;
 
         _thresholdAlertsItem = BuildNotificationKindItem(
@@ -433,7 +437,7 @@ public sealed class TrayIconService : IDisposable
         // baseline, and leaving the handler subscribed until it has succeeded is what gives
         // that one more attempt as the process ends. A restore that did succeed leaves no
         // baseline, so the handler's later call is a no-op.
-        _foregroundLock.Restore();
+        if (_manageForegroundLock) _foregroundLock.Restore();
         AppDomain.CurrentDomain.ProcessExit -= _processExitHandler;
         _trayIcon.Dispose();
         if (_currentIcon is not null && !_iconCache.ContainsValue(_currentIcon)) _currentIcon.Dispose();

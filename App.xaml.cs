@@ -67,7 +67,13 @@ public partial class App : Application
         _popover = new PopoverWindow();
         _popover.SettingsOpened += OnSettingsOpened;
 
-        _trayIcon = new TrayIconService();
+        // A demo instance (--notification-demo / --popover-demo) runs beside the real tray
+        // instance and must not own the per-user foreground-lock timeout: its exit would
+        // restore the user's value underneath the main instance, which had zeroed it.
+        var isDemoInstance = Environment.GetCommandLineArgs().Any(arg =>
+            arg.Equals("--notification-demo", StringComparison.OrdinalIgnoreCase)
+            || arg.Equals("--popover-demo", StringComparison.OrdinalIgnoreCase));
+        _trayIcon = new TrayIconService(manageForegroundLock: !isDemoInstance);
         _trayIcon.LeftClicked += OnTrayLeftClicked;
         _trayIcon.StartOnBootToggled += OnTrayStartOnBootToggled;
         _trayIcon.NotificationKindToggled += OnNotificationKindToggled;
