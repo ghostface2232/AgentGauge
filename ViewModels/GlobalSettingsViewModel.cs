@@ -23,12 +23,14 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         NotificationPreferences notifications,
         bool startOnBoot,
         UsageViewMode viewMode,
-        UsageDisplayBasis displayBasis = UsageDisplayBasis.Used)
+        UsageDisplayBasis displayBasis = UsageDisplayBasis.Used,
+        bool showSparkline = true)
     {
         SyncFromSystem(notifications, startOnBoot);
         _suspendSideEffects = true;
         ViewModeIndex = (int)viewMode;
         DisplayBasisIndex = (int)displayBasis;
+        ShowSparkline = showSparkline;
         LanguageIndex = (int)Loc.Current;
         _suspendSideEffects = false;
     }
@@ -44,6 +46,9 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 
     /// <summary>Raised when the user picks a different percent basis (not on a programmatic sync).</summary>
     public event EventHandler<UsageDisplayBasis>? DisplayBasisChangeRequested;
+
+    /// <summary>Raised when the user flips the sparkline toggle (not on a programmatic sync).</summary>
+    public event EventHandler<bool>? SparklineToggleRequested;
 
     /// <summary>Raised when the user picks a different UI language (not on a programmatic sync).</summary>
     public event EventHandler<AppLanguage>? LanguageChangeRequested;
@@ -79,6 +84,12 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         [Loc.Get("DisplayBasis_Used"), Loc.Get("DisplayBasis_Remaining")];
 
     /// <summary>
+    /// Whether bar rows show the burndown sparkline. Purely a presentation preference, so
+    /// unlike the notification kinds it has no external owner to reconcile against.
+    /// </summary>
+    [ObservableProperty] public partial bool ShowSparkline { get; set; }
+
+    /// <summary>
     /// Selected UI language as a ComboBox index matching the <see cref="AppLanguage"/> enum
     /// values. Choosing a different language persists it and relaunches the app.
     /// </summary>
@@ -101,6 +112,12 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         if (_suspendSideEffects) return;
         DisplayBasisChangeRequested?.Invoke(this,
             value == (int)UsageDisplayBasis.Remaining ? UsageDisplayBasis.Remaining : UsageDisplayBasis.Used);
+    }
+
+    partial void OnShowSparklineChanged(bool value)
+    {
+        if (_suspendSideEffects) return;
+        SparklineToggleRequested?.Invoke(this, value);
     }
 
     partial void OnLanguageIndexChanged(int value)

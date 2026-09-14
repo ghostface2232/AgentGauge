@@ -86,6 +86,21 @@ public sealed partial class ToolCardViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Whether bar rows show the burndown sparkline. App-wide like <see cref="DisplayBasis"/>;
+    /// pushed to every row so rows created later inherit it.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool ShowSparkline { get; set; } = true;
+
+    partial void OnShowSparklineChanged(bool value)
+    {
+        foreach (var row in Windows)
+        {
+            row.ShowSparkline = value;
+        }
+    }
+
     /// <summary>Plan/subscription label shown beside the tool name (e.g. "Max 5x").</summary>
     [ObservableProperty]
     public partial string Plan { get; set; }
@@ -178,7 +193,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
             var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
-                existing = new UsageWindowRowViewModel(window, DisplayBasis);
+                existing = new UsageWindowRowViewModel(window, DisplayBasis) { ShowSparkline = ShowSparkline };
                 Windows.Insert(Math.Min(index, Windows.Count), existing);
             }
             else

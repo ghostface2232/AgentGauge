@@ -42,6 +42,24 @@ public sealed class UsageViewModelTests
     }
 
     [Fact]
+    public void SetShowSparklineReachesExistingCardsAndCardsAddedLater()
+    {
+        var viewModel = new UsageViewModel();
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithoutRecord("Codex")));
+        Assert.True(viewModel.ShowSparkline);
+
+        viewModel.SetShowSparkline(false);
+
+        Assert.False(viewModel.ShowSparkline);
+        Assert.False(Assert.Single(viewModel.Cards).ShowSparkline);
+
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+
+        Assert.All(viewModel.Cards, card => Assert.False(card.ShowSparkline));
+        Assert.All(viewModel.Cards.SelectMany(c => c.Windows), row => Assert.False(row.ShowSparkline));
+    }
+
+    [Fact]
     public void ApplyExcludesToolsWithNoRecord()
     {
         var viewModel = new UsageViewModel();

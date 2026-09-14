@@ -291,51 +291,84 @@
                                                 ToolTipService.ToolTip="{loc:Localize Key=Status_Refreshing}"
                                                 Visibility="{Binding IsRefreshing, Converter={StaticResource BoolToVis}}" />
                                         </StackPanel>
-                                            <!-- Manual rate-limit resets the account holds (Codex).
-                                                 A chip rather than another plain caption, because this
-                                                 is a countable balance and not a property of the plan;
-                                                 the squircle keeps it from reading as a clickable pill,
-                                                 and the tinted fill alone carries it — an outline would
-                                                 add a second edge next to the card's own. The chip text
-                                                 is terse, so the spelled-out form goes to the tooltip
-                                                 and the automation peer. -->
-                                            <ctrl:SquircleBorder
+                                            <!-- Header chip row: right-aligned, so with one chip it
+                                                 sits on the header's right edge and with both they
+                                                 line up side by side from that edge — the status
+                                                 chip first, the reset chip keeping the edge. -->
+                                            <StackPanel
                                                 Grid.Column="1"
+                                                Orientation="Horizontal"
                                                 HorizontalAlignment="Right"
                                                 VerticalAlignment="Center"
-                                                Radius="8"
-                                                Smoothing="0.75"
-                                                Padding="8,4,9,5"
-                                                Fill="{ThemeResource ResetChipFillBrush}"
-                                                AutomationProperties.Name="{Binding ResetCreditsDescription}"
-                                                ToolTipService.ToolTip="{Binding ResetCreditsDescription}"
-                                                Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVis}}">
-                                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                                    <FontIcon
-                                                        VerticalAlignment="Center"
-                                                        FontSize="10"
-                                                        Glyph="&#xE72C;"
-                                                        Foreground="{ThemeResource ResetChipTextBrush}" />
-                                                    <TextBlock
-                                                        VerticalAlignment="Center"
-                                                        FontSize="11"
-                                                        Text="{Binding ResetCreditsText}"
-                                                        Foreground="{ThemeResource ResetChipTextBrush}"
-                                                        Style="{StaticResource CaptionTextBlockStyle}" />
-                                                </StackPanel>
-                                            </ctrl:SquircleBorder>
+                                                Spacing="6">
+                                                <!-- Service-wide incident/maintenance chip. Same squircle,
+                                                     padding, icon size and caption size as the reset chip
+                                                     beside it so the two header chips are one family, but on
+                                                     the warm StatusChip* tint because it flags a condition.
+                                                     It stays a HyperlinkButton (opens the status page, so it
+                                                     keeps the link role and keyboard focus) with the chip as
+                                                     its content; the button's own padding is zeroed so the
+                                                     squircle is the whole hit target. -->
+                                                <HyperlinkButton
+                                                    NavigateUri="{Binding StatusPageUrl}"
+                                                    VerticalAlignment="Center" Padding="0" MinHeight="0"
+                                                    CornerRadius="8"
+                                                    AutomationProperties.Name="{Binding ServiceStatusDescription}"
+                                                    ToolTipService.ToolTip="{Binding ServiceStatusDescription}"
+                                                    Visibility="{Binding HasServiceStatus, Converter={StaticResource BoolToVis}}">
+                                                    <ctrl:SquircleBorder
+                                                        Radius="8"
+                                                        Smoothing="0.75"
+                                                        Padding="8,4,9,5"
+                                                        Fill="{ThemeResource StatusChipFillBrush}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                            <FontIcon
+                                                                VerticalAlignment="Center"
+                                                                FontSize="10"
+                                                                Glyph="&#xE7BA;"
+                                                                Foreground="{ThemeResource StatusChipTextBrush}" />
+                                                            <TextBlock
+                                                                VerticalAlignment="Center"
+                                                                FontSize="11"
+                                                                Text="{Binding ServiceStatusText}"
+                                                                Foreground="{ThemeResource StatusChipTextBrush}"
+                                                                Style="{StaticResource CaptionTextBlockStyle}" />
+                                                        </StackPanel>
+                                                    </ctrl:SquircleBorder>
+                                                </HyperlinkButton>
+                                                <!-- Manual rate-limit resets the account holds (Codex).
+                                                     A chip rather than another plain caption, because this
+                                                     is a countable balance and not a property of the plan;
+                                                     the squircle keeps it from reading as a clickable pill,
+                                                     and the tinted fill alone carries it — an outline would
+                                                     add a second edge next to the card's own. The chip text
+                                                     is terse, so the spelled-out form goes to the tooltip
+                                                     and the automation peer. -->
+                                                <ctrl:SquircleBorder
+                                                    VerticalAlignment="Center"
+                                                    Radius="8"
+                                                    Smoothing="0.75"
+                                                    Padding="8,4,9,5"
+                                                    Fill="{ThemeResource ResetChipFillBrush}"
+                                                    AutomationProperties.Name="{Binding ResetCreditsDescription}"
+                                                    ToolTipService.ToolTip="{Binding ResetCreditsDescription}"
+                                                    Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVis}}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <FontIcon
+                                                            VerticalAlignment="Center"
+                                                            FontSize="10"
+                                                            Glyph="&#xE72C;"
+                                                            Foreground="{ThemeResource ResetChipTextBrush}" />
+                                                        <TextBlock
+                                                            VerticalAlignment="Center"
+                                                            FontSize="11"
+                                                            Text="{Binding ResetCreditsText}"
+                                                            Foreground="{ThemeResource ResetChipTextBrush}"
+                                                            Style="{StaticResource CaptionTextBlockStyle}" />
+                                                    </StackPanel>
+                                                </ctrl:SquircleBorder>
+                                            </StackPanel>
                                         </Grid>
-
-                                        <HyperlinkButton
-                                            Content="{Binding ServiceStatusText}"
-                                            NavigateUri="{Binding StatusPageUrl}"
-                                            HorizontalAlignment="Left" Padding="8,3" MinHeight="24"
-                                            CornerRadius="8"
-                                            Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                                            Foreground="{ThemeResource UsageCautionTextBrush}"
-                                            AutomationProperties.Name="{Binding ServiceStatusDescription}"
-                                            ToolTipService.ToolTip="{Binding ServiceStatusDescription}"
-                                            Visibility="{Binding HasServiceStatus, Converter={StaticResource BoolToVis}}" />
 
                                         <!-- The tool's windows, rendered as bars or gauges per the
                                              app-wide view mode. Both share the same Windows source;
@@ -402,7 +435,7 @@
                                                             </Border>
                                                             <ctrl:UsageSparkline Grid.Column="2" Width="64" Height="16"
                                                                 VerticalAlignment="Center" Points="{Binding Burndown}"
-                                                                Visibility="{Binding HasBurndown, Converter={StaticResource BoolToVis}}" />
+                                                                Visibility="{Binding IsSparklineVisible, Converter={StaticResource BoolToVis}}" />
                                                             <!-- Always show the number, not color alone (accessibility). -->
                                                             <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                 Grid.Column="3"
@@ -764,6 +797,21 @@
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
                                           ItemsSource="{Binding Global.DisplayBasisOptions}"
                                           SelectedIndex="{Binding Global.DisplayBasisIndex, Mode=TwoWay}" />
+                            </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <!-- Burndown sparkline on bar rows: an on/off state, so a toggle. -->
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_Sparkline}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                              MinWidth="0" OnContent="" OffContent=""
+                                              IsOn="{Binding Global.ShowSparkline, Mode=TwoWay}" />
                             </Grid>
                             <Border Height="1" Margin="0,2"
                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

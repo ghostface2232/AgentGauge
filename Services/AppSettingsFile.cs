@@ -27,6 +27,9 @@ internal sealed class AppSettingsDto
     /// <summary>Usage display basis ("used" / "remaining"). Null (absent) reads as used.</summary>
     public string? DisplayBasis { get; set; }
 
+    /// <summary>Whether bar rows show the burndown sparkline. Null (absent) reads as shown.</summary>
+    public bool? ShowSparkline { get; set; }
+
     /// <summary>
     /// The user's foreground-lock timeout, captured by <see cref="ForegroundLockGuard"/>
     /// before Gauge zeroes the live value and cleared again on a clean exit. Present at

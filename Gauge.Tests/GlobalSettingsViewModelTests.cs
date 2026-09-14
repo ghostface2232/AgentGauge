@@ -10,8 +10,9 @@ public sealed class GlobalSettingsViewModelTests
         NotificationPreferences? notifications = null,
         bool startOnBoot = false,
         UsageViewMode viewMode = UsageViewMode.Bar,
-        UsageDisplayBasis displayBasis = UsageDisplayBasis.Used)
-        => new(notifications ?? NotificationPreferences.Default, startOnBoot, viewMode, displayBasis);
+        UsageDisplayBasis displayBasis = UsageDisplayBasis.Used,
+        bool showSparkline = true)
+        => new(notifications ?? NotificationPreferences.Default, startOnBoot, viewMode, displayBasis, showSparkline);
 
     [Fact]
     public void ConstructorSetsInitialStateWithoutRaisingEvents()
@@ -19,22 +20,44 @@ public sealed class GlobalSettingsViewModelTests
         var startup = 0;
         var viewModeChanges = 0;
         var basisChanges = 0;
+        var sparklineChanges = 0;
         var kinds = 0;
-        var vm = Create(startOnBoot: true, viewMode: UsageViewMode.Gauge, displayBasis: UsageDisplayBasis.Remaining);
+        var vm = Create(startOnBoot: true, viewMode: UsageViewMode.Gauge, displayBasis: UsageDisplayBasis.Remaining,
+            showSparkline: false);
         vm.NotificationKindToggleRequested += (_, _) => kinds++;
         vm.StartOnBootToggleRequested += (_, _) => startup++;
         vm.ViewModeChangeRequested += (_, _) => viewModeChanges++;
         vm.DisplayBasisChangeRequested += (_, _) => basisChanges++;
+        vm.SparklineToggleRequested += (_, _) => sparklineChanges++;
 
         Assert.True(vm.NotifyThresholds);
         Assert.True(vm.NotifyResets);
         Assert.True(vm.StartOnBoot);
         Assert.Equal((int)UsageViewMode.Gauge, vm.ViewModeIndex);
         Assert.Equal((int)UsageDisplayBasis.Remaining, vm.DisplayBasisIndex);
+        Assert.False(vm.ShowSparkline);
         Assert.Equal(0, kinds);
         Assert.Equal(0, startup);
         Assert.Equal(0, viewModeChanges);
         Assert.Equal(0, basisChanges);
+        Assert.Equal(0, sparklineChanges);
+    }
+
+    [Fact]
+    public void ConstructorDefaultsSparklineToShown()
+        => Assert.True(Create().ShowSparkline);
+
+    [Fact]
+    public void TogglingSparklineRaisesRequestWithValue()
+    {
+        var vm = Create();
+        var requested = new List<bool>();
+        vm.SparklineToggleRequested += (_, show) => requested.Add(show);
+
+        vm.ShowSparkline = false;
+        vm.ShowSparkline = true;
+
+        Assert.Equal([false, true], requested);
     }
 
     [Fact]

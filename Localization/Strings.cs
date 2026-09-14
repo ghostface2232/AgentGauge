@@ -22,7 +22,7 @@ internal static class Strings
         ["Status_RefreshIssue"] = ["갱신 실패",        "Refresh failed",    "更新失敗"],
         ["Tooltip_RefreshIssue"] = ["마지막 갱신 실패 · 이전 값을 표시 중", "Last refresh failed · showing previous data", "最終更新に失敗・以前のデータを表示中"],
         ["Status_Refreshing"]  = ["새로고침 중…",      "Refreshing…",       "更新中…"],
-        ["ServiceStatus_Minor"] = ["서비스 일부 장애", "Service degradation", "サービスの一部障害"],
+        ["ServiceStatus_Minor"] = ["서비스 장애", "Service degradation", "サービスの一部障害"],
         ["ServiceStatus_Major"] = ["서비스 장애", "Service outage", "サービス障害"],
         ["ServiceStatus_Maintenance"] = ["서비스 점검", "Service maintenance", "サービスメンテナンス"],
         ["ServiceStatus_Unknown"] = ["서비스 상태 확인 불가", "Service status unavailable", "サービス状態を確認できません"],
@@ -41,6 +41,7 @@ internal static class Strings
         ["Settings_DisplayBasis"] = ["표시 기준",         "Show as",           "表示基準"],
         ["DisplayBasis_Used"]     = ["사용량",           "Used",              "使用量"],
         ["DisplayBasis_Remaining"] = ["남은 사용량",      "Remaining",         "残量"],
+        ["Settings_Sparkline"]    = ["소진 추이 그래프",   "Trend sparkline",   "消費推移グラフ"],
         ["Tray_StartOnBoot"]  = ["Windows 시작 시 실행", "Start on boot",     "スタートアップに登録"],
         ["Tray_Exit"]         = ["종료",             "Exit",              "終了"],
 
@@ -108,9 +109,9 @@ internal static class Strings
         ["Reset_InMinutes"]   = ["{0}분 후 초기화",    "Resets in {0}m",    "{0}分後にリセット"],
         ["DateFormat_MonthDay"] = ["M월 d일",         "MMM d",             "M月d日"],
         ["Pace_OnPace"] = ["0% · 적정", "0% · On pace", "0% · 適正ペース"],
-        ["Pace_Deficit"] = ["−{0}% · 적자", "−{0}% · Deficit", "−{0}% · 不足"],
-        ["Pace_Reserve"] = ["+{0}% · 여유", "+{0}% · Reserve", "+{0}% · 余裕"],
-        ["Tooltip_Pace"] = ["균등 소비 기준과의 차이(%포인트). +는 여유, −는 적자입니다. 해당 주기의 3%가 지난 후 표시하며, 계산할 수 없으면 –로 표시합니다.", "Difference from even consumption in percentage points. + means reserve; − means deficit. Shown after 3% of this cycle; – means unavailable.", "均等消費との差（パーセントポイント）。+は余裕、−は不足です。この周期の3%経過後に表示し、算出できない場合は–を表示します。"],
+        ["Pace_Deficit"] = ["−{0}% · 빠르게 소진 중", "−{0}% · Deficit", "−{0}% · 不足"],
+        ["Pace_Reserve"] = ["+{0}% · 여유 있음", "+{0}% · Reserve", "+{0}% · 余裕"],
+        ["Tooltip_Pace"] = ["균등 소비 기준과의 차이(%포인트). +는 여유가 있는 것, −는 기준보다 빠르게 소진 중인 것입니다. 해당 주기의 3%가 지난 후 표시하며, 계산할 수 없으면 –로 표시합니다.", "Difference from even consumption in percentage points. + means reserve; − means deficit. Shown after 3% of this cycle; – means unavailable.", "均等消費との差（パーセントポイント）。+は余裕、−は不足です。この周期の3%経過後に表示し、算出できない場合は–を表示します。"],
         // ETA-to-exhaustion captions (from the measured recent burn rate; see UsageEtaClassifier).
         ["Eta_InDays"]        = ["{0}일 후 소진 예상",       "Runs out in ~{0} days", "{0}日後に使い切る見込み"],
         ["Eta_InDay"]         = ["{0}일 후 소진 예상",       "Runs out in ~{0} day",  "{0}日後に使い切る見込み"], // singular (English)

@@ -75,6 +75,26 @@ public sealed class ToolCardViewModelTests
     }
 
     [Fact]
+    public void SparklinePreferenceReachesExistingAndLaterAddedRows()
+    {
+        var card = new ToolCardViewModel(Cached("Claude Code",
+            Window("5h", null, UsageWindowType.FiveHour)));
+        Assert.True(card.ShowSparkline);
+        Assert.True(card.Windows.Single().ShowSparkline);
+
+        card.ShowSparkline = false;
+
+        Assert.False(card.Windows.Single().ShowSparkline);
+
+        // A window that appears on a later refresh inherits the card's preference.
+        card.Update(Cached("Claude Code",
+            Window("5h", null, UsageWindowType.FiveHour),
+            Window("weekly", null, UsageWindowType.Weekly)));
+
+        Assert.All(card.Windows, row => Assert.False(row.ShowSparkline));
+    }
+
+    [Fact]
     public void RefreshIssueDotOnlyTracksFailedLastAttempt()
     {
         var healthy = Cached("Claude Code", Window(null, null, UsageWindowType.FiveHour));

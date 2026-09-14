@@ -34,6 +34,7 @@ public partial class App : Application
     private NotificationSettingsStore? _notificationSettingsStore;
     private ViewModeSettingsStore? _viewModeSettingsStore;
     private DisplayBasisSettingsStore? _displayBasisSettingsStore;
+    private SparklineSettingsStore? _sparklineSettingsStore;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
@@ -149,12 +150,15 @@ public partial class App : Application
         var viewMode = _viewModeSettingsStore.Load();
         _displayBasisSettingsStore = new DisplayBasisSettingsStore();
         var displayBasis = _displayBasisSettingsStore.Load();
+        _sparklineSettingsStore = new SparklineSettingsStore();
+        var showSparkline = _sparklineSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(
-            notificationPreferences, _startupService.IsEnabled(), viewMode, displayBasis);
+            notificationPreferences, _startupService.IsEnabled(), viewMode, displayBasis, showSparkline);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
         globalSettings.DisplayBasisChangeRequested += OnGlobalDisplayBasisChanged;
+        globalSettings.SparklineToggleRequested += OnGlobalSparklineToggled;
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
 
         _updateService = new UpdateService();
@@ -173,6 +177,7 @@ public partial class App : Application
         _viewModel = new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
         _viewModel.SetViewMode(viewMode);
         _viewModel.SetDisplayBasis(displayBasis);
+        _viewModel.SetShowSparkline(showSparkline);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
 
@@ -398,6 +403,14 @@ public partial class App : Application
         // Rows re-derive their percent in place; the card height is unchanged, so no
         // re-measure is needed.
         _viewModel?.SetDisplayBasis(basis);
+    }
+
+    private void OnGlobalSparklineToggled(object? sender, bool show)
+    {
+        _sparklineSettingsStore?.Save(show);
+        // The sparkline sits inside the existing primary row, so hiding it changes no
+        // card height and no re-measure is needed.
+        _viewModel?.SetShowSparkline(show);
     }
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)

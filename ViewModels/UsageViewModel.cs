@@ -166,6 +166,22 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// App-wide sparkline visibility for bar rows. Owned here like <see cref="DisplayBasis"/>:
+    /// new cards inherit it and <see cref="SetShowSparkline"/> flips every card at once.
+    /// </summary>
+    public bool ShowSparkline { get; private set; } = true;
+
+    /// <summary>Shows or hides the sparkline on every card's rows (called from the settings toggle).</summary>
+    public void SetShowSparkline(bool show)
+    {
+        ShowSparkline = show;
+        foreach (var card in Cards)
+        {
+            card.ShowSparkline = show;
+        }
+    }
+
     /// <summary>Re-runs the level-to-brush bindings on every card after a live theme
     /// change — the resolved brush is theme-dependent, which bindings can't observe.</summary>
     public void RefreshLevelBrushes()
@@ -337,7 +353,10 @@ public sealed partial class UsageViewModel : ObservableObject
             var existing = Cards.FirstOrDefault(c => c.ToolName == tool.ToolName);
             if (existing is null)
             {
-                Cards.Add(new ToolCardViewModel(tool, _history) { ViewMode = ViewMode, DisplayBasis = DisplayBasis });
+                Cards.Add(new ToolCardViewModel(tool, _history)
+                {
+                    ViewMode = ViewMode, DisplayBasis = DisplayBasis, ShowSparkline = ShowSparkline,
+                });
             }
             else
             {

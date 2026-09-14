@@ -21,6 +21,8 @@ public sealed class PopoverXamlContractTests
             "App.xaml|Default|UsageDangerTextBrush|#FF99A4",
             "App.xaml|Default|ResetChipFillBrush|#3D2F6FED",
             "App.xaml|Default|ResetChipTextBrush|#A8CBFF",
+            "App.xaml|Default|StatusChipFillBrush|#3DFEAD0C",
+            "App.xaml|Default|StatusChipTextBrush|#FFC64A",
             "App.xaml|Light|UsageOkBrush|#2E9E4F",
             "App.xaml|Light|UsageCautionBrush|#FEAD0C",
             "App.xaml|Light|UsageDangerBrush|#FE140C",
@@ -29,12 +31,14 @@ public sealed class PopoverXamlContractTests
             "App.xaml|Light|UsageDangerTextBrush|#C42B1C",
             "App.xaml|Light|ResetChipFillBrush|#242F6FED",
             "App.xaml|Light|ResetChipTextBrush|#0B4A94",
+            "App.xaml|Light|StatusChipFillBrush|#24FEAD0C",
+            "App.xaml|Light|StatusChipTextBrush|#8A5200",
             "Views/PopoverWindow.xaml|Light|IconButtonHoverBrush|#0D000000",
             "Views/PopoverWindow.xaml|Light|IconButtonPressedBrush|#1A000000",
             "Views/PopoverWindow.xaml|Dark|IconButtonHoverBrush|#1FFFFFFF",
             "Views/PopoverWindow.xaml|Dark|IconButtonPressedBrush|#33FFFFFF",
         };
-        Assert.Equal(20, allowed.Count);
+        Assert.Equal(24, allowed.Count);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var failures = new List<string>();
         var root = RepoRoot();
@@ -146,6 +150,7 @@ public sealed class PopoverXamlContractTests
             "{Binding Global.StartOnBoot, Mode=TwoWay}",
             "{Binding Global.ViewModeIndex, Mode=TwoWay}",
             "{Binding Global.DisplayBasisIndex, Mode=TwoWay}",
+            "{Binding Global.ShowSparkline, Mode=TwoWay}",
             "{Binding Global.LanguageIndex, Mode=TwoWay}",
         };
 

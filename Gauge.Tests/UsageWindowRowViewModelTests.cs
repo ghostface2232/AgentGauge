@@ -141,6 +141,32 @@ public sealed class UsageWindowRowViewModelTests
         Assert.False(new UsageWindowRowViewModel(Window() with { LimitTokens = 300 }).HasCounts);
     }
 
+    [Fact]
+    public void SparklineIsVisibleOnlyWhenEnabledAndDataSuffices()
+    {
+        var now = new DateTimeOffset(2026, 9, 14, 12, 0, 0, TimeSpan.Zero);
+        var window = Window() with { Type = UsageWindowType.FiveHour, UsedRatio = .6,
+            Duration = TimeSpan.FromHours(5), ResetTime = now.AddHours(2) };
+        var row = new UsageWindowRowViewModel(window);
+
+        // Shown by default, but there is nothing to draw until enough samples arrive.
+        Assert.True(row.ShowSparkline);
+        Assert.False(row.IsSparklineVisible);
+
+        row.Burndown = UsageBurndown.Build(window,
+            [new(now.AddHours(-2), .2), new(now.AddHours(-1), .4), new(now, .6)], now);
+        Assert.True(row.HasBurndown);
+        Assert.True(row.IsSparklineVisible);
+
+        // Turning the preference off hides the sparkline but keeps the data for re-enabling.
+        row.ShowSparkline = false;
+        Assert.False(row.IsSparklineVisible);
+        Assert.True(row.HasBurndown);
+
+        row.ShowSparkline = true;
+        Assert.True(row.IsSparklineVisible);
+    }
+
     private static UsageWindow Window() => new()
     {
         Type = UsageWindowType.BillingCycle,

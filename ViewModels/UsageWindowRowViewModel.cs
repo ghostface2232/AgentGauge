@@ -137,8 +137,21 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBurndown))]
+    [NotifyPropertyChangedFor(nameof(IsSparklineVisible))]
     public partial IReadOnlyList<BurndownPoint> Burndown { get; set; } = [];
     public bool HasBurndown => Burndown.Count >= UsageBurndown.MinimumSamples;
+
+    /// <summary>
+    /// App-wide sparkline preference, pushed here by the owning card. Hiding the sparkline
+    /// leaves the burndown data (and its hover caption plumbing) intact so re-enabling it
+    /// needs no refresh.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSparklineVisible))]
+    public partial bool ShowSparkline { get; set; } = true;
+
+    /// <summary>The sparkline is drawn only when enabled and there is enough data to draw.</summary>
+    public bool IsSparklineVisible => ShowSparkline && HasBurndown;
     // Normalized pointer position over the sparkline while hovered; null when the pointer
     // left. Kept across data updates so a background refresh re-selects the nearest sample
     // under a stationary pointer instead of dropping the caption back to the reset text.
