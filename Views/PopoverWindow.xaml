@@ -872,16 +872,19 @@
                                           ItemsSource="{Binding Global.LanguageOptions}"
                                           SelectedIndex="{Binding Global.LanguageIndex, Mode=TwoWay}" />
                             </Grid>
-                            <!-- Save-failure notice. Collapsed unless a write to settings.json
-                                 was refused; without it a switch that snapped back on its own
-                                 reads as a bug rather than as the disk saying no. It carries
-                                 no divider and no 48dip row height — it is not a setting, and
-                                 sizing it like one would leave a gap in the normal case. -->
+                            <!-- settings.json notice: a write the file refused, or a document
+                                 replaced because it stopped being JSON. Collapsed otherwise.
+                                 Without it a switch that snapped back on its own reads as a
+                                 bug rather than as the disk saying no. The text is bound, not
+                                 localized here, because App picks which of the two it is. It
+                                 carries no divider and no 48dip row height — it is not a
+                                 setting, and sizing it like one would leave a gap in the
+                                 normal case. -->
                             <TextBlock Margin="0,4,0,0" TextWrapping="Wrap"
-                                       Text="{loc:Localize Key=Settings_SaveFailed}"
+                                       Text="{Binding Global.SettingsNotice}"
                                        Foreground="{ThemeResource UsageCautionTextBrush}"
                                        Style="{StaticResource CaptionTextBlockStyle}"
-                                       Visibility="{Binding Global.SaveFailed, Converter={StaticResource BoolToVis}}" />
+                                       Visibility="{Binding Global.HasSettingsNotice, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                     </Border>
 

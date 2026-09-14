@@ -23,10 +23,10 @@ per-window label key that keeps GitHub Copilot's three billing-cycle quotas dist
 both the rehydrated cache and the toast titles, usage-history recording/pruning
 (`UsageHistoryStoreTests`), the ETA projection (`UsageEtaClassifierTests`), notification
 evaluation and preferences, tool-registry persistence validation, and the shared
-settings.json read-modify-write — including the split between a temporarily locked file
-(refused, left byte-identical) and an unparsable one (moved to a sidecar that a later
-corruption never overwrites, then rewritten fresh), and that reading alone never moves
-anything (`AppSettingsFileTests`).
+settings.json read-modify-write — that no write ever replaces a document it could not read,
+that the explicit recovery replaces only bytes that are not JSON at all (never valid JSON
+that merely fails to bind) and keeps a copy a later corruption cannot overwrite, and that
+reading alone never touches the file (`AppSettingsFileTests`).
 
 Remaining untested-by-design: the WinUI window/tray handlers themselves (thin shells over
 the pure helpers above), toast presentation (`ToastContentBuilder.Show`), and the

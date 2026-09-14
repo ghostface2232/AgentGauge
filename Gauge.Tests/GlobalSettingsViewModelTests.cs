@@ -188,21 +188,25 @@ public sealed class GlobalSettingsViewModelTests
     }
 
     [Fact]
-    public void SaveFailedStartsClearAndRaisesNoRequestWhenSet()
+    public void SettingsNoticeStartsEmptyDrivesItsRowAndRaisesNoRequest()
     {
-        // It is App's report on a write, not a setting the user picks, so flipping it must
-        // not look like a change request to anything listening.
+        // It is App's report on what happened to settings.json, not a setting the user
+        // picks, so setting it must not look like a change request to anything listening.
         var vm = Create();
         var requests = 0;
         vm.SparklineToggleRequested += (_, _) => requests++;
         vm.DisplayBasisChangeRequested += (_, _) => requests++;
         vm.ViewModeChangeRequested += (_, _) => requests++;
         vm.NotificationKindToggleRequested += (_, _) => requests++;
-        Assert.False(vm.SaveFailed);
+        Assert.Null(vm.SettingsNotice);
+        Assert.False(vm.HasSettingsNotice);
 
-        vm.SaveFailed = true;
+        vm.SettingsNotice = "설정을 저장하지 못해 변경을 되돌렸습니다.";
+        Assert.True(vm.HasSettingsNotice);
 
-        Assert.True(vm.SaveFailed);
+        // Clearing must collapse the row again, which is what a later successful write does.
+        vm.SettingsNotice = null;
+        Assert.False(vm.HasSettingsNotice);
         Assert.Equal(0, requests);
     }
 

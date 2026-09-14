@@ -124,11 +124,14 @@ internal sealed class ForegroundLockGuard
         }
 
         // Clear the key only if the file reads cleanly right now and actually holds one.
-        // AppSettingsFile refuses a write whose own read failed, so an unparsable file is
-        // safe either way; reading here rather than remembering what Disable wrote also
-        // covers the file changing in between, skips a pointless rewrite when there is no
-        // baseline to clear, and clears one left behind by an earlier run whose own
-        // persist failed.
+        // AppSettingsFile refuses a write whose own read failed, so the baseline cannot be
+        // erased by a rewrite from defaults; reading here rather than remembering what
+        // Disable wrote also covers the file changing in between, skips a pointless rewrite
+        // when there is no baseline to clear, and clears one left behind by an earlier run
+        // whose own persist failed. Note the one path that DOES replace the file —
+        // AppSettingsFile.TryRecoverUnparsable — drops the baseline with everything else,
+        // which is why it keeps a copy of the bytes: a baseline that was already unreadable
+        // stays recoverable by hand rather than pinning the user's timeout at Gauge's zero.
         if (AppSettingsFile.TryLoad(_directory(), out var settings)
             && settings.ForegroundLockTimeoutBaseline is not null)
         {

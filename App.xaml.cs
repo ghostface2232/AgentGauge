@@ -380,9 +380,19 @@ public partial class App : Application
     {
         if (_settingsViewModel is null) return;
 
-        // The notice speaks for one specific change the user just made, so a fresh visit
-        // starts without it; the next refused write puts it straight back.
-        _settingsViewModel.Global.SaveFailed = false;
+        // The notice speaks for one specific thing that just happened, so a fresh visit
+        // starts without it; whatever is true this time puts it straight back.
+        _settingsViewModel.Global.SettingsNotice = null;
+
+        // If settings.json has stopped being JSON, every write is refused and will go on
+        // being refused, so nothing the user changes from this panel would survive a
+        // restart. Replace it here rather than from inside the write path: this is where
+        // the user is looking at their settings, so it is the one moment the app can both
+        // do it and say it did. The old bytes are kept beside the new file.
+        if (AppSettingsFile.TryRecoverUnparsable(AppSettingsFile.DefaultDirectory, out var sidecar))
+        {
+            _settingsViewModel.Global.SettingsNotice = Loc.Format("Settings_FileReset", sidecar);
+        }
 
         // Reflect any state changed while the panel was closed — the tray menu can flip both
         // start-on-boot and the notification kinds — before showing the toggles.
@@ -466,7 +476,7 @@ public partial class App : Application
     {
         if (_settingsViewModel is { } settings)
         {
-            settings.Global.SaveFailed = !saved;
+            settings.Global.SettingsNotice = saved ? null : Loc.Get("Settings_SaveFailed");
         }
         return saved;
     }

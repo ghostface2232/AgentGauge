@@ -98,13 +98,20 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     [ObservableProperty] public partial int LanguageIndex { get; set; }
 
     /// <summary>
-    /// Whether the last settings.json write was refused, which shows the card's warning row.
-    /// Every reflect-back above is otherwise silent — the switch simply snaps back — and a
-    /// switch that moves on its own with no explanation reads as a bug rather than as the
-    /// disk saying no. <c>App</c> sets this from each apply's result; it is not a state the
-    /// user can pick, so unlike the settings around it, it raises no intent event.
+    /// What the card's notice row says about settings.json, or null for no notice. Two
+    /// things need saying and neither can be read off the switches: a write the file refused
+    /// (every reflect-back above is otherwise silent — the switch just snaps back, which
+    /// reads as a bug rather than as the disk saying no), and a document replaced because it
+    /// had stopped being JSON. <c>App</c> sets this from what actually happened on disk; it
+    /// is not a state the user can pick, so unlike the settings around it, it raises no
+    /// intent event.
     /// </summary>
-    [ObservableProperty] public partial bool SaveFailed { get; set; }
+    [ObservableProperty] public partial string? SettingsNotice { get; set; }
+
+    /// <summary>Whether <see cref="SettingsNotice"/> has anything to show.</summary>
+    public bool HasSettingsNotice => SettingsNotice is { Length: > 0 };
+
+    partial void OnSettingsNoticeChanged(string? value) => OnPropertyChanged(nameof(HasSettingsNotice));
 
     /// <summary>
     /// Language names in <see cref="AppLanguage"/> order, each in its own language (the

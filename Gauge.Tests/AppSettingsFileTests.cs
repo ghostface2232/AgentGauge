@@ -8,10 +8,10 @@ namespace Gauge.Tests;
 /// The read-modify-write contract of the shared <c>settings.json</c>. The cases that matter
 /// are the ones where the read fails: every store writes one key into a document the rest of
 /// the app shares, so a write performed against an empty default would replace whatever the
-/// file holds with just that key. The two failure kinds get opposite treatment — a file that
-/// is merely locked is left strictly alone, an unparsable one is moved aside — and both are
-/// pinned here rather than in each store's own tests, since the behaviour is the shared
-/// file's, not any one store's.
+/// file holds with just that key. No write ever replaces a document it could not read; only
+/// the explicit recovery does, and only for bytes that are not JSON at all, so the tests
+/// below draw that line from both sides. They live here rather than in each store's own
+/// tests because the behaviour is the shared file's, not any one store's.
 /// </summary>
 public sealed class AppSettingsFileTests : IDisposable
 {
@@ -43,8 +43,8 @@ public sealed class AppSettingsFileTests : IDisposable
     {
         // The document is intact, we just cannot open it this instant. Writing the empty
         // default the failed read produced would erase EnabledTools, Language and every
-        // other store's key, and quarantining would file a perfectly good document away —
-        // so the only correct move is to touch nothing and let the caller revert.
+        // other store's key, so the only correct move is to touch nothing and let the
+        // caller revert.
         const string intact = """{ "EnabledTools": ["Cursor"], "Language": "ja" }""";
         WriteSettings(intact);
 
@@ -54,58 +54,102 @@ public sealed class AppSettingsFileTests : IDisposable
         }
 
         Assert.Equal(intact, File.ReadAllText(SettingsPath));
-        Assert.Empty(QuarantineFiles());
     }
 
     [Theory]
     [InlineData("""{ "EnabledTools": ["Cursor"], "Language": "ja", """)]
     [InlineData("{ not valid json")]
     [InlineData("")]
-    public void SavingOverAnUnparsableFileMovesItAsideAndStartsAFreshDocument(string corrupt)
+    public void SavingOverAnUnparsableFileIsAlsoRefusedRatherThanRepairingItSilently(string corrupt)
     {
-        // This document will fail identically on every future run, so refusing would refuse
-        // forever and leave the app unable to persist anything at all. The bytes are moved,
-        // never deleted — a human can still read the old values out of the sidecar.
+        // Replacing the file is a visible act reserved for TryRecoverUnparsable; a write
+        // must never do it as a side effect, or a background save would reset the user's
+        // settings with nobody around to be told.
         WriteSettings(corrupt);
 
-        Assert.True(AppSettingsFile.TrySave(_dir, dto => dto.ShowSparkline = false));
+        Assert.False(AppSettingsFile.TrySave(_dir, dto => dto.ShowSparkline = false));
 
-        var quarantined = Assert.Single(QuarantineFiles());
-        Assert.Equal(corrupt, File.ReadAllText(quarantined));
+        Assert.Equal(corrupt, File.ReadAllText(SettingsPath));
+        Assert.Empty(SidecarFiles());
+    }
+
+    [Theory]
+    [InlineData("""{ "EnabledTools": ["Cursor"], "Language": "ja", """)]
+    [InlineData("{ not valid json")]
+    [InlineData("")]
+    public void RecoveringAnUnparsableFileKeepsACopyAndGetsWritesWorkingAgain(string corrupt)
+    {
+        // The same bytes fail the same way on every run, so without this the refusal above
+        // is permanent and every later change is silently gone after a restart.
+        WriteSettings(corrupt);
+
+        Assert.True(AppSettingsFile.TryRecoverUnparsable(_dir, out var sidecar));
+
+        Assert.Equal(corrupt, File.ReadAllText(Path.Combine(_dir, sidecar)));
+        Assert.True(AppSettingsFile.TrySave(_dir, dto => dto.ShowSparkline = false));
         Assert.False(AppSettingsFile.Load(_dir).ShowSparkline);
     }
 
-    [Fact]
-    public void ASecondCorruptionNeverOverwritesTheFirstSidecar()
+    [Theory]
+    // Valid JSON whose shape does not bind: a hand-edit, or a key a newer build reshaped.
+    // Nothing here is beyond reading, and JsonExtensionData exists to carry it forward, so
+    // replacing the document would throw away data the old code preserved.
+    [InlineData("""{ "EnabledTools": "Cursor" }""")]
+    [InlineData("""{ "ShowSparkline": "yes" }""")]
+    public void RecoveryRefusesADocumentThatIsStillValidJson(string json)
     {
-        // The sidecar is the only surviving copy of what the file held; filing a later
-        // corruption on top of it would destroy the very thing quarantine exists to keep.
-        WriteSettings("{ first corruption");
-        Assert.True(AppSettingsFile.TrySave(_dir, dto => dto.ViewMode = "gauge"));
-        WriteSettings("{ second corruption");
-        Assert.True(AppSettingsFile.TrySave(_dir, dto => dto.ViewMode = "bar"));
+        WriteSettings(json);
 
-        var contents = QuarantineFiles().Select(File.ReadAllText).OrderBy(t => t).ToList();
-        Assert.Equal(["{ first corruption", "{ second corruption"], contents);
+        Assert.Equal(SettingsRead.Unavailable, AppSettingsFile.Read(_dir, out _));
+        Assert.False(AppSettingsFile.TryRecoverUnparsable(_dir, out _));
+
+        Assert.Equal(json, File.ReadAllText(SettingsPath));
+        Assert.Empty(SidecarFiles());
     }
 
     [Fact]
-    public void QuarantineLeavesNoTemporaryFileBehind()
+    public void RecoveryLeavesAReadableFileCompletelyAlone()
+    {
+        const string fine = """{ "Language": "ja" }""";
+        WriteSettings(fine);
+
+        Assert.False(AppSettingsFile.TryRecoverUnparsable(_dir, out _));
+
+        Assert.Equal(fine, File.ReadAllText(SettingsPath));
+        Assert.Empty(SidecarFiles());
+    }
+
+    [Fact]
+    public void ASecondCorruptionNeverOverwritesTheFirstCopy()
+    {
+        // The copy is the only surviving record of what the file held; filing a later
+        // corruption on top of it would destroy the very thing recovery exists to keep.
+        WriteSettings("{ first corruption");
+        Assert.True(AppSettingsFile.TryRecoverUnparsable(_dir, out _));
+        WriteSettings("{ second corruption");
+        Assert.True(AppSettingsFile.TryRecoverUnparsable(_dir, out _));
+
+        var kept = SidecarFiles().Select(File.ReadAllText).OrderBy(t => t).ToList();
+        Assert.Equal(["{ first corruption", "{ second corruption"], kept);
+    }
+
+    [Fact]
+    public void RecoveryLeavesNoTemporaryFileBehind()
     {
         WriteSettings("{ not valid json");
 
-        AppSettingsFile.Save(_dir, dto => dto.ViewMode = "gauge");
+        Assert.True(AppSettingsFile.TryRecoverUnparsable(_dir, out _));
 
         Assert.False(File.Exists(SettingsPath + ".tmp"));
     }
 
     [Fact]
-    public void EveryStoreRecoversFromAnUnparsableFileRatherThanFailingForever()
+    public void EveryStorePersistsAgainOnceTheFileIsRecovered()
     {
-        // The whole point of the recovery: after one write lands, the app persists normally
-        // again on every path instead of silently dropping changes until the user finds and
-        // deletes the file themselves.
+        // The point of the recovery: after it runs, the app remembers settings normally on
+        // every path instead of dropping them until the user finds and deletes the file.
         WriteSettings("{ not valid json");
+        Assert.True(AppSettingsFile.TryRecoverUnparsable(_dir, out _));
 
         Assert.True(new ViewModeSettingsStore(() => _dir).TrySave(UsageViewMode.Gauge));
         Assert.True(new DisplayBasisSettingsStore(() => _dir).TrySave(UsageDisplayBasis.Remaining));
@@ -118,15 +162,28 @@ public sealed class AppSettingsFileTests : IDisposable
         Assert.False(new SparklineSettingsStore(() => _dir).Load());
         Assert.False(new NotificationSettingsStore(() => _dir).Load().Enabled);
         Assert.Equal(AppLanguage.English, LanguageService.InitializeFromSettings(_dir));
-        // One corruption, one sidecar: the first write recovered the file for all the rest.
-        Assert.Single(QuarantineFiles());
     }
 
     [Fact]
-    public void ReadSeparatesATemporaryFailureFromAnUnparsableDocument()
+    public void EveryStoreRefusesToWriteOverAFileItCouldNotRead()
     {
-        // TrySave's two opposite responses hang off this distinction, so it is pinned
-        // directly rather than only through the behaviour it drives.
+        const string corrupt = "{ not valid json";
+        WriteSettings(corrupt);
+
+        Assert.False(new ViewModeSettingsStore(() => _dir).TrySave(UsageViewMode.Gauge));
+        Assert.False(new DisplayBasisSettingsStore(() => _dir).TrySave(UsageDisplayBasis.Remaining));
+        Assert.False(new SparklineSettingsStore(() => _dir).TrySave(false));
+        Assert.False(new NotificationSettingsStore(() => _dir).TrySave(new NotificationPreferences(false, false)));
+        Assert.False(LanguageService.SaveOverride(AppLanguage.English, _dir));
+
+        Assert.Equal(corrupt, File.ReadAllText(SettingsPath));
+    }
+
+    [Fact]
+    public void ReadSeparatesADocumentThatSurvivesFromOneThatIsNotJsonAtAll()
+    {
+        // Only the second may ever be replaced, so the distinction is pinned directly
+        // rather than only through the behaviour it drives.
         Assert.Equal(SettingsRead.Ok, AppSettingsFile.Read(_dir, out _));
 
         WriteSettings("""{ "Language": "ja" }""");
@@ -140,13 +197,13 @@ public sealed class AppSettingsFileTests : IDisposable
 
         WriteSettings("{ not valid json");
         Assert.Equal(SettingsRead.Unparsable, AppSettingsFile.Read(_dir, out _));
-        // Reading is pure: the recovery belongs to the write path alone.
-        Assert.Empty(QuarantineFiles());
+        // Reading is pure: the recovery belongs to its own explicit call.
+        Assert.Empty(SidecarFiles());
     }
 
     private string SettingsPath => Path.Combine(_dir, "settings.json");
 
-    private string[] QuarantineFiles() =>
+    private string[] SidecarFiles() =>
         Directory.Exists(_dir) ? Directory.GetFiles(_dir, "settings.corrupt-*.json") : [];
 
     private void WriteSettings(string json)
