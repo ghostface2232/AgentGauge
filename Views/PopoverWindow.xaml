@@ -507,10 +507,10 @@
                                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                                 Visibility="{Binding HasCounts, Converter={StaticResource BoolToVis}}" />
                                                             <TextBlock AutomationProperties.AccessibilityView="Raw"
+                                                                Opacity="0.7"
                                                                 Text="{Binding PaceText}"
                                                                 ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Pace}"
                                                                 TextWrapping="Wrap"
-                                                                Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}, ConverterParameter=text}"
                                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                                 Visibility="{Binding HasPace, Converter={StaticResource BoolToVis}}" />
                                                             <!-- Measured burn-rate projection ("2시간 후
@@ -600,9 +600,9 @@
                                                                             HorizontalAlignment="Center"
                                                                             TextAlignment="Center"
                                                                             TextWrapping="Wrap"
+                                                                            Opacity="0.7"
                                                                             Text="{Binding PaceText}"
                                                                             ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Pace}"
-                                                                            Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}, ConverterParameter=text}"
                                                                             Style="{StaticResource CaptionTextBlockStyle}"
                                                                             Visibility="{Binding HasPace, Converter={StaticResource BoolToVis}}" />
                                                                         <TextBlock AutomationProperties.AccessibilityView="Raw"

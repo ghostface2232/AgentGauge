@@ -130,9 +130,6 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     public bool HasPace => !string.IsNullOrEmpty(PaceText);
 
     [ObservableProperty]
-    public partial UsageLevel PaceLevel { get; set; }
-
-    [ObservableProperty]
     public partial UsageLevel Level { get; set; }
 
     [ObservableProperty]
@@ -225,11 +222,11 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
         CountsText = window is { UsedTokens: { } used, LimitTokens: { } limit }
             ? string.Format(Loc.Culture, "{0:N0} / {1:N0}", used, limit)
             : string.Empty;
-        (PaceText, PaceLevel) = UsagePaceClassifier.ForRow(window);
+        PaceText = UsagePaceClassifier.ForRow(window);
     }
 
     /// <summary>
-    /// Re-raises the level properties without changing them, so level-to-brush bindings
+    /// Re-raises the level property without changing it, so level-to-brush bindings
     /// re-run their converter after a live theme change. The resolved brush depends on
     /// the theme — which the binding system cannot observe — so the owning window nudges
     /// every row through here when <c>ActualTheme</c> flips.
@@ -237,6 +234,5 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     public void RefreshLevelBrushes()
     {
         OnPropertyChanged(nameof(Level));
-        OnPropertyChanged(nameof(PaceLevel));
     }
 }

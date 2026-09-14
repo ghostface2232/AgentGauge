@@ -8,20 +8,20 @@ public sealed class UsagePaceClassifierTests
     private static readonly DateTimeOffset Now = new(2026, 7, 30, 12, 0, 0, TimeSpan.Zero);
 
     [Theory]
-    [InlineData(.60, .25, "−35% · 빠르게 소진 중", UsageLevel.Danger)]
-    [InlineData(.42, .25, "−17% · 빠르게 소진 중", UsageLevel.Caution)]
-    [InlineData(.32, .25, "−7% · 빠르게 소진 중", UsageLevel.Ok)]
-    [InlineData(.20, .45, "+25% · 여유 있음", UsageLevel.Ok)]
-    [InlineData(.25, .25, "0% · 적정", UsageLevel.Ok)]
-    [InlineData(.251, .25, "0% · 적정", UsageLevel.Ok)]
-    [InlineData(0, .25, "+25% · 여유 있음", UsageLevel.Ok)]
-    [InlineData(.99, .25, "−74% · 빠르게 소진 중", UsageLevel.Danger)]
+    [InlineData(.60, .25, "−35% · 빠르게 소진 중")]
+    [InlineData(.42, .25, "−17% · 빠르게 소진 중")]
+    [InlineData(.32, .25, "−7% · 빠르게 소진 중")]
+    [InlineData(.20, .45, "+25% · 여유 있음")]
+    [InlineData(.25, .25, "0% · 적정")]
+    [InlineData(.251, .25, "0% · 적정")]
+    [InlineData(0, .25, "+25% · 여유 있음")]
+    [InlineData(.99, .25, "−74% · 빠르게 소진 중")]
     // Exhausted windows drop the caption: "burning fast" beside 100% adds nothing.
-    [InlineData(1, .25, "", UsageLevel.Ok)]
-    [InlineData(1.04, .25, "", UsageLevel.Ok)]
-    public void ShowsSignedDifferenceFromItsOwnCycle(double used, double elapsed, string expected, UsageLevel level)
+    [InlineData(1, .25, "")]
+    [InlineData(1.04, .25, "")]
+    public void ShowsSignedDifferenceFromItsOwnCycle(double used, double elapsed, string expected)
     {
-        Assert.Equal((expected, level), UsagePaceClassifier.ForRow(Window(used, elapsed), Now));
+        Assert.Equal(expected, UsagePaceClassifier.ForRow(Window(used, elapsed), Now));
     }
 
     [Theory]
@@ -32,9 +32,9 @@ public sealed class UsagePaceClassifierTests
     {
         var duration = TimeSpan.FromHours(hours);
         var window = Window(.3, .03) with { Duration = duration, ResetTime = Now + duration * .97 };
-        Assert.Equal("−27% · 빠르게 소진 중", UsagePaceClassifier.ForRow(window, Now).Text);
-        Assert.Empty(UsagePaceClassifier.ForRow(window with { ResetTime = window.ResetTime!.Value.AddTicks(1) }, Now).Text);
-        Assert.Empty(UsagePaceClassifier.ForRow(window with { ResetTime = Now + duration }, Now).Text);
+        Assert.Equal("−27% · 빠르게 소진 중", UsagePaceClassifier.ForRow(window, Now));
+        Assert.Empty(UsagePaceClassifier.ForRow(window with { ResetTime = window.ResetTime!.Value.AddTicks(1) }, Now));
+        Assert.Empty(UsagePaceClassifier.ForRow(window with { ResetTime = Now + duration }, Now));
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public sealed class UsagePaceClassifierTests
             window with { ResetTime = Now }, window with { ResetTime = Now.AddDays(-1) },
             window with { ResetTime = Now.AddDays(8) }, window with { UsedRatio = double.NaN },
             window with { UsedRatio = double.PositiveInfinity },
-        }) Assert.Equal(("–", UsageLevel.Ok), UsagePaceClassifier.ForRow(invalid, Now));
+        }) Assert.Equal("–", UsagePaceClassifier.ForRow(invalid, Now));
     }
 
     [Fact]
