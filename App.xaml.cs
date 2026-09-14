@@ -33,6 +33,7 @@ public partial class App : Application
     private StartupService? _startupService;
     private NotificationSettingsStore? _notificationSettingsStore;
     private ViewModeSettingsStore? _viewModeSettingsStore;
+    private DisplayBasisSettingsStore? _displayBasisSettingsStore;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
@@ -146,10 +147,14 @@ public partial class App : Application
         _trayIcon.SetNotificationPreferences(notificationPreferences);
         _viewModeSettingsStore = new ViewModeSettingsStore();
         var viewMode = _viewModeSettingsStore.Load();
-        var globalSettings = new GlobalSettingsViewModel(notificationPreferences, _startupService.IsEnabled(), viewMode);
+        _displayBasisSettingsStore = new DisplayBasisSettingsStore();
+        var displayBasis = _displayBasisSettingsStore.Load();
+        var globalSettings = new GlobalSettingsViewModel(
+            notificationPreferences, _startupService.IsEnabled(), viewMode, displayBasis);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
+        globalSettings.DisplayBasisChangeRequested += OnGlobalDisplayBasisChanged;
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
 
         _updateService = new UpdateService();
@@ -167,6 +172,7 @@ public partial class App : Application
         _historyStore = new UsageHistoryStore();
         _viewModel = new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
         _viewModel.SetViewMode(viewMode);
+        _viewModel.SetDisplayBasis(displayBasis);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
 
@@ -384,6 +390,14 @@ public partial class App : Application
         _notificationService?.SetPreferences(applied);
         _trayIcon?.SetNotificationPreferences(applied);
         _settingsViewModel?.Global.SyncNotifications(applied);
+    }
+
+    private void OnGlobalDisplayBasisChanged(object? sender, UsageDisplayBasis basis)
+    {
+        _displayBasisSettingsStore?.Save(basis);
+        // Rows re-derive their percent in place; the card height is unchanged, so no
+        // re-measure is needed.
+        _viewModel?.SetDisplayBasis(basis);
     }
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)

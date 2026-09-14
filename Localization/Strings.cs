@@ -35,9 +35,12 @@ internal static class Strings
         // ── Global settings (toggles above the service list) ───────────────
         ["Settings_Notifications"] = ["알림",          "Notifications",     "通知"],
         ["Settings_StartOnBoot"]   = ["Windows 시작 시 실행", "Start on boot",   "スタートアップに登録"],
-        ["Settings_ViewMode"]      = ["사용량 표시",        "View mode",         "表示方式"],
+        ["Settings_ViewMode"]      = ["사용량 보기",        "View mode",         "表示方式"],
         ["ViewMode_Bar"]          = ["막대",             "Bar",               "バー"],
         ["ViewMode_Gauge"]        = ["게이지",           "Gauge",             "ゲージ"],
+        ["Settings_DisplayBasis"] = ["표시 기준",         "Show as",           "表示基準"],
+        ["DisplayBasis_Used"]     = ["사용량",           "Used",              "使用量"],
+        ["DisplayBasis_Remaining"] = ["남은 사용량",      "Remaining",         "残量"],
         ["Tray_StartOnBoot"]  = ["Windows 시작 시 실행", "Start on boot",     "スタートアップに登録"],
         ["Tray_Exit"]         = ["종료",             "Exit",              "終了"],
 
@@ -46,6 +49,7 @@ internal static class Strings
         ["Empty_AllHidden"] = ["모든 도구가 숨겨져 있습니다.", "All tools are hidden.", "すべてのツールが非表示です。"],
         ["Burndown_Hover"] = ["{0} · {1:0}% 남음", "{0} · {1:0}% left", "{0} · 残り{1:0}%"],
         ["Usage_Accessible"] = ["{0}, {1}퍼센트 사용", "{0}, {1} percent used", "{0}、{1}パーセント使用"],
+        ["Usage_AccessibleRemaining"] = ["{0}, {1}퍼센트 남음", "{0}, {1} percent remaining", "{0}、残り{1}パーセント"],
         ["Login"]             = ["로그인",            "Sign in",           "ログイン"],
         ["Login_Running"]     = ["로그인 중…",        "Signing in…",       "ログイン中…"],
         ["Login_Switch"]      = ["계정 전환",          "Switch account",    "アカウント切替"],

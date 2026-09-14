@@ -69,6 +69,23 @@ public sealed partial class ToolCardViewModel : ObservableObject
     public bool IsBarMode => ViewMode == UsageViewMode.Bar;
     public bool IsGaugeMode => ViewMode == UsageViewMode.Gauge;
 
+    /// <summary>
+    /// Whether each row's percent shows the used or the remaining share. App-wide, like
+    /// <see cref="ViewMode"/>; set by the owning <see cref="UsageViewModel"/> and pushed to
+    /// every row here, so rows created later inherit it and existing rows re-derive their
+    /// percent in place.
+    /// </summary>
+    [ObservableProperty]
+    public partial UsageDisplayBasis DisplayBasis { get; set; }
+
+    partial void OnDisplayBasisChanged(UsageDisplayBasis value)
+    {
+        foreach (var row in Windows)
+        {
+            row.DisplayBasis = value;
+        }
+    }
+
     /// <summary>Plan/subscription label shown beside the tool name (e.g. "Max 5x").</summary>
     [ObservableProperty]
     public partial string Plan { get; set; }
@@ -161,7 +178,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
             var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
-                existing = new UsageWindowRowViewModel(window);
+                existing = new UsageWindowRowViewModel(window, DisplayBasis);
                 Windows.Insert(Math.Min(index, Windows.Count), existing);
             }
             else

@@ -23,6 +23,25 @@ public sealed class UsageViewModelTests
     }
 
     [Fact]
+    public void SetDisplayBasisFlipsExistingCardsAndCardsAddedLater()
+    {
+        var viewModel = new UsageViewModel();
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithoutRecord("Codex")));
+
+        viewModel.SetDisplayBasis(UsageDisplayBasis.Remaining);
+
+        Assert.Equal(UsageDisplayBasis.Remaining, viewModel.DisplayBasis);
+        Assert.Equal("58%", Assert.Single(viewModel.Cards).Windows.Single().PercentText);
+
+        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+
+        Assert.All(viewModel.Cards, card => Assert.Equal(UsageDisplayBasis.Remaining, card.DisplayBasis));
+        Assert.Equal("90%", viewModel.Cards.Single(c => c.ToolName == "Codex").Windows.Single().PercentText);
+        // The tray/tooltip summary stays a usage figure regardless of the basis.
+        Assert.Equal("Claude Code 42% · Codex 10%", viewModel.TrayTooltipSummary);
+    }
+
+    [Fact]
     public void ApplyExcludesToolsWithNoRecord()
     {
         var viewModel = new UsageViewModel();

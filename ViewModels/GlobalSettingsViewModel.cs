@@ -19,11 +19,16 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 {
     private bool _suspendSideEffects;
 
-    public GlobalSettingsViewModel(NotificationPreferences notifications, bool startOnBoot, UsageViewMode viewMode)
+    public GlobalSettingsViewModel(
+        NotificationPreferences notifications,
+        bool startOnBoot,
+        UsageViewMode viewMode,
+        UsageDisplayBasis displayBasis = UsageDisplayBasis.Used)
     {
         SyncFromSystem(notifications, startOnBoot);
         _suspendSideEffects = true;
         ViewModeIndex = (int)viewMode;
+        DisplayBasisIndex = (int)displayBasis;
         LanguageIndex = (int)Loc.Current;
         _suspendSideEffects = false;
     }
@@ -36,6 +41,9 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 
     /// <summary>Raised when the user picks a different card view mode (not on a programmatic sync).</summary>
     public event EventHandler<UsageViewMode>? ViewModeChangeRequested;
+
+    /// <summary>Raised when the user picks a different percent basis (not on a programmatic sync).</summary>
+    public event EventHandler<UsageDisplayBasis>? DisplayBasisChangeRequested;
 
     /// <summary>Raised when the user picks a different UI language (not on a programmatic sync).</summary>
     public event EventHandler<AppLanguage>? LanguageChangeRequested;
@@ -61,6 +69,16 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         [Loc.Get("ViewMode_Bar"), Loc.Get("ViewMode_Gauge")];
 
     /// <summary>
+    /// Selected percent basis as a ComboBox index — 0 = Used, 1 = Remaining — matching
+    /// <see cref="DisplayBasisOptions"/> and the <see cref="UsageDisplayBasis"/> enum's values.
+    /// </summary>
+    [ObservableProperty] public partial int DisplayBasisIndex { get; set; }
+
+    /// <summary>Localized labels for the basis dropdown, in <see cref="UsageDisplayBasis"/> order.</summary>
+    public IReadOnlyList<string> DisplayBasisOptions { get; } =
+        [Loc.Get("DisplayBasis_Used"), Loc.Get("DisplayBasis_Remaining")];
+
+    /// <summary>
     /// Selected UI language as a ComboBox index matching the <see cref="AppLanguage"/> enum
     /// values. Choosing a different language persists it and relaunches the app.
     /// </summary>
@@ -76,6 +94,13 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     {
         if (_suspendSideEffects) return;
         ViewModeChangeRequested?.Invoke(this, value == (int)UsageViewMode.Gauge ? UsageViewMode.Gauge : UsageViewMode.Bar);
+    }
+
+    partial void OnDisplayBasisIndexChanged(int value)
+    {
+        if (_suspendSideEffects) return;
+        DisplayBasisChangeRequested?.Invoke(this,
+            value == (int)UsageDisplayBasis.Remaining ? UsageDisplayBasis.Remaining : UsageDisplayBasis.Used);
     }
 
     partial void OnLanguageIndexChanged(int value)

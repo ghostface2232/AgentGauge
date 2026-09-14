@@ -145,6 +145,7 @@ public sealed class PopoverXamlContractTests
             "{Binding Global.NotifyResets, Mode=TwoWay}",
             "{Binding Global.StartOnBoot, Mode=TwoWay}",
             "{Binding Global.ViewModeIndex, Mode=TwoWay}",
+            "{Binding Global.DisplayBasisIndex, Mode=TwoWay}",
             "{Binding Global.LanguageIndex, Mode=TwoWay}",
         };
 

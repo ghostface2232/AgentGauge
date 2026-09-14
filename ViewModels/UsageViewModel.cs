@@ -149,6 +149,23 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// App-wide percent basis (used vs remaining). Owned here for the same reason as
+    /// <see cref="ViewMode"/>: new cards inherit it and <see cref="SetDisplayBasis"/> flips
+    /// every card at once.
+    /// </summary>
+    public UsageDisplayBasis DisplayBasis { get; private set; }
+
+    /// <summary>Switches every card's rows to the given basis (called from the settings dropdown).</summary>
+    public void SetDisplayBasis(UsageDisplayBasis basis)
+    {
+        DisplayBasis = basis;
+        foreach (var card in Cards)
+        {
+            card.DisplayBasis = basis;
+        }
+    }
+
     /// <summary>Re-runs the level-to-brush bindings on every card after a live theme
     /// change — the resolved brush is theme-dependent, which bindings can't observe.</summary>
     public void RefreshLevelBrushes()
@@ -320,7 +337,7 @@ public sealed partial class UsageViewModel : ObservableObject
             var existing = Cards.FirstOrDefault(c => c.ToolName == tool.ToolName);
             if (existing is null)
             {
-                Cards.Add(new ToolCardViewModel(tool, _history) { ViewMode = ViewMode });
+                Cards.Add(new ToolCardViewModel(tool, _history) { ViewMode = ViewMode, DisplayBasis = DisplayBasis });
             }
             else
             {

@@ -10,7 +10,11 @@ namespace Gauge.ViewModels;
 /// </summary>
 public sealed partial class UsageWindowRowViewModel : ObservableObject
 {
-    public UsageWindowRowViewModel(UsageWindow window)
+    // The provider's used fraction (unclamped), kept so the shown percent can be re-derived
+    // when the display basis flips without waiting for the next refresh.
+    private double _usedRatio;
+
+    public UsageWindowRowViewModel(UsageWindow window, UsageDisplayBasis displayBasis = UsageDisplayBasis.Used)
     {
         Key = window.Key;
         Label = string.Empty;
@@ -22,6 +26,9 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
         CountsText = string.Empty;
         EtaText = string.Empty;
         PaceText = string.Empty;
+        // A non-default basis runs the change hook here (against a zero used ratio); Update
+        // below then derives the real percent, so the transient value is never observed.
+        DisplayBasis = displayBasis;
         Update(window);
     }
 
@@ -66,7 +73,15 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     [ObservableProperty]
     public partial bool ShowGroupDivider { get; set; }
 
-    /// <summary>0–100 for the progress bar.</summary>
+    /// <summary>
+    /// Whether <see cref="Percent"/>, <see cref="PercentText"/> and <see cref="PercentNumber"/>
+    /// express the used or the remaining share of the window. App-wide; the owning card pushes
+    /// the setting here. <see cref="Level"/> is unaffected — it always tracks the used share.
+    /// </summary>
+    [ObservableProperty]
+    public partial UsageDisplayBasis DisplayBasis { get; set; }
+
+    /// <summary>0–100 for the progress bar, in the current <see cref="DisplayBasis"/>.</summary>
     [ObservableProperty]
     public partial double Percent { get; set; }
 
@@ -147,17 +162,50 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     // a visual placeholder with no spoken meaning.
     public string AccessibilityName => string.Join(". ", new[]
     {
-        Loc.Format("Usage_Accessible", string.Join(" ", new[] { FamilyLabel, Label }.Where(s => !string.IsNullOrEmpty(s))), PercentNumber),
+        Loc.Format(DisplayBasis == UsageDisplayBasis.Remaining ? "Usage_AccessibleRemaining" : "Usage_Accessible",
+            string.Join(" ", new[] { FamilyLabel, Label }.Where(s => !string.IsNullOrEmpty(s))), PercentNumber),
         ResetText, CountsText, PaceText == UsagePaceClassifier.UnavailableText ? null : PaceText, EtaText,
     }.Where(s => !string.IsNullOrEmpty(s)));
+
+    // The spoken name changes wording ("used" vs "remaining") even when the number happens to
+    // be the same in both bases (50%), so it is re-raised explicitly rather than relying on
+    // PercentNumber's change notification.
+    partial void OnDisplayBasisChanged(UsageDisplayBasis value)
+    {
+        ApplyPercent();
+        OnPropertyChanged(nameof(AccessibilityName));
+    }
+
+    // Derives the shown percent from the provider's used fraction in the current basis. The
+    // used basis keeps the raw (unclamped) number in its text so an over-limit window can read
+    // "104%". The remaining number is 100 minus the *rounded* used number — not the rounded
+    // complement — so the two bases always sum to 100 (99.5% used reads 100% / 0%, never
+    // 100% / 1%), and it is clamped to 0–100 since there is no negative or excess remaining.
+    private void ApplyPercent()
+    {
+        var usedPercent = _usedRatio * 100.0;
+        if (DisplayBasis == UsageDisplayBasis.Remaining)
+        {
+            var usedRounded = Math.Round(usedPercent, MidpointRounding.AwayFromZero);
+            var remaining = Math.Clamp(100.0 - usedRounded, 0.0, 100.0);
+            Percent = Math.Clamp(100.0 - usedPercent, 0.0, 100.0);
+            PercentText = $"{remaining:0}%";
+            PercentNumber = $"{remaining:0}";
+        }
+        else
+        {
+            Percent = Math.Clamp(usedPercent, 0.0, 100.0);
+            PercentText = $"{usedPercent:0}%";
+            PercentNumber = $"{usedPercent:0}";
+        }
+    }
 
     public void Update(UsageWindow window)
     {
         Label = window.Label;
         FamilyLabel = window.GroupLabel ?? string.Empty;
-        Percent = Math.Clamp(window.UsedRatio, 0.0, 1.0) * 100.0;
-        PercentText = $"{window.UsedRatio * 100:0}%";
-        PercentNumber = $"{window.UsedRatio * 100:0}";
+        _usedRatio = window.UsedRatio;
+        ApplyPercent();
         Level = UsageLevelClassifier.Classify(window.UsedRatio);
         ResetText = ResetTimeFormatter.ForRow(window.ResetTime);
         // Loc.Culture (not the ambient culture) for deterministic digit grouping.

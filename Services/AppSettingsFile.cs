@@ -24,6 +24,9 @@ internal sealed class AppSettingsDto
     /// <summary>Card view mode ("bar" / "gauge"). Null (absent) reads as the bar layout.</summary>
     public string? ViewMode { get; set; }
 
+    /// <summary>Usage display basis ("used" / "remaining"). Null (absent) reads as used.</summary>
+    public string? DisplayBasis { get; set; }
+
     /// <summary>
     /// The user's foreground-lock timeout, captured by <see cref="ForegroundLockGuard"/>
     /// before Gauge zeroes the live value and cleared again on a clean exit. Present at

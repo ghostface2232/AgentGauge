@@ -52,6 +52,29 @@ public sealed class ToolCardViewModelTests
     }
 
     [Fact]
+    public void DisplayBasisReachesExistingAndLaterAddedRows()
+    {
+        var card = new ToolCardViewModel(Cached("Claude Code",
+            Window("5h", null, UsageWindowType.FiveHour)));
+        Assert.Equal("10%", card.Windows.Single().PercentText);
+
+        card.DisplayBasis = UsageDisplayBasis.Remaining;
+
+        Assert.Equal("90%", card.Windows.Single().PercentText);
+
+        // A window that appears on a later refresh inherits the card's basis.
+        card.Update(Cached("Claude Code",
+            Window("5h", null, UsageWindowType.FiveHour),
+            Window("weekly", null, UsageWindowType.Weekly)));
+
+        Assert.All(card.Windows, row => Assert.Equal(UsageDisplayBasis.Remaining, row.DisplayBasis));
+        Assert.Equal(new[] { "90%", "90%" }, card.Windows.Select(r => r.PercentText));
+        // The gauge layout shares the same row instances, so it reflects the flip with no
+        // separate push.
+        Assert.Equal(new[] { "90%", "90%" }, card.GaugeGroups.SelectMany(g => g.Rows).Select(r => r.PercentText));
+    }
+
+    [Fact]
     public void RefreshIssueDotOnlyTracksFailedLastAttempt()
     {
         var healthy = Cached("Claude Code", Window(null, null, UsageWindowType.FiveHour));

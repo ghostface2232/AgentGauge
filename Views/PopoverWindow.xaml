@@ -750,6 +750,23 @@
                             </Grid>
                             <Border Height="1" Margin="0,2"
                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <!-- Percent basis: whether the bars/gauges and their numbers show
+                                 the used share (empty at 0%) or the remaining share (full at
+                                 100% until quota is spent). A named choice, so a dropdown. -->
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_DisplayBasis}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
+                                          ItemsSource="{Binding Global.DisplayBasisOptions}"
+                                          SelectedIndex="{Binding Global.DisplayBasisIndex, Mode=TwoWay}" />
+                            </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                             <!-- UI language. Options are each language's own native name, so
                                  the list itself needs no localization. Changing it persists
                                  the override and relaunches the app (language is fixed per

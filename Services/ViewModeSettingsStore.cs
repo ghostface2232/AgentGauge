@@ -7,7 +7,7 @@ namespace Gauge.Services;
 /// <see cref="AppSettingsFile"/>. The default is the bar layout — a missing/absent or
 /// unrecognized key reads as <see cref="UsageViewMode.Bar"/>, so a settings file written
 /// before this option existed keeps the original presentation. Saving leaves other keys
-/// (tool registration, UI language, notifications) untouched.
+/// (tool registration, UI language, notifications, display basis) untouched.
 /// </summary>
 public sealed class ViewModeSettingsStore
 {

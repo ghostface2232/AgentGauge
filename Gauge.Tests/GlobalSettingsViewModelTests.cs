@@ -9,28 +9,37 @@ public sealed class GlobalSettingsViewModelTests
     private static GlobalSettingsViewModel Create(
         NotificationPreferences? notifications = null,
         bool startOnBoot = false,
-        UsageViewMode viewMode = UsageViewMode.Bar)
-        => new(notifications ?? NotificationPreferences.Default, startOnBoot, viewMode);
+        UsageViewMode viewMode = UsageViewMode.Bar,
+        UsageDisplayBasis displayBasis = UsageDisplayBasis.Used)
+        => new(notifications ?? NotificationPreferences.Default, startOnBoot, viewMode, displayBasis);
 
     [Fact]
     public void ConstructorSetsInitialStateWithoutRaisingEvents()
     {
         var startup = 0;
         var viewModeChanges = 0;
+        var basisChanges = 0;
         var kinds = 0;
-        var vm = Create(startOnBoot: true, viewMode: UsageViewMode.Gauge);
+        var vm = Create(startOnBoot: true, viewMode: UsageViewMode.Gauge, displayBasis: UsageDisplayBasis.Remaining);
         vm.NotificationKindToggleRequested += (_, _) => kinds++;
         vm.StartOnBootToggleRequested += (_, _) => startup++;
         vm.ViewModeChangeRequested += (_, _) => viewModeChanges++;
+        vm.DisplayBasisChangeRequested += (_, _) => basisChanges++;
 
         Assert.True(vm.NotifyThresholds);
         Assert.True(vm.NotifyResets);
         Assert.True(vm.StartOnBoot);
         Assert.Equal((int)UsageViewMode.Gauge, vm.ViewModeIndex);
+        Assert.Equal((int)UsageDisplayBasis.Remaining, vm.DisplayBasisIndex);
         Assert.Equal(0, kinds);
         Assert.Equal(0, startup);
         Assert.Equal(0, viewModeChanges);
+        Assert.Equal(0, basisChanges);
     }
+
+    [Fact]
+    public void ConstructorDefaultsDisplayBasisToUsed()
+        => Assert.Equal((int)UsageDisplayBasis.Used, Create().DisplayBasisIndex);
 
     [Fact]
     public void PickingViewModeRaisesRequestWithChosenMode()
@@ -42,6 +51,29 @@ public sealed class GlobalSettingsViewModelTests
         vm.ViewModeIndex = (int)UsageViewMode.Gauge;
 
         Assert.Equal(UsageViewMode.Gauge, requested);
+    }
+
+    [Fact]
+    public void PickingDisplayBasisRaisesRequestWithChosenBasis()
+    {
+        var vm = Create();
+        var requested = new List<UsageDisplayBasis>();
+        vm.DisplayBasisChangeRequested += (_, basis) => requested.Add(basis);
+
+        vm.DisplayBasisIndex = (int)UsageDisplayBasis.Remaining;
+        vm.DisplayBasisIndex = (int)UsageDisplayBasis.Used;
+
+        Assert.Equal([UsageDisplayBasis.Remaining, UsageDisplayBasis.Used], requested);
+    }
+
+    [Fact]
+    public void DisplayBasisOptionsFollowEnumOrder()
+    {
+        // The ComboBox index is cast straight to the enum, so the labels must line up.
+        var vm = Create();
+        Assert.Equal(2, vm.DisplayBasisOptions.Count);
+        Assert.Equal("사용량", vm.DisplayBasisOptions[(int)UsageDisplayBasis.Used]);
+        Assert.Equal("남은 사용량", vm.DisplayBasisOptions[(int)UsageDisplayBasis.Remaining]);
     }
 
     [Fact]
