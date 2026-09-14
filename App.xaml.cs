@@ -384,15 +384,7 @@ public partial class App : Application
         // starts without it; whatever is true this time puts it straight back.
         _settingsViewModel.Global.SettingsNotice = null;
 
-        // If settings.json has stopped being JSON, every write is refused and will go on
-        // being refused, so nothing the user changes from this panel would survive a
-        // restart. Replace it here rather than from inside the write path: this is where
-        // the user is looking at their settings, so it is the one moment the app can both
-        // do it and say it did. The old bytes are kept beside the new file.
-        if (AppSettingsFile.TryRecoverUnparsable(AppSettingsFile.DefaultDirectory, out var sidecar))
-        {
-            _settingsViewModel.Global.SettingsNotice = Loc.Format("Settings_FileReset", sidecar);
-        }
+        RecoverSettingsFileIfNeeded();
 
         // Reflect any state changed while the panel was closed — the tray menu can flip both
         // start-on-boot and the notification kinds — before showing the toggles.
@@ -463,6 +455,53 @@ public partial class App : Application
         _notificationService?.SetPreferences(applied);
         _trayIcon?.SetNotificationPreferences(applied);
         _settingsViewModel?.Global.SyncNotifications(applied);
+    }
+
+    /// <summary>
+    /// Replaces settings.json when it has stopped being readable, which is otherwise a dead
+    /// end: every write is refused and goes on being refused, so nothing the user changes
+    /// would survive a restart. Done here rather than from inside the write path because
+    /// this is where the user is looking at their settings — the one moment the app can both
+    /// replace the file and say that it did.
+    ///
+    /// The replacement is seeded with what this process still holds so the reset costs as
+    /// little as possible, and the parts App does not own are written back by the services
+    /// that do. That is not housekeeping: a blank document reads as every default, and the
+    /// notification kinds default to ON, so leaving it blank would un-mute a user who muted.
+    /// The one preference deliberately left out is any that was never read successfully —
+    /// there is nothing to carry over, only a guess.
+    /// </summary>
+    private void RecoverSettingsFileIfNeeded()
+    {
+        if (_settingsViewModel is null) return;
+
+        var recovered = AppSettingsFile.TryRecoverCorrupt(
+            AppSettingsFile.DefaultDirectory,
+            dto =>
+            {
+                dto.Language = Loc.Current.ToCode();
+                dto.ViewMode = _viewMode == UsageViewMode.Gauge ? "gauge" : "bar";
+                dto.DisplayBasis = _displayBasis == UsageDisplayBasis.Remaining ? "remaining" : "used";
+                dto.ShowSparkline = _showSparkline;
+                if (_notificationPreferencesRead)
+                {
+                    dto.NotificationsEnabled = _notificationPreferences.Enabled;
+                    dto.NotifyThresholds = _notificationPreferences.Thresholds;
+                    dto.NotifyResets = _notificationPreferences.Resets;
+                }
+            },
+            out var sidecar);
+        if (!recovered)
+        {
+            return;
+        }
+
+        // Owned elsewhere, so written by their owners rather than duplicated above: the
+        // registry knows the tools and their visibility, and the tray guard is the only
+        // holder of the foreground-lock baseline once it has been captured.
+        _toolRegistry?.Repersist();
+        _trayIcon?.RepersistForegroundLockBaseline();
+        _settingsViewModel.Global.SettingsNotice = Loc.Format("Settings_FileReset", sidecar);
     }
 
     /// <summary>
