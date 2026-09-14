@@ -219,13 +219,17 @@ public sealed partial class UsageViewModel : ObservableObject
         ExpireRefreshIndicators();
     }
 
+    /// <summary>Updates card indicators and returns whether any in-flight refresh is still
+    /// under the limit — counted from the starts, not the visible cards, so a hidden (or not
+    /// yet recorded) tool keeps the expiry timer alive until its card could reappear.</summary>
     public bool ExpireRefreshIndicators()
     {
         foreach (var card in Cards)
-            card.IsRefreshing = _refreshStarts.TryGetValue(card.ToolName, out var start)
-                && _time.GetElapsedTime(start) < RefreshIndicatorLimit;
-        return Cards.Any(c => c.IsRefreshing);
+            card.IsRefreshing = _refreshStarts.TryGetValue(card.ToolName, out var start) && IsUnexpired(start);
+        return _refreshStarts.Values.Any(IsUnexpired);
     }
+
+    private bool IsUnexpired(long start) => _time.GetElapsedTime(start) < RefreshIndicatorLimit;
 
     private bool IsVisible(string name) => _registry is null
         || ToolCatalog.All.Any(d => d.DisplayName == name && _registry.IsActive(d.Kind));
