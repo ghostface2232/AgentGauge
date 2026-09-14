@@ -33,4 +33,17 @@ public sealed class UsageAccessibilityTests
         }
         finally { Loc.Initialize(AppLanguage.Korean); }
     }
+
+    [Fact]
+    public void CompositeNameOmitsUnknownResetWithoutDanglingSeparator()
+    {
+        try
+        {
+            Loc.Initialize(AppLanguage.English);
+            var row = new UsageWindowRowViewModel(new UsageWindow { Type = UsageWindowType.FiveHour,
+                Label = "5h", UsedRatio = .42, ResetTime = null });
+            Assert.Equal("5h, 42 percent used", row.AccessibilityName);
+        }
+        finally { Loc.Initialize(AppLanguage.Korean); }
+    }
 }

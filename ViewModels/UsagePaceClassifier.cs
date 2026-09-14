@@ -9,17 +9,19 @@ public static class UsagePaceClassifier
     public const double MinimumElapsedRatio = 0.03;
     private const double CautionAheadRatio = 0.10;
     private const double DangerAheadRatio = 0.25;
+    /// <summary>Visual placeholder for an incalculable pace; its meaning lives in the tooltip.</summary>
+    public const string UnavailableText = "–";
 
     public static (string Text, UsageLevel Level) ForRow(UsageWindow window, DateTimeOffset? now = null)
     {
         if (window.Duration is not { } duration || duration <= TimeSpan.Zero
             || window.ResetTime is not { } reset || !double.IsFinite(window.UsedRatio))
-            return ("–", UsageLevel.Ok);
+            return (UnavailableText, UsageLevel.Ok);
 
         var remaining = reset - (now ?? DateTimeOffset.UtcNow);
         // Subtract durations rather than reset-duration: a malformed huge duration must not
         // underflow DateTimeOffset. Expired or future cycles have no current pace.
-        if (remaining <= TimeSpan.Zero || remaining > duration) return ("–", UsageLevel.Ok);
+        if (remaining <= TimeSpan.Zero || remaining > duration) return (UnavailableText, UsageLevel.Ok);
         var elapsed = duration - remaining;
         var elapsedRatio = elapsed.TotalSeconds / duration.TotalSeconds;
         if (elapsedRatio < MinimumElapsedRatio) return (string.Empty, UsageLevel.Ok);

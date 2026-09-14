@@ -142,10 +142,13 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
         OnPropertyChanged(nameof(CaptionText));
     }
 
+    // ResetText is empty when the provider omits a reset time, so it joins as an optional
+    // part instead of a format slot that would leave a dangling separator. The pace dash is
+    // a visual placeholder with no spoken meaning.
     public string AccessibilityName => string.Join(". ", new[]
     {
-        Loc.Format("Usage_Accessible", string.Join(" ", new[] { FamilyLabel, Label }.Where(s => !string.IsNullOrEmpty(s))), PercentNumber, ResetText),
-        CountsText, PaceText, EtaText,
+        Loc.Format("Usage_Accessible", string.Join(" ", new[] { FamilyLabel, Label }.Where(s => !string.IsNullOrEmpty(s))), PercentNumber),
+        ResetText, CountsText, PaceText == UsagePaceClassifier.UnavailableText ? null : PaceText, EtaText,
     }.Where(s => !string.IsNullOrEmpty(s)));
 
     public void Update(UsageWindow window)
