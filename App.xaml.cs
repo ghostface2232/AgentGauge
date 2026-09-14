@@ -41,6 +41,12 @@ public partial class App : Application
     // defaults, so a read error would masquerade as the user's choice — and for the
     // notification kinds, whose default is on, would un-mute someone who muted.
     private NotificationPreferences _notificationPreferences = NotificationPreferences.Default;
+    // Whether the preferences above came from a read that actually succeeded. Only the
+    // notification kinds need this: their toggle MERGES onto the value (`With` keeps the
+    // other kind), so an unread file's all-on default would be written back over a kind the
+    // user muted. The three below are written whole, so the value they revert to is always
+    // the same one their surface is already showing and cannot disagree with it.
+    private bool _notificationPreferencesRead;
     private UsageViewMode _viewMode;
     private UsageDisplayBasis _displayBasis;
     private bool _showSparkline = true;
@@ -159,7 +165,10 @@ public partial class App : Application
         // applies/reconciles the change (see OnGlobal* handlers below). The initial state
         // comes from the persisted notifications flag and the real Run-key startup state.
         _notificationSettingsStore = new NotificationSettingsStore();
-        _notificationPreferences = _notificationSettingsStore.Load();
+        // The surfaces need something to show even when the file cannot be read, and the
+        // all-on default is that something — but remember that it is a guess, so no later
+        // toggle merges a muted kind away against it.
+        _notificationPreferencesRead = _notificationSettingsStore.TryLoad(out _notificationPreferences);
         _trayIcon.SetNotificationPreferences(_notificationPreferences);
         _viewModeSettingsStore = new ViewModeSettingsStore();
         _viewMode = _viewModeSettingsStore.Load();
@@ -379,6 +388,7 @@ public partial class App : Application
             // The kind switches ARE the notification gate now, so the live service is armed
             // from the same values they display; neither can claim what the other isn't doing.
             _notificationPreferences = notifications;
+            _notificationPreferencesRead = true;
             _notificationService?.SetPreferences(notifications);
             _settingsViewModel.Global.SyncFromSystem(notifications, startOnBoot);
         }
@@ -405,6 +415,24 @@ public partial class App : Application
         {
             return;
         }
+        // This toggle merges: flipping one kind keeps whatever the other kind is, so it
+        // needs a base that is genuinely the user's. If startup could not read the file the
+        // base is only the all-on default, and merging onto it would persist the OTHER kind
+        // as on — un-muting someone who muted. Retry the read once here (the failure may
+        // have been transient) and, failing that, change nothing: put both surfaces back to
+        // what they were showing. Only the settings panel otherwise repairs this, and the
+        // tray menu carries the same two switches without going through it.
+        if (!_notificationPreferencesRead)
+        {
+            _notificationPreferencesRead = _notificationSettingsStore.TryLoad(out _notificationPreferences);
+        }
+        if (!_notificationPreferencesRead)
+        {
+            _trayIcon?.SetNotificationPreferences(_notificationPreferences);
+            _settingsViewModel?.Global.SyncNotifications(_notificationPreferences);
+            return;
+        }
+
         // A toggle that never reached disk must revert on both surfaces rather than lying,
         // so the write's own result decides. The value it reverts to is the one we already
         // know is persisted, NOT a fresh read: an unreadable settings.json is
