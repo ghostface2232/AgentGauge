@@ -380,6 +380,10 @@ public partial class App : Application
     {
         if (_settingsViewModel is null) return;
 
+        // The notice speaks for one specific change the user just made, so a fresh visit
+        // starts without it; the next refused write puts it straight back.
+        _settingsViewModel.Global.SaveFailed = false;
+
         // Reflect any state changed while the panel was closed — the tray menu can flip both
         // start-on-boot and the notification kinds — before showing the toggles.
         var startOnBoot = _startupService?.IsEnabled() ?? false;
@@ -428,6 +432,7 @@ public partial class App : Application
         }
         if (!_notificationPreferencesRead)
         {
+            ReportSettingsWrite(false);
             _trayIcon?.SetNotificationPreferences(_notificationPreferences);
             _settingsViewModel?.Global.SyncNotifications(_notificationPreferences);
             return;
@@ -441,18 +446,36 @@ public partial class App : Application
         // missing registry Run value genuinely means "off", which is why start-on-boot can
         // confirm by re-reading and this cannot.
         var desired = _notificationPreferences.With(change.Kind, change.Enabled);
-        var applied = _notificationSettingsStore.TrySave(desired) ? desired : _notificationPreferences;
+        var applied = ReportSettingsWrite(_notificationSettingsStore.TrySave(desired))
+            ? desired
+            : _notificationPreferences;
         _notificationPreferences = applied;
         _notificationService?.SetPreferences(applied);
         _trayIcon?.SetNotificationPreferences(applied);
         _settingsViewModel?.Global.SyncNotifications(applied);
     }
 
+    /// <summary>
+    /// Records whether a settings.json write reached disk and returns that same result, so
+    /// every apply path can wrap its save in one call. The refusals below are otherwise
+    /// mute — the switch just snaps back — and a control that moves on its own with no
+    /// explanation reads as a bug rather than as the disk saying no. One shared row speaks
+    /// for all of them: the cause is always the same file, and a successful write clears it.
+    /// </summary>
+    private bool ReportSettingsWrite(bool saved)
+    {
+        if (_settingsViewModel is { } settings)
+        {
+            settings.Global.SaveFailed = !saved;
+        }
+        return saved;
+    }
+
     private void OnGlobalDisplayBasisChanged(object? sender, UsageDisplayBasis basis)
     {
         // The dropdown already moved itself; a write that settings.json refused must move it
         // back rather than leave the screen showing a basis the next launch would not honour.
-        if (_displayBasisSettingsStore?.TrySave(basis) != true)
+        if (!ReportSettingsWrite(_displayBasisSettingsStore?.TrySave(basis) == true))
         {
             _settingsViewModel?.Global.SetDisplayBasis(_displayBasis);
             return;
@@ -465,7 +488,7 @@ public partial class App : Application
 
     private void OnGlobalSparklineToggled(object? sender, bool show)
     {
-        if (_sparklineSettingsStore?.TrySave(show) != true)
+        if (!ReportSettingsWrite(_sparklineSettingsStore?.TrySave(show) == true))
         {
             _settingsViewModel?.Global.SetShowSparkline(_showSparkline);
             return;
@@ -478,7 +501,7 @@ public partial class App : Application
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)
     {
-        if (_viewModeSettingsStore?.TrySave(mode) != true)
+        if (!ReportSettingsWrite(_viewModeSettingsStore?.TrySave(mode) == true))
         {
             _settingsViewModel?.Global.SetViewMode(_viewMode);
             return;
@@ -498,7 +521,7 @@ public partial class App : Application
         }
         // The UI language is fixed per process lifetime (XAML strings resolve at parse
         // time), so applying a new language means: persist the override, then restart.
-        if (!LanguageService.SaveOverride(language))
+        if (!ReportSettingsWrite(LanguageService.SaveOverride(language)))
         {
             // Keep the running app intact when the preference could not reach disk;
             // otherwise it would restart into the old language for no effect.

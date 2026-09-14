@@ -1,7 +1,27 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Gauge.Services;
+
+/// <summary>
+/// How a read of <c>settings.json</c> went. The two failures are kept apart because they
+/// call for opposite responses: an <see cref="Unavailable"/> file must be left strictly
+/// alone (the real document is still there and the next attempt may well succeed), while an
+/// <see cref="Unparsable"/> one will fail the same way forever and has to be moved aside or
+/// the app can never persist anything again.
+/// </summary>
+internal enum SettingsRead
+{
+    /// <summary>The document was read — or is absent, which is a fresh install, not a failure.</summary>
+    Ok,
+
+    /// <summary>The file exists but could not be opened or read right now (locked, denied).</summary>
+    Unavailable,
+
+    /// <summary>The file exists and is not valid JSON; this build cannot recover its content.</summary>
+    Unparsable,
+}
 
 /// <summary>The on-disk shape of <c>%APPDATA%\Gauge\settings.json</c>.</summary>
 internal sealed class AppSettingsDto
@@ -55,7 +75,9 @@ internal sealed class AppSettingsDto
 /// whole thing back. Unmodelled keys survive via <see cref="AppSettingsDto.Extra"/> so no
 /// store clobbers another's data. Null modelled fields are omitted, so unrelated absent
 /// keys never appear. A write whose read failed is refused rather than performed against an
-/// empty default, which would be the one way this scheme could still lose data.
+/// empty default, which would be the one way this scheme could still lose data — except when
+/// the document is permanently unparsable, which is quarantined instead so the refusal
+/// cannot become a permanent one (see <see cref="TrySave"/>).
 /// </summary>
 internal static class AppSettingsFile
 {
@@ -87,33 +109,48 @@ internal static class AppSettingsFile
     /// state when this returns false.
     /// </summary>
     public static bool TryLoad(string directory, out AppSettingsDto settings)
+        => Read(directory, out settings) == SettingsRead.Ok;
+
+    /// <summary>
+    /// The reading form that separates the two ways a load fails, which callers deciding
+    /// what to do about it need kept apart: <see cref="SettingsRead.Unavailable"/> is
+    /// temporary and the real document is still on disk, while
+    /// <see cref="SettingsRead.Unparsable"/> will fail identically on every future run.
+    /// Reading never modifies the file — the recovery lives in <see cref="TrySave"/>, so a
+    /// mere read can't rearrange the user's data behind their back.
+    /// </summary>
+    public static SettingsRead Read(string directory, out AppSettingsDto settings)
     {
+        settings = new AppSettingsDto();
         var path = Path.Combine(directory, "settings.json");
         if (!File.Exists(path))
         {
-            settings = new AppSettingsDto();
-            return true;
+            return SettingsRead.Ok;
         }
 
         try
         {
             using var stream = File.OpenRead(path);
             settings = JsonSerializer.Deserialize<AppSettingsDto>(stream) ?? new AppSettingsDto();
-            return true;
+            return SettingsRead.Ok;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        catch (JsonException ex)
+        {
+            DiagnosticsLog.Write("settings", $"settings.json is not valid JSON: {ex.GetType().Name}");
+            return SettingsRead.Unparsable;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             DiagnosticsLog.Write("settings", $"settings.json load failed: {ex.GetType().Name}");
-            settings = new AppSettingsDto();
-            return false;
+            return SettingsRead.Unavailable;
         }
     }
 
     /// <summary>
     /// Loads the current document, applies <paramref name="mutate"/>, and writes it back
-    /// atomically (temp file + move). Other keys present in the file are preserved. Writing
-    /// is skipped entirely when the existing file cannot be read — see
-    /// <see cref="TrySave"/>, whose result this form discards.
+    /// atomically (temp file + move). Other keys present in the file are preserved. A
+    /// document that cannot be read is either left strictly alone or quarantined first,
+    /// depending on why — see <see cref="TrySave"/>, whose result this form discards.
     /// </summary>
     public static void Save(string directory, Action<AppSettingsDto> mutate)
         => _ = TrySave(directory, mutate);
@@ -122,23 +159,36 @@ internal static class AppSettingsFile
     /// The result-reporting form used when the caller must not continue unless the
     /// preference reached disk (for example, before restarting to change language).
     ///
-    /// Returns false without touching the file when settings.json exists but
-    /// <see cref="TryLoad"/> could not read or parse it. Read-modify-write is only safe
-    /// when the read actually produced the current document: on a failed read the DTO is an
-    /// empty default, so writing it back would replace a file we could not understand with
-    /// one holding nothing but this caller's key — silently erasing EnabledTools,
-    /// HiddenTools, Language and every other store's data. A preference that refuses to
-    /// stick is recoverable (the caller reflects the failure back to the user); an erased
-    /// settings.json is not.
+    /// Read-modify-write is only safe when the read actually produced the current document:
+    /// on a failed read the DTO is an empty default, so writing it back would replace a file
+    /// we could not understand with one holding nothing but this caller's key — silently
+    /// erasing EnabledTools, HiddenTools, Language and every other store's data. What the
+    /// write does about that depends on WHY the read failed:
+    ///
+    /// <list type="bullet">
+    /// <item><see cref="SettingsRead.Unavailable"/> — the file is fine, we just could not
+    /// open it now. Return false and touch nothing; the caller reverts its switch and the
+    /// next attempt likely succeeds.</item>
+    /// <item><see cref="SettingsRead.Unparsable"/> — the document is not JSON and never will
+    /// be, so refusing would refuse forever and leave the app unable to persist anything.
+    /// Move the bytes aside (never delete them) and write a fresh document. The user's
+    /// settings are reset for this build but fully recoverable by hand from the sidecar
+    /// file, which beats an app that silently stops remembering anything.</item>
+    /// </list>
     /// </summary>
     public static bool TrySave(string directory, Action<AppSettingsDto> mutate)
     {
         try
         {
             Directory.CreateDirectory(directory);
-            if (!TryLoad(directory, out var dto))
+            var read = Read(directory, out var dto);
+            if (read == SettingsRead.Unavailable)
             {
-                DiagnosticsLog.Write("settings", "settings.json save refused: existing file unreadable");
+                DiagnosticsLog.Write("settings", "settings.json save refused: file temporarily unreadable");
+                return false;
+            }
+            if (read == SettingsRead.Unparsable && !TryQuarantine(directory))
+            {
                 return false;
             }
             mutate(dto);
@@ -155,6 +205,38 @@ internal static class AppSettingsFile
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             DiagnosticsLog.Write("settings", $"settings.json save failed: {ex.GetType().Name}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Moves an unparsable settings.json to a timestamped sidecar so the next write starts
+    /// from a clean document. The bytes are moved, never deleted or rewritten: the file is
+    /// the only copy of the user's settings, and a human can still recover values out of it.
+    /// Returns false if the move fails, which keeps the caller on the refuse path rather
+    /// than letting it write over a document that is still in place.
+    /// </summary>
+    private static bool TryQuarantine(string directory)
+    {
+        var path = Path.Combine(directory, "settings.json");
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        try
+        {
+            // A second corruption inside the same second must not overwrite the first
+            // sidecar — that would destroy the copy this whole path exists to keep.
+            var target = Path.Combine(directory, $"settings.corrupt-{stamp}.json");
+            for (var n = 2; File.Exists(target); n++)
+            {
+                target = Path.Combine(directory, $"settings.corrupt-{stamp}-{n}.json");
+            }
+            File.Move(path, target);
+            DiagnosticsLog.Write("settings",
+                $"settings.json was not valid JSON; moved to {Path.GetFileName(target)} and started a new one");
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DiagnosticsLog.Write("settings", $"settings.json quarantine failed: {ex.GetType().Name}");
             return false;
         }
     }

@@ -42,6 +42,11 @@ internal static class Strings
         ["DisplayBasis_Used"]     = ["사용량",           "Used",              "使用量"],
         ["DisplayBasis_Remaining"] = ["남은 사용량",      "Remaining",         "残量"],
         ["Settings_Sparkline"]    = ["소진 추이 그래프",   "Trend sparkline",   "消費推移グラフ"],
+        // Shown only after a write to settings.json was refused, which is the user's one
+        // signal that the switch they just flipped snapped back on purpose.
+        ["Settings_SaveFailed"]   = ["설정을 저장하지 못해 변경을 되돌렸습니다.",
+                                     "Couldn't save settings, so the change was reverted.",
+                                     "設定を保存できなかったため、変更を元に戻しました。"],
         ["Tray_StartOnBoot"]  = ["Windows 시작 시 실행", "Start on boot",     "スタートアップに登録"],
         ["Tray_Exit"]         = ["종료",             "Exit",              "終了"],
 

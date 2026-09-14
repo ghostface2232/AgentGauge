@@ -98,6 +98,15 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     [ObservableProperty] public partial int LanguageIndex { get; set; }
 
     /// <summary>
+    /// Whether the last settings.json write was refused, which shows the card's warning row.
+    /// Every reflect-back above is otherwise silent — the switch simply snaps back — and a
+    /// switch that moves on its own with no explanation reads as a bug rather than as the
+    /// disk saying no. <c>App</c> sets this from each apply's result; it is not a state the
+    /// user can pick, so unlike the settings around it, it raises no intent event.
+    /// </summary>
+    [ObservableProperty] public partial bool SaveFailed { get; set; }
+
+    /// <summary>
     /// Language names in <see cref="AppLanguage"/> order, each in its own language (the
     /// standard convention for language pickers), so no localization column is needed.
     /// </summary>

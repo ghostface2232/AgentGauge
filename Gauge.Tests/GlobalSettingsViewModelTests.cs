@@ -188,6 +188,25 @@ public sealed class GlobalSettingsViewModelTests
     }
 
     [Fact]
+    public void SaveFailedStartsClearAndRaisesNoRequestWhenSet()
+    {
+        // It is App's report on a write, not a setting the user picks, so flipping it must
+        // not look like a change request to anything listening.
+        var vm = Create();
+        var requests = 0;
+        vm.SparklineToggleRequested += (_, _) => requests++;
+        vm.DisplayBasisChangeRequested += (_, _) => requests++;
+        vm.ViewModeChangeRequested += (_, _) => requests++;
+        vm.NotificationKindToggleRequested += (_, _) => requests++;
+        Assert.False(vm.SaveFailed);
+
+        vm.SaveFailed = true;
+
+        Assert.True(vm.SaveFailed);
+        Assert.Equal(0, requests);
+    }
+
+    [Fact]
     public void TogglingStartOnBootRaisesRequestWithNewValue()
     {
         var vm = Create(new NotificationPreferences(false, false));
