@@ -55,6 +55,11 @@ public sealed class UsageBurndownTests
         samples[2] = samples[2] with { ResetTime = reset.AddHours(5) };
         Assert.Empty(UsageBurndown.Build(window, samples, Now));
 
+        // Even a collapse under one unchanged reset is a recalculation, not a new cycle.
+        Assert.Equal(3, UsageBurndown.Build(
+            window, [new(Now.AddHours(-2), .40, reset), new(Now.AddHours(-1), .52, reset), new(Now, .07, reset)],
+            Now).Count);
+
         // Without reset timestamps only a drop past the threshold identifies a new cycle.
         Assert.Equal(3, UsageBurndown.Build(
             window, [new(Now.AddHours(-2), .40), new(Now.AddHours(-1), .421), new(Now, .419)], Now).Count);

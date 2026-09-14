@@ -89,12 +89,13 @@ public sealed class UsageEtaClassifierTests
     [Fact]
     public void RecalculatedUsageWithinOneCycleKeepsTheSeries()
     {
-        // 42.1% → 41.9% on an unchanged reset must not truncate the series to one sample.
+        // A decrease far past the drop threshold, but under an unchanged reset: the series
+        // holds together instead of truncating to the one sample after it.
         var reset = Now.AddHours(3);
         IReadOnlyList<UsageSample> samples =
         [
-            new(Now.AddMinutes(-60), .400, reset), new(Now.AddMinutes(-30), .421, reset),
-            new(Now, .419, reset),
+            new(Now.AddMinutes(-60), .400, reset), new(Now.AddMinutes(-30), .520, reset),
+            new(Now, .440, reset),
         ];
 
         Assert.NotNull(UsageEtaClassifier.ProjectExhaustion(samples, Now));
