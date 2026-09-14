@@ -15,7 +15,7 @@
          Grid a focus target. It is the element we slide + fade on show. RootBorder
          is where we round corners if we ever
          switch from DWM rounding to the transparent-window + inner-border approach. -->
-    <Grid x:Name="RootHost" Background="Transparent" KeyboardAcceleratorPlacementMode="Hidden">
+    <Grid x:Name="RootHost" Background="{ThemeResource ControlFillColorTransparentBrush}" KeyboardAcceleratorPlacementMode="Hidden">
         <Grid.Resources>
           <ResourceDictionary>
             <!-- Hover/press overlay for borderless icon buttons. Stronger than the

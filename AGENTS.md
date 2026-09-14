@@ -231,7 +231,7 @@ Gauge ships Korean, English, and Japanese. The UI language is fixed once per **p
 - Nullable reference types enabled.
 - async/await throughout; never block on async.
 - Isolate all network calls and JSON parsing with exception handling and timeouts.
-- No hardcoded colors and no magic numbers for thresholds; use theme resources and named constants.
+- No hardcoded colors and no magic numbers for thresholds; use theme resources and named constants. `PopoverXamlContractTests` scans source XAML for hex/named color literals. Its exact 20-entry path/theme/key/value allowlist permits only the existing theme-palette definitions, rejects duplicates, and fails on stale exceptions; new use-site literals never qualify.
 
 ## Comments
 

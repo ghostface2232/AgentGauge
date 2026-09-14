@@ -7,6 +7,77 @@ namespace Gauge.Tests;
 public sealed class PopoverXamlContractTests
 {
     [Fact]
+    public void XamlColorsOnlyAppearInExplicitThemePaletteDefinitions()
+    {
+        // These palette definitions are the source of the theme brushes, not use sites.
+        // Exact path/theme/key/value entries forbid expanding an entire file's exemption.
+        var allowed = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "App.xaml|Default|UsageOkBrush|#2E9E4F",
+            "App.xaml|Default|UsageCautionBrush|#FEAD0C",
+            "App.xaml|Default|UsageDangerBrush|#FE140C",
+            "App.xaml|Default|UsageOkTextBrush|#6CCB5F",
+            "App.xaml|Default|UsageCautionTextBrush|#FEAD0C",
+            "App.xaml|Default|UsageDangerTextBrush|#FF99A4",
+            "App.xaml|Default|ResetChipFillBrush|#3D2F6FED",
+            "App.xaml|Default|ResetChipTextBrush|#A8CBFF",
+            "App.xaml|Light|UsageOkBrush|#2E9E4F",
+            "App.xaml|Light|UsageCautionBrush|#FEAD0C",
+            "App.xaml|Light|UsageDangerBrush|#FE140C",
+            "App.xaml|Light|UsageOkTextBrush|#0F7B0F",
+            "App.xaml|Light|UsageCautionTextBrush|#9D5D00",
+            "App.xaml|Light|UsageDangerTextBrush|#C42B1C",
+            "App.xaml|Light|ResetChipFillBrush|#242F6FED",
+            "App.xaml|Light|ResetChipTextBrush|#0B4A94",
+            "Views/PopoverWindow.xaml|Light|IconButtonHoverBrush|#0D000000",
+            "Views/PopoverWindow.xaml|Light|IconButtonPressedBrush|#1A000000",
+            "Views/PopoverWindow.xaml|Dark|IconButtonHoverBrush|#1FFFFFFF",
+            "Views/PopoverWindow.xaml|Dark|IconButtonPressedBrush|#33FFFFFF",
+        };
+        Assert.Equal(20, allowed.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var failures = new List<string>();
+        var root = RepoRoot();
+        foreach (var path in XamlFiles(root))
+        {
+            var document = XDocument.Load(path);
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
+            foreach (var element in document.Descendants())
+            {
+                foreach (var attribute in element.Attributes())
+                {
+                    var value = attribute.Value;
+                    var isHex = Regex.IsMatch(value, @"(?i)#[0-9a-f]{3,8}\b");
+                    var isNamed = attribute.Name.LocalName is "Color" or "Fill" or "Stroke" or "Foreground" or "Background" or "BorderBrush"
+                        && System.Drawing.Color.FromName(value).IsKnownColor;
+                    if (!isHex && !isNamed) continue;
+                    var key = $"{relative}|{(string?)element.Parent?.Attribute(x + "Key")}|{(string?)element.Attribute(x + "Key")}|{value}";
+                    var palette = element.Name.LocalName == "SolidColorBrush" && attribute.Name.LocalName == "Color"
+                        && element.Parent?.Parent?.Name.LocalName == "ResourceDictionary.ThemeDictionaries";
+                    if (!palette || !allowed.Contains(key) || !seen.Add(key)) failures.Add($"{relative}: {attribute}");
+                }
+                foreach (var node in element.Nodes().OfType<XText>())
+                    if (Regex.IsMatch(node.Value, @"(?i)#[0-9a-f]{3,8}\b")
+                        || element.Name.LocalName == "Color" && System.Drawing.Color.FromName(node.Value.Trim()).IsKnownColor)
+                        failures.Add($"{relative}: {node.Value.Trim()}");
+            }
+        }
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
+        Assert.True(allowed.SetEquals(seen), "Remove stale palette exemptions or explicitly review changed colors.");
+    }
+
+    private static IEnumerable<string> XamlFiles(string directory)
+    {
+        foreach (var file in Directory.EnumerateFiles(directory, "*.xaml")) yield return file;
+        foreach (var child in Directory.EnumerateDirectories(directory))
+        {
+            if (Path.GetFileName(child) is "bin" or "obj" or "dist" or ".git" or ".codex" or ".agents") continue;
+            foreach (var file in XamlFiles(child)) yield return file;
+        }
+    }
+
+    [Fact]
     public void BothUsageViewModesRenderEta()
     {
         var xaml = File.ReadAllText(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
