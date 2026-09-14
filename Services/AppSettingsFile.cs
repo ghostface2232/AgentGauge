@@ -54,7 +54,8 @@ internal sealed class AppSettingsDto
 /// writes are read-modify-write: load the current document, mutate one field, write the
 /// whole thing back. Unmodelled keys survive via <see cref="AppSettingsDto.Extra"/> so no
 /// store clobbers another's data. Null modelled fields are omitted, so unrelated absent
-/// keys never appear.
+/// keys never appear. A write whose read failed is refused rather than performed against an
+/// empty default, which would be the one way this scheme could still lose data.
 /// </summary>
 internal static class AppSettingsFile
 {
@@ -110,7 +111,9 @@ internal static class AppSettingsFile
 
     /// <summary>
     /// Loads the current document, applies <paramref name="mutate"/>, and writes it back
-    /// atomically (temp file + move). Other keys present in the file are preserved.
+    /// atomically (temp file + move). Other keys present in the file are preserved. Writing
+    /// is skipped entirely when the existing file cannot be read — see
+    /// <see cref="TrySave"/>, whose result this form discards.
     /// </summary>
     public static void Save(string directory, Action<AppSettingsDto> mutate)
         => _ = TrySave(directory, mutate);
@@ -118,13 +121,26 @@ internal static class AppSettingsFile
     /// <summary>
     /// The result-reporting form used when the caller must not continue unless the
     /// preference reached disk (for example, before restarting to change language).
+    ///
+    /// Returns false without touching the file when settings.json exists but
+    /// <see cref="TryLoad"/> could not read or parse it. Read-modify-write is only safe
+    /// when the read actually produced the current document: on a failed read the DTO is an
+    /// empty default, so writing it back would replace a file we could not understand with
+    /// one holding nothing but this caller's key — silently erasing EnabledTools,
+    /// HiddenTools, Language and every other store's data. A preference that refuses to
+    /// stick is recoverable (the caller reflects the failure back to the user); an erased
+    /// settings.json is not.
     /// </summary>
     public static bool TrySave(string directory, Action<AppSettingsDto> mutate)
     {
         try
         {
             Directory.CreateDirectory(directory);
-            var dto = Load(directory);
+            if (!TryLoad(directory, out var dto))
+            {
+                DiagnosticsLog.Write("settings", "settings.json save refused: existing file unreadable");
+                return false;
+            }
             mutate(dto);
 
             var path = Path.Combine(directory, "settings.json");

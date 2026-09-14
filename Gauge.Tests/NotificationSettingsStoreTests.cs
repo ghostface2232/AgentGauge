@@ -108,6 +108,19 @@ public sealed class NotificationSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void TrySaveReportsFailureRatherThanRewritingAnUnreadableFileFromDefaults()
+    {
+        // The read that a read-modify-write starts from failed, so the document in hand is
+        // an empty default. Writing it back would drop the tool registration and language
+        // this file still holds, so the write is refused and the caller reverts its toggle.
+        const string corrupt = """{ "EnabledTools": ["Cursor"], "Language": "ja", """;
+        WriteSettings(corrupt);
+
+        Assert.False(new NotificationSettingsStore(() => _dir).TrySave(new NotificationPreferences(false, false)));
+        Assert.Equal(corrupt, ReadSettings());
+    }
+
+    [Fact]
     public void SaveWritesTheDerivedMasterFlagForOlderBuilds()
     {
         // A downgrade only understands NotificationsEnabled, so it must reflect whether any

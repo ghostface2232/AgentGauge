@@ -124,12 +124,11 @@ internal sealed class ForegroundLockGuard
         }
 
         // Clear the key only if the file reads cleanly right now and actually holds one.
-        // settings.json is shared and TrySave is a read-modify-write whose read fails open,
-        // so writing over a file that cannot be parsed would rewrite it from defaults and
-        // drop the tool registration, language, view mode, alert flags and any unknown
-        // keys. Reading here rather than remembering what Disable wrote also covers the
-        // file changing in between, and clears a baseline left behind by an earlier run
-        // whose own persist failed.
+        // AppSettingsFile refuses a write whose own read failed, so an unparsable file is
+        // safe either way; reading here rather than remembering what Disable wrote also
+        // covers the file changing in between, skips a pointless rewrite when there is no
+        // baseline to clear, and clears one left behind by an earlier run whose own
+        // persist failed.
         if (AppSettingsFile.TryLoad(_directory(), out var settings)
             && settings.ForegroundLockTimeoutBaseline is not null)
         {

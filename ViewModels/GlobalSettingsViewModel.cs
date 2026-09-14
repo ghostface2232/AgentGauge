@@ -84,8 +84,10 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         [Loc.Get("DisplayBasis_Used"), Loc.Get("DisplayBasis_Remaining")];
 
     /// <summary>
-    /// Whether bar rows show the burndown sparkline. Purely a presentation preference, so
-    /// unlike the notification kinds it has no external owner to reconcile against.
+    /// Whether bar rows show the burndown sparkline. It has no live service behind it, but
+    /// like every other setting here it is reconciled against the persisted result, so a
+    /// write that settings.json refused snaps the switch back instead of showing a state
+    /// the next launch would not honour.
     /// </summary>
     [ObservableProperty] public partial bool ShowSparkline { get; set; }
 
@@ -134,6 +136,34 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     {
         _suspendSideEffects = true;
         LanguageIndex = (int)language;
+        _suspendSideEffects = false;
+    }
+
+    /// <summary>
+    /// Reflects the persisted view mode without raising a new request. Used after a save
+    /// that failed, so the dropdown snaps back to the mode that is actually on disk instead
+    /// of showing a choice the next launch would not honour.
+    /// </summary>
+    public void SetViewMode(UsageViewMode mode)
+    {
+        _suspendSideEffects = true;
+        ViewModeIndex = (int)mode;
+        _suspendSideEffects = false;
+    }
+
+    /// <summary>Reflects the persisted percent basis without raising a new request.</summary>
+    public void SetDisplayBasis(UsageDisplayBasis basis)
+    {
+        _suspendSideEffects = true;
+        DisplayBasisIndex = (int)basis;
+        _suspendSideEffects = false;
+    }
+
+    /// <summary>Reflects the persisted sparkline state without raising a new request.</summary>
+    public void SetShowSparkline(bool show)
+    {
+        _suspendSideEffects = true;
+        ShowSparkline = show;
         _suspendSideEffects = false;
     }
 

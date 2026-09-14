@@ -42,6 +42,16 @@ public sealed class DisplayBasisSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public void SavingOverAnUnreadableFileIsRefusedRatherThanRewritingItFromDefaults()
+    {
+        const string corrupt = """{ "EnabledTools": ["Cursor"], "Language": "ja", """;
+        WriteSettings(corrupt);
+
+        Assert.False(new DisplayBasisSettingsStore(() => _dir).TrySave(UsageDisplayBasis.Remaining));
+        Assert.Equal(corrupt, File.ReadAllText(Path.Combine(_dir, "settings.json")));
+    }
+
+    [Fact]
     public void SavingLeavesOtherKeysIntact()
     {
         WriteSettings("""{ "EnabledTools": ["Cursor"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge" }""");

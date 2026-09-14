@@ -144,6 +144,50 @@ public sealed class GlobalSettingsViewModelTests
     }
 
     [Fact]
+    public void SetViewModeReflectsThePersistedModeWithoutRaisingRequest()
+    {
+        // A refused settings.json write must snap the dropdown back to what is on disk,
+        // and that reflect-back must not bounce out as a fresh change request.
+        var vm = Create();
+        var requests = 0;
+        vm.ViewModeChangeRequested += (_, _) => requests++;
+        vm.ViewModeIndex = (int)UsageViewMode.Gauge;
+
+        vm.SetViewMode(UsageViewMode.Bar);
+
+        Assert.Equal((int)UsageViewMode.Bar, vm.ViewModeIndex);
+        Assert.Equal(1, requests);
+    }
+
+    [Fact]
+    public void SetDisplayBasisReflectsThePersistedBasisWithoutRaisingRequest()
+    {
+        var vm = Create();
+        var requests = 0;
+        vm.DisplayBasisChangeRequested += (_, _) => requests++;
+        vm.DisplayBasisIndex = (int)UsageDisplayBasis.Remaining;
+
+        vm.SetDisplayBasis(UsageDisplayBasis.Used);
+
+        Assert.Equal((int)UsageDisplayBasis.Used, vm.DisplayBasisIndex);
+        Assert.Equal(1, requests);
+    }
+
+    [Fact]
+    public void SetShowSparklineReflectsThePersistedStateWithoutRaisingRequest()
+    {
+        var vm = Create();
+        var requests = 0;
+        vm.SparklineToggleRequested += (_, _) => requests++;
+        vm.ShowSparkline = false;
+
+        vm.SetShowSparkline(true);
+
+        Assert.True(vm.ShowSparkline);
+        Assert.Equal(1, requests);
+    }
+
+    [Fact]
     public void TogglingStartOnBootRaisesRequestWithNewValue()
     {
         var vm = Create(new NotificationPreferences(false, false));

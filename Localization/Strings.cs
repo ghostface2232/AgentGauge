@@ -50,8 +50,8 @@ internal static class Strings
         // The switch carries no visible label; the chip beside it states the current state
         // and this name goes to the automation peer and tooltip.
         ["Settings_ShowTool"] = ["도구 표시 (끄면 숨기고 갱신을 멈춥니다)", "Show tool (off hides it and pauses refresh)", "ツールを表示（オフで非表示にし更新を停止）"],
-        ["Tool_Active"] = ["활성", "Active", "有効"],
-        ["Tool_Inactive"] = ["비활성", "Inactive", "無効"],
+        ["Tool_Shown"] = ["표시", "Shown", "表示"],
+        ["Tool_Hidden"] = ["숨김", "Hidden", "非表示"],
         ["Empty_AllHidden"] = ["모든 도구가 숨겨져 있습니다.", "All tools are hidden.", "すべてのツールが非表示です。"],
         ["Burndown_Hover"] = ["{0} · {1:0}% 남음", "{0} · {1:0}% left", "{0} · 残り{1:0}%"],
         ["Usage_Accessible"] = ["{0}, {1}퍼센트 사용", "{0}, {1} percent used", "{0}、{1}パーセント使用"],

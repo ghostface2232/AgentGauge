@@ -21,6 +21,13 @@ public sealed class ViewModeSettingsStore
             ? UsageViewMode.Gauge
             : UsageViewMode.Bar;
 
-    public void Save(UsageViewMode mode)
-        => AppSettingsFile.Save(_directory(), dto => dto.ViewMode = mode == UsageViewMode.Gauge ? "gauge" : "bar");
+    public void Save(UsageViewMode mode) => _ = TrySave(mode);
+
+    /// <summary>
+    /// The result-reporting form of <see cref="Save"/>. False means the choice did not reach
+    /// disk — the caller must keep showing the previous mode rather than a preference that
+    /// would be gone on the next launch.
+    /// </summary>
+    public bool TrySave(UsageViewMode mode)
+        => AppSettingsFile.TrySave(_directory(), dto => dto.ViewMode = mode == UsageViewMode.Gauge ? "gauge" : "bar");
 }

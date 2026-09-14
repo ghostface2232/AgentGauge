@@ -35,6 +35,15 @@ public partial class App : Application
     private ViewModeSettingsStore? _viewModeSettingsStore;
     private DisplayBasisSettingsStore? _displayBasisSettingsStore;
     private SparklineSettingsStore? _sparklineSettingsStore;
+    // The last values known to have reached settings.json. A save that the file refuses
+    // reverts its surface to the value here, never to a fresh read: an unreadable
+    // settings.json is indistinguishable from an absent one and reads as this build's
+    // defaults, so a read error would masquerade as the user's choice — and for the
+    // notification kinds, whose default is on, would un-mute someone who muted.
+    private NotificationPreferences _notificationPreferences = NotificationPreferences.Default;
+    private UsageViewMode _viewMode;
+    private UsageDisplayBasis _displayBasis;
+    private bool _showSparkline = true;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
@@ -150,16 +159,16 @@ public partial class App : Application
         // applies/reconciles the change (see OnGlobal* handlers below). The initial state
         // comes from the persisted notifications flag and the real Run-key startup state.
         _notificationSettingsStore = new NotificationSettingsStore();
-        var notificationPreferences = _notificationSettingsStore.Load();
-        _trayIcon.SetNotificationPreferences(notificationPreferences);
+        _notificationPreferences = _notificationSettingsStore.Load();
+        _trayIcon.SetNotificationPreferences(_notificationPreferences);
         _viewModeSettingsStore = new ViewModeSettingsStore();
-        var viewMode = _viewModeSettingsStore.Load();
+        _viewMode = _viewModeSettingsStore.Load();
         _displayBasisSettingsStore = new DisplayBasisSettingsStore();
-        var displayBasis = _displayBasisSettingsStore.Load();
+        _displayBasis = _displayBasisSettingsStore.Load();
         _sparklineSettingsStore = new SparklineSettingsStore();
-        var showSparkline = _sparklineSettingsStore.Load();
+        _showSparkline = _sparklineSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(
-            notificationPreferences, _startupService.IsEnabled(), viewMode, displayBasis, showSparkline);
+            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
@@ -181,9 +190,9 @@ public partial class App : Application
         // appended so trend/ETA features have data; a broken history DB never blocks startup.
         _historyStore = new UsageHistoryStore();
         _viewModel = new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
-        _viewModel.SetViewMode(viewMode);
-        _viewModel.SetDisplayBasis(displayBasis);
-        _viewModel.SetShowSparkline(showSparkline);
+        _viewModel.SetViewMode(_viewMode);
+        _viewModel.SetDisplayBasis(_displayBasis);
+        _viewModel.SetShowSparkline(_showSparkline);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
 
@@ -193,7 +202,7 @@ public partial class App : Application
                 Windows.System.Power.PowerManager.EnergySaverStatus == Windows.System.Power.EnergySaverStatus.On,
                 _sessionLocked));
         _notificationService = new UsageNotificationService();
-        _notificationService.SetPreferences(notificationPreferences);
+        _notificationService.SetPreferences(_notificationPreferences);
         foreach (var kind in _toolRegistry.Enabled)
             _notificationService.SetToolHidden(ToolCatalog.For(kind).DisplayName, _toolRegistry.IsHidden(kind));
         _toolRegistry.VisibilityChanged += OnToolVisibilityChanged;
@@ -369,6 +378,7 @@ public partial class App : Application
         {
             // The kind switches ARE the notification gate now, so the live service is armed
             // from the same values they display; neither can claim what the other isn't doing.
+            _notificationPreferences = notifications;
             _notificationService?.SetPreferences(notifications);
             _settingsViewModel.Global.SyncFromSystem(notifications, startOnBoot);
         }
@@ -395,15 +405,16 @@ public partial class App : Application
         {
             return;
         }
-        // A toggle that never reached disk must revert on both surfaces rather than lying.
-        // Unlike start-on-boot we must NOT confirm by re-reading: an unreadable settings.json
-        // is indistinguishable from an absent one, and absent means "every alert on", so a
-        // transient read error would flip both switches back on and start toasting. A missing
-        // registry Run value genuinely means "off", which is why that one can re-read safely.
-        // Trust the write's own result instead.
-        var current = _notificationSettingsStore.Load();
-        var desired = current.With(change.Kind, change.Enabled);
-        var applied = _notificationSettingsStore.TrySave(desired) ? desired : current;
+        // A toggle that never reached disk must revert on both surfaces rather than lying,
+        // so the write's own result decides. The value it reverts to is the one we already
+        // know is persisted, NOT a fresh read: an unreadable settings.json is
+        // indistinguishable from an absent one, and absent means "every alert on", so a
+        // read error would look like a user who wants toasts and un-mute the service. A
+        // missing registry Run value genuinely means "off", which is why start-on-boot can
+        // confirm by re-reading and this cannot.
+        var desired = _notificationPreferences.With(change.Kind, change.Enabled);
+        var applied = _notificationSettingsStore.TrySave(desired) ? desired : _notificationPreferences;
+        _notificationPreferences = applied;
         _notificationService?.SetPreferences(applied);
         _trayIcon?.SetNotificationPreferences(applied);
         _settingsViewModel?.Global.SyncNotifications(applied);
@@ -411,7 +422,14 @@ public partial class App : Application
 
     private void OnGlobalDisplayBasisChanged(object? sender, UsageDisplayBasis basis)
     {
-        _displayBasisSettingsStore?.Save(basis);
+        // The dropdown already moved itself; a write that settings.json refused must move it
+        // back rather than leave the screen showing a basis the next launch would not honour.
+        if (_displayBasisSettingsStore?.TrySave(basis) != true)
+        {
+            _settingsViewModel?.Global.SetDisplayBasis(_displayBasis);
+            return;
+        }
+        _displayBasis = basis;
         // Rows re-derive their percent in place; the card height is unchanged, so no
         // re-measure is needed.
         _viewModel?.SetDisplayBasis(basis);
@@ -419,7 +437,12 @@ public partial class App : Application
 
     private void OnGlobalSparklineToggled(object? sender, bool show)
     {
-        _sparklineSettingsStore?.Save(show);
+        if (_sparklineSettingsStore?.TrySave(show) != true)
+        {
+            _settingsViewModel?.Global.SetShowSparkline(_showSparkline);
+            return;
+        }
+        _showSparkline = show;
         // The sparkline sits inside the existing primary row, so hiding it changes no
         // card height and no re-measure is needed.
         _viewModel?.SetShowSparkline(show);
@@ -427,7 +450,12 @@ public partial class App : Application
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)
     {
-        _viewModeSettingsStore?.Save(mode);
+        if (_viewModeSettingsStore?.TrySave(mode) != true)
+        {
+            _settingsViewModel?.Global.SetViewMode(_viewMode);
+            return;
+        }
+        _viewMode = mode;
         _viewModel?.SetViewMode(mode);
         // Bar and gauge cards differ in height; re-measure so the popover resizes to fit
         // (a no-op while the settings view is up — returning to usage re-measures anyway).
