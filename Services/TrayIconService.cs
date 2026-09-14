@@ -446,17 +446,6 @@ public sealed class TrayIconService : IDisposable
         _currentIcon = null;
     }
 
-    /// <summary>
-    /// Re-persists the foreground-lock baseline after settings.json had to be replaced. Once
-    /// captured the guard keeps it only in memory, so a replacement silently drops the one
-    /// value a later hard kill would need — see
-    /// <see cref="ForegroundLockGuard.RepersistBaseline"/>.
-    /// </summary>
-    public void RepersistForegroundLockBaseline()
-    {
-        if (_manageForegroundLock) _foregroundLock.RepersistBaseline();
-    }
-
     private static class NativeMethods
     {
         public const uint MONITOR_DEFAULTTONEAREST = 0x2;

@@ -21,13 +21,6 @@ public sealed class DisplayBasisSettingsStore
             ? UsageDisplayBasis.Remaining
             : UsageDisplayBasis.Used;
 
-    public void Save(UsageDisplayBasis basis) => _ = TrySave(basis);
-
-    /// <summary>
-    /// The result-reporting form of <see cref="Save"/>. False means the choice did not reach
-    /// disk — the caller must keep showing the previous basis rather than a preference that
-    /// would be gone on the next launch.
-    /// </summary>
-    public bool TrySave(UsageDisplayBasis basis)
-        => AppSettingsFile.TrySave(_directory(), dto => dto.DisplayBasis = basis == UsageDisplayBasis.Remaining ? "remaining" : "used");
+    public void Save(UsageDisplayBasis basis)
+        => AppSettingsFile.Save(_directory(), dto => dto.DisplayBasis = basis == UsageDisplayBasis.Remaining ? "remaining" : "used");
 }

@@ -84,10 +84,8 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         [Loc.Get("DisplayBasis_Used"), Loc.Get("DisplayBasis_Remaining")];
 
     /// <summary>
-    /// Whether bar rows show the burndown sparkline. It has no live service behind it, but
-    /// like every other setting here it is reconciled against the persisted result, so a
-    /// write that settings.json refused snaps the switch back instead of showing a state
-    /// the next launch would not honour.
+    /// Whether bar rows show the burndown sparkline. Purely a presentation preference, so
+    /// unlike the notification kinds it has no external owner to reconcile against.
     /// </summary>
     [ObservableProperty] public partial bool ShowSparkline { get; set; }
 
@@ -96,22 +94,6 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     /// values. Choosing a different language persists it and relaunches the app.
     /// </summary>
     [ObservableProperty] public partial int LanguageIndex { get; set; }
-
-    /// <summary>
-    /// What the card's notice row says about settings.json, or null for no notice. Two
-    /// things need saying and neither can be read off the switches: a write the file refused
-    /// (every reflect-back above is otherwise silent — the switch just snaps back, which
-    /// reads as a bug rather than as the disk saying no), and a document replaced because it
-    /// had stopped being JSON. <c>App</c> sets this from what actually happened on disk; it
-    /// is not a state the user can pick, so unlike the settings around it, it raises no
-    /// intent event.
-    /// </summary>
-    [ObservableProperty] public partial string? SettingsNotice { get; set; }
-
-    /// <summary>Whether <see cref="SettingsNotice"/> has anything to show.</summary>
-    public bool HasSettingsNotice => SettingsNotice is { Length: > 0 };
-
-    partial void OnSettingsNoticeChanged(string? value) => OnPropertyChanged(nameof(HasSettingsNotice));
 
     /// <summary>
     /// Language names in <see cref="AppLanguage"/> order, each in its own language (the
@@ -152,34 +134,6 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     {
         _suspendSideEffects = true;
         LanguageIndex = (int)language;
-        _suspendSideEffects = false;
-    }
-
-    /// <summary>
-    /// Reflects the persisted view mode without raising a new request. Used after a save
-    /// that failed, so the dropdown snaps back to the mode that is actually on disk instead
-    /// of showing a choice the next launch would not honour.
-    /// </summary>
-    public void SetViewMode(UsageViewMode mode)
-    {
-        _suspendSideEffects = true;
-        ViewModeIndex = (int)mode;
-        _suspendSideEffects = false;
-    }
-
-    /// <summary>Reflects the persisted percent basis without raising a new request.</summary>
-    public void SetDisplayBasis(UsageDisplayBasis basis)
-    {
-        _suspendSideEffects = true;
-        DisplayBasisIndex = (int)basis;
-        _suspendSideEffects = false;
-    }
-
-    /// <summary>Reflects the persisted sparkline state without raising a new request.</summary>
-    public void SetShowSparkline(bool show)
-    {
-        _suspendSideEffects = true;
-        ShowSparkline = show;
         _suspendSideEffects = false;
     }
 
