@@ -94,6 +94,20 @@
                 </Setter>
             </Style>
 
+            <!-- Settings switches. The default ToggleSwitch template keeps a fixed 12dip
+                 gap column between the 40dip switch and its On/Off text even when that text
+                 is empty, so a bare switch sits 12dip inside the edge every other control
+                 (dropdowns, buttons, chips) reaches. The negative right margin lets that
+                 empty column hang past the slot so the switch itself lands on the edge. -->
+            <Style x:Key="EdgeAlignedToggleSwitchStyle" TargetType="ToggleSwitch"
+                   BasedOn="{StaticResource DefaultToggleSwitchStyle}">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="OnContent" Value="" />
+                <Setter Property="OffContent" Value="" />
+                <Setter Property="Margin" Value="0,0,-12,0" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
             <!-- Compact account card. Header carries the tool name and a disconnect
                  (remove) button; the body shows the CLI login button for Claude/Codex
                  or sign-in guidance for app-login tools (Antigravity/Cursor). -->
@@ -147,8 +161,7 @@
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            Style="{StaticResource CaptionTextBlockStyle}" />
                             </ctrl:SquircleBorder>
-                            <ToggleSwitch Grid.Column="2" VerticalAlignment="Center"
-                                          MinWidth="0" OnContent="" OffContent=""
+                            <ToggleSwitch Style="{StaticResource EdgeAlignedToggleSwitchStyle}" Grid.Column="2"
                                           IsOn="{Binding IsShown, Mode=TwoWay}"
                                           AutomationProperties.Name="{loc:Localize Key=Settings_ShowTool}"
                                           ToolTipService.ToolTip="{loc:Localize Key=Settings_ShowTool}" />
@@ -765,8 +778,7 @@
                                         <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                                    Text="{loc:Localize Key=Settings_NotifyThresholds}"
                                                    Style="{StaticResource BodyTextBlockStyle}" />
-                                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
-                                                      MinWidth="0" OnContent="" OffContent=""
+                                        <ToggleSwitch Style="{StaticResource EdgeAlignedToggleSwitchStyle}" Grid.Column="1"
                                                       IsOn="{Binding Global.NotifyThresholds, Mode=TwoWay}" />
                                     </Grid>
                                     <Grid MinHeight="48" ColumnSpacing="12">
@@ -777,8 +789,7 @@
                                         <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                                    Text="{loc:Localize Key=Settings_NotifyResets}"
                                                    Style="{StaticResource BodyTextBlockStyle}" />
-                                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
-                                                      MinWidth="0" OnContent="" OffContent=""
+                                        <ToggleSwitch Style="{StaticResource EdgeAlignedToggleSwitchStyle}" Grid.Column="1"
                                                       IsOn="{Binding Global.NotifyResets, Mode=TwoWay}" />
                                     </Grid>
                                 </StackPanel>
@@ -793,8 +804,7 @@
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                            Text="{loc:Localize Key=Settings_StartOnBoot}"
                                            Style="{StaticResource BodyTextBlockStyle}" />
-                                <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
-                                              MinWidth="0" OnContent="" OffContent=""
+                                <ToggleSwitch Style="{StaticResource EdgeAlignedToggleSwitchStyle}" Grid.Column="1"
                                               IsOn="{Binding Global.StartOnBoot, Mode=TwoWay}" />
                             </Grid>
                             <Border Height="1" Margin="0,2"
@@ -841,8 +851,7 @@
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center"
                                            Text="{loc:Localize Key=Settings_Sparkline}"
                                            Style="{StaticResource BodyTextBlockStyle}" />
-                                <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
-                                              MinWidth="0" OnContent="" OffContent=""
+                                <ToggleSwitch Style="{StaticResource EdgeAlignedToggleSwitchStyle}" Grid.Column="1"
                                               IsOn="{Binding Global.ShowSparkline, Mode=TwoWay}" />
                             </Grid>
                             <Border Height="1" Margin="0,2"
