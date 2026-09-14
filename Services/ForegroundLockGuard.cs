@@ -94,6 +94,28 @@ internal sealed class ForegroundLockGuard
     }
 
     /// <summary>
+    /// Writes the in-memory baseline back to settings.json, for after the file had to be
+    /// replaced. The baseline is the one value here that only this class holds: the live
+    /// timeout is Gauge's zero, so if a hard kill follows a replacement that dropped the
+    /// key, the next launch reads that zero as the user's own and their machine-wide
+    /// foreground-lock timeout stays pinned at it — the exact permanent loss this class
+    /// exists to prevent. No baseline means Gauge never zeroed anything, so nothing to do.
+    /// </summary>
+    public void RepersistBaseline()
+    {
+        uint baseline;
+        lock (_gate)
+        {
+            if (_baseline is not uint saved)
+            {
+                return;
+            }
+            baseline = saved;
+        }
+        AppSettingsFile.Save(_directory(), dto => dto.ForegroundLockTimeoutBaseline = baseline);
+    }
+
+    /// <summary>
     /// Puts the user's timeout back and clears the persisted baseline — once, on success.
     /// The baseline is taken under the lock so Dispose and the ProcessExit net cannot both
     /// act on it, and put back if the write to the system fails: the live value is then
@@ -124,12 +146,14 @@ internal sealed class ForegroundLockGuard
         }
 
         // Clear the key only if the file reads cleanly right now and actually holds one.
-        // settings.json is shared and TrySave is a read-modify-write whose read fails open,
-        // so writing over a file that cannot be parsed would rewrite it from defaults and
-        // drop the tool registration, language, view mode, alert flags and any unknown
-        // keys. Reading here rather than remembering what Disable wrote also covers the
-        // file changing in between, and clears a baseline left behind by an earlier run
-        // whose own persist failed.
+        // AppSettingsFile refuses a write whose own read failed, so the baseline cannot be
+        // erased by a rewrite from defaults; reading here rather than remembering what
+        // Disable wrote also covers the file changing in between, skips a pointless rewrite
+        // when there is no baseline to clear, and clears one left behind by an earlier run
+        // whose own persist failed. Note the one path that DOES replace the file —
+        // AppSettingsFile.TryRecoverCorrupt — drops the baseline with everything else,
+        // which is why App calls RepersistBaseline right after it: the live value is still
+        // Gauge's zero, so a dropped baseline would pin the user's timeout there for good.
         if (AppSettingsFile.TryLoad(_directory(), out var settings)
             && settings.ForegroundLockTimeoutBaseline is not null)
         {
