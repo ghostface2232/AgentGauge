@@ -35,7 +35,26 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
 
     [ObservableProperty] public partial bool IsHidden { get; set; }
     public event EventHandler<bool>? HiddenChanged;
-    partial void OnIsHiddenChanged(bool value) => HiddenChanged?.Invoke(this, value);
+    partial void OnIsHiddenChanged(bool value)
+    {
+        HiddenChanged?.Invoke(this, value);
+        OnPropertyChanged(nameof(IsShown));
+        OnPropertyChanged(nameof(VisibilityText));
+    }
+
+    /// <summary>
+    /// The card's toggle is phrased positively — on means the tool is shown and polled — so
+    /// it reads like every other switch in settings. It is the inverse of the persisted
+    /// <see cref="IsHidden"/> flag rather than a second state.
+    /// </summary>
+    public bool IsShown
+    {
+        get => !IsHidden;
+        set => IsHidden = !value;
+    }
+
+    /// <summary>Chip beside the toggle: "활성" while shown, "비활성" while hidden.</summary>
+    public string VisibilityText => Loc.Get(IsHidden ? "Tool_Inactive" : "Tool_Active");
 
     public string ToolName { get; }
     public IAsyncRelayCommand LoginCommand { get; }

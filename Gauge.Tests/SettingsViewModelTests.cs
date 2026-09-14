@@ -19,6 +19,25 @@ public sealed class SettingsViewModelTests
         Assert.Equal(status == AuthenticationStatus.LoginRunning, card.IsLoginRunning);
     }
 
+    [Fact]
+    public void ShownToggleMirrorsHiddenFlagAndDrivesTheStateChip()
+    {
+        var card = new AuthenticationCardViewModel(new FakeAuthenticationProvider(State(AuthenticationStatus.Available, "")));
+        var hiddenChanges = new List<bool>();
+        card.HiddenChanged += (_, hidden) => hiddenChanges.Add(hidden);
+
+        Assert.True(card.IsShown);
+        Assert.Equal("활성", card.VisibilityText);
+
+        card.IsShown = false;
+        Assert.True(card.IsHidden);
+        Assert.Equal("비활성", card.VisibilityText);
+
+        card.IsHidden = false;
+        Assert.True(card.IsShown);
+        Assert.Equal([true, false], hiddenChanges);
+    }
+
     private static AuthenticationState State(AuthenticationStatus status, string message) => new()
     {
         Tool = ToolKind.Codex, ToolName = "Codex", Status = status,

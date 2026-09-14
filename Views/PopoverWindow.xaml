@@ -118,9 +118,41 @@
                         </Grid>
                         <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Opacity="0.75"
                                    Style="{StaticResource CaptionTextBlockStyle}" />
-                        <ToggleSwitch Header="{loc:Localize Key=Settings_HideTool}"
-                                      IsOn="{Binding IsHidden, Mode=TwoWay}"
-                                      OffContent="" OnContent="" />
+                        <!-- Show/hide: a state chip on the left ("활성"/"비활성") and a bare
+                             switch on the right, on = shown. The long "hide · pause refresh"
+                             header is gone; the chip says the state and the switch's
+                             automation name/tooltip explains the off side. The two chips share
+                             a cell and swap by visibility, so no bool-to-brush converter is
+                             needed: the active chip borrows the reset chip's informational
+                             tint, the inactive one a neutral control fill. -->
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ctrl:SquircleBorder Grid.Column="0" VerticalAlignment="Center"
+                                                 Radius="8" Smoothing="0.75" Padding="8,4,9,5"
+                                                 Fill="{ThemeResource ResetChipFillBrush}"
+                                                 Visibility="{Binding IsShown, Converter={StaticResource BoolToVis}}">
+                                <TextBlock FontSize="11" Text="{Binding VisibilityText}"
+                                           Foreground="{ThemeResource ResetChipTextBrush}"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </ctrl:SquircleBorder>
+                            <ctrl:SquircleBorder Grid.Column="0" VerticalAlignment="Center"
+                                                 Radius="8" Smoothing="0.75" Padding="8,4,9,5"
+                                                 Fill="{ThemeResource ControlFillColorSecondaryBrush}"
+                                                 Visibility="{Binding IsHidden, Converter={StaticResource BoolToVis}}">
+                                <TextBlock FontSize="11" Text="{Binding VisibilityText}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           Style="{StaticResource CaptionTextBlockStyle}" />
+                            </ctrl:SquircleBorder>
+                            <ToggleSwitch Grid.Column="2" VerticalAlignment="Center"
+                                          MinWidth="0" OnContent="" OffContent=""
+                                          IsOn="{Binding IsShown, Mode=TwoWay}"
+                                          AutomationProperties.Name="{loc:Localize Key=Settings_ShowTool}"
+                                          ToolTipService.ToolTip="{loc:Localize Key=Settings_ShowTool}" />
+                        </Grid>
                         <Button Content="{Binding LoginButtonText}" Command="{Binding LoginCommand}"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
                                 Visibility="{Binding SupportsCliLogin, Converter={StaticResource BoolToVis}}" />
