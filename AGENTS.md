@@ -210,7 +210,7 @@ Gauge raises a toast when a usage window crosses a threshold or resets. The toas
 - Model/scope grouping: windows are grouped by `GroupLabel` (e.g. Antigravity's Gemini and Claude/GPT, Claude's Fable, or a named Codex model limit) with 5-hour before weekly inside each family. Bar mode shows the heading once on the group's first row with a divider between groups; gauge mode lays each group out as its own row of gauges (`GaugeGroups`) with the same divider between them, and labels every gauge with its group. Account-wide ungrouped windows remain together without a heading.
 - If a tool has no windows at all, show a no-data state for that card without breaking.
 - Progress bar color steps by usage level (ok / caution / danger). Define colors as theme resources, never hardcoded. The current named thresholds are 70% and 90%, shared with the tray-icon variants and the notification thresholds.
-- Always show the percent number, not color alone, for accessibility.
+- Always show the percent number, not color alone, for accessibility. Both modes expose the same localized composite name (family/window, percent used, reset, and available counts/pace/ETA). Bar mode uses its label text peer; `UsageGauge` supplies a leaf text peer. Duplicate visual text is Raw-only. `SquircleBorder` and its decorative path are Raw-only, while child content remains accessible; never hide the chip content along with its shape.
 - Update the tray icon to reflect the highest usage level so state is glanceable without opening the popover.
 - Follow the Quick Settings panel's generous spacing and low information density. Exact spacing and typography are left for manual tuning; do not over-fix them.
 

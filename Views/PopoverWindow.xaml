@@ -359,7 +359,7 @@
                                                         <!-- Model-family heading (e.g. "Gemini",
                                                              "Claude/GPT"), shown once above the
                                                              first row of each group. -->
-                                                        <TextBlock
+                                                        <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                             Margin="0,2,0,4"
                                                             Opacity="0.9"
                                                             FontSize="13"
@@ -373,7 +373,7 @@
                                                                 <ColumnDefinition Width="Auto" />
                                                                 <ColumnDefinition Width="Auto" />
                                                             </Grid.ColumnDefinitions>
-                                                            <TextBlock
+                                                            <TextBlock AutomationProperties.Name="{Binding AccessibilityName}"
                                                                 Grid.Column="0"
                                                                 MinWidth="44"
                                                                 VerticalAlignment="Center"
@@ -404,7 +404,7 @@
                                                                 VerticalAlignment="Center" Points="{Binding Burndown}"
                                                                 Visibility="{Binding HasBurndown, Converter={StaticResource BoolToVis}}" />
                                                             <!-- Always show the number, not color alone (accessibility). -->
-                                                            <TextBlock
+                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                 Grid.Column="3"
                                                                 MinWidth="40"
                                                                 TextAlignment="Right"
@@ -415,20 +415,20 @@
                                                         <StackPanel
                                                             Margin="54,0,0,0"
                                                             Spacing="2">
-                                                            <TextBlock
+                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                 Opacity="0.7"
                                                                 Text="{Binding CaptionText}" MaxLines="1" TextTrimming="CharacterEllipsis"
                                                                 TextWrapping="Wrap"
                                                                 Style="{StaticResource CaptionTextBlockStyle}" />
                                                             <!-- Absolute counts (e.g. "128 / 300") when the
                                                                  provider reports them; bar mode only. -->
-                                                            <TextBlock
+                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                 Opacity="0.55"
                                                                 Text="{Binding CountsText}"
                                                                 TextWrapping="Wrap"
                                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                                 Visibility="{Binding HasCounts, Converter={StaticResource BoolToVis}}" />
-                                                            <TextBlock
+                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                 Text="{Binding PaceText}"
                                                                 ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Pace}"
                                                                 TextWrapping="Wrap"
@@ -438,7 +438,7 @@
                                                             <!-- Measured burn-rate projection ("2시간 후
                                                                  소진 예상"); informational, so it keeps
                                                                  the dimmed caption styling. -->
-                                                            <TextBlock
+                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                 Opacity="0.7"
                                                                 Text="{Binding EtaText}"
                                                                 TextWrapping="Wrap"
@@ -475,7 +475,7 @@
                                                                 <DataTemplate>
                                                                     <StackPanel HorizontalAlignment="Center" Spacing="3" Margin="0,2,0,8">
                                                                         <!-- Model-family name (grouped tools only). -->
-                                                                        <TextBlock
+                                                                        <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                             HorizontalAlignment="Center"
                                                                             Opacity="0.9"
                                                                             FontSize="12"
@@ -483,7 +483,7 @@
                                                                             Style="{StaticResource BodyStrongTextBlockStyle}"
                                                                             Visibility="{Binding HasFamilyLabel, Converter={StaticResource BoolToVis}}" />
                                                                         <!-- Window label (5시간 / 주간). -->
-                                                                        <TextBlock
+                                                                        <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                             HorizontalAlignment="Center"
                                                                             Opacity="0.75"
                                                                             FontSize="13"
@@ -495,13 +495,13 @@
                                                                                 Percent="{Binding Percent}"
                                                                                 FillBrush="{Binding Level, Converter={StaticResource LevelToBrush}}" />
                                                                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                                                                <TextBlock
+                                                                                <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                                     HorizontalAlignment="Center"
                                                                                     FontSize="26"
                                                                                     LineHeight="29"
                                                                                     Text="{Binding PercentNumber}"
                                                                                     Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                                                                <TextBlock
+                                                                                <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                                     HorizontalAlignment="Center"
                                                                                     Margin="0,-2,0,0"
                                                                                     Opacity="0.6"
@@ -511,14 +511,14 @@
                                                                             </StackPanel>
                                                                         </Grid>
                                                                         <!-- Reset countdown. -->
-                                                                        <TextBlock
+                                                                        <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                             HorizontalAlignment="Center"
                                                                             TextAlignment="Center"
                                                                             TextWrapping="Wrap"
                                                                             Opacity="0.7"
                                                                             Text="{Binding ResetText}"
                                                                             Style="{StaticResource CaptionTextBlockStyle}" />
-                                                                        <TextBlock
+                                                                        <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                             HorizontalAlignment="Center"
                                                                             TextAlignment="Center"
                                                                             TextWrapping="Wrap"
@@ -527,7 +527,7 @@
                                                                             Foreground="{Binding PaceLevel, Converter={StaticResource LevelToBrush}, ConverterParameter=text}"
                                                                             Style="{StaticResource CaptionTextBlockStyle}"
                                                                             Visibility="{Binding HasPace, Converter={StaticResource BoolToVis}}" />
-                                                                        <TextBlock
+                                                                        <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                             HorizontalAlignment="Center"
                                                                             TextAlignment="Center"
                                                                             TextWrapping="Wrap"

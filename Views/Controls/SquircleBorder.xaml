@@ -6,13 +6,14 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    SizeChanged="OnSizeChanged">
+    SizeChanged="OnSizeChanged"
+    AutomationProperties.AccessibilityView="Raw">
 
     <!-- A Border stand-in whose outline is a squircle instead of a circular-corner
          rounded rectangle. The shape is one closed Path rebuilt on size or property
          change (RebuildShape); Child sits over it in the same cell, inset by Padding. -->
     <Grid>
-        <Path x:Name="ShapePath"
+        <Path x:Name="ShapePath" AutomationProperties.AccessibilityView="Raw"
               Fill="{x:Bind Fill, Mode=OneWay}"
               Stroke="{x:Bind Stroke, Mode=OneWay}"
               StrokeThickness="{x:Bind StrokeThickness, Mode=OneWay}"

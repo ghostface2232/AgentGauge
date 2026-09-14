@@ -45,6 +45,7 @@ internal static class Strings
         ["Settings_HideTool"] = ["도구 숨기기 · 갱신 일시 중지", "Hide tool · pause refresh", "ツールを非表示 · 更新を一時停止"],
         ["Empty_AllHidden"] = ["모든 도구가 숨겨져 있습니다.", "All tools are hidden.", "すべてのツールが非表示です。"],
         ["Burndown_Hover"] = ["{0} · {1:0}% 남음", "{0} · {1:0}% left", "{0} · 残り{1:0}%"],
+        ["Usage_Accessible"] = ["{0}, {1}퍼센트 사용, {2}", "{0}, {1} percent used, {2}", "{0}、{1}パーセント使用、{2}"],
         ["Login"]             = ["로그인",            "Sign in",           "ログイン"],
         ["Login_Running"]     = ["로그인 중…",        "Signing in…",       "ログイン中…"],
         ["Login_Switch"]      = ["계정 전환",          "Switch account",    "アカウント切替"],

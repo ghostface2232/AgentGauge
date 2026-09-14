@@ -1,4 +1,5 @@
 using Windows.Foundation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -25,6 +26,16 @@ public sealed partial class UsageGauge : UserControl
     public UsageGauge()
     {
         InitializeComponent();
+    }
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new UsageGaugeAutomationPeer(this);
+
+    private sealed class UsageGaugeAutomationPeer(UsageGauge owner) : FrameworkElementAutomationPeer(owner)
+    {
+        protected override string GetClassNameCore() => nameof(UsageGauge);
+        protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Text;
+        // The composite name already includes every value; paths have no independent meaning.
+        protected override IList<AutomationPeer> GetChildrenCore() => new List<AutomationPeer>();
     }
 
     public static readonly DependencyProperty PercentProperty = DependencyProperty.Register(

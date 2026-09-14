@@ -6,7 +6,9 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    SizeChanged="OnSizeChanged">
+    SizeChanged="OnSizeChanged"
+    AutomationProperties.Name="{Binding AccessibilityName}"
+    AutomationProperties.AccessibilityView="Content">
 
     <!-- A 270° ring opening at the bottom: a full-sweep track underneath and a colored
          fill arc sized by Percent. Both arcs share round caps so the fill end reads as a

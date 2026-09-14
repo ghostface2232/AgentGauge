@@ -30,6 +30,7 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
 
     /// <summary>Window label (e.g. "5시간", "주간").</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string Label { get; set; }
 
     /// <summary>
@@ -40,6 +41,7 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasFamilyLabel))]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string FamilyLabel { get; set; }
 
     /// <summary>True when this window belongs to a model family (controls the gauge label).</summary>
@@ -74,9 +76,11 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     /// <summary>The percent as a bare number (e.g. "36"), shown large in the gauge center
     /// with a separate "%" beneath it.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string PercentNumber { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string ResetText { get; set; }
 
     /// <summary>
@@ -86,6 +90,7 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasCounts))]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string CountsText { get; set; }
 
     public bool HasCounts => !string.IsNullOrEmpty(CountsText);
@@ -97,12 +102,14 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasEta))]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string EtaText { get; set; }
 
     public bool HasEta => !string.IsNullOrEmpty(EtaText);
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasPace))]
+    [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string PaceText { get; set; }
 
     public bool HasPace => !string.IsNullOrEmpty(PaceText);
@@ -128,6 +135,12 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
             : null;
         OnPropertyChanged(nameof(CaptionText));
     }
+
+    public string AccessibilityName => string.Join(". ", new[]
+    {
+        Loc.Format("Usage_Accessible", string.Join(" ", new[] { FamilyLabel, Label }.Where(s => !string.IsNullOrEmpty(s))), PercentNumber, ResetText),
+        CountsText, PaceText, EtaText,
+    }.Where(s => !string.IsNullOrEmpty(s)));
 
     public void Update(UsageWindow window)
     {
