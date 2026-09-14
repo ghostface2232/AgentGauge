@@ -49,8 +49,11 @@ public sealed class PopoverXamlContractTests
                 {
                     var value = attribute.Value;
                     var isHex = Regex.IsMatch(value, @"(?i)#[0-9a-f]{3,8}\b");
-                    var isNamed = attribute.Name.LocalName is "Color" or "Fill" or "Stroke" or "Foreground" or "Background" or "BorderBrush"
-                        && System.Drawing.Color.FromName(value).IsKnownColor;
+                    // A Setter carries the target property in Property and the literal in Value.
+                    var property = element.Name.LocalName == "Setter" && attribute.Name.LocalName == "Value"
+                        ? ((string?)element.Attribute("Property") ?? "").Split('.')[^1]
+                        : attribute.Name.LocalName;
+                    var isNamed = IsColorProperty(property) && System.Drawing.Color.FromName(value).IsKnownColor;
                     if (!isHex && !isNamed) continue;
                     var key = $"{relative}|{(string?)element.Parent?.Attribute(x + "Key")}|{(string?)element.Attribute(x + "Key")}|{value}";
                     var palette = element.Name.LocalName == "SolidColorBrush" && attribute.Name.LocalName == "Color"
@@ -67,12 +70,19 @@ public sealed class PopoverXamlContractTests
         Assert.True(allowed.SetEquals(seen), "Remove stale palette exemptions or explicitly review changed colors.");
     }
 
+    private static bool IsColorProperty(string name) =>
+        name is "Fill" or "Stroke"
+        || name.EndsWith("Color", StringComparison.Ordinal) || name.EndsWith("Brush", StringComparison.Ordinal)
+        || name.EndsWith("Foreground", StringComparison.Ordinal) || name.EndsWith("Background", StringComparison.Ordinal);
+
     private static IEnumerable<string> XamlFiles(string directory)
     {
         foreach (var file in Directory.EnumerateFiles(directory, "*.xaml")) yield return file;
         foreach (var child in Directory.EnumerateDirectories(directory))
         {
-            if (Path.GetFileName(child) is "bin" or "obj" or "dist" or ".git" or ".codex" or ".agents") continue;
+            // Mirrors the untracked directories in .gitignore; Ref/ holds other projects' XAML.
+            if (Path.GetFileName(child).ToLowerInvariant() is "bin" or "obj" or "dist" or "build" or "publish" or "packages"
+                or "ref" or ".vs" or ".idea" or ".git" or ".codex" or ".agents") continue;
             foreach (var file in XamlFiles(child)) yield return file;
         }
     }

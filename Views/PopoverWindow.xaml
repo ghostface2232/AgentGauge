@@ -36,7 +36,7 @@
             <conv:PercentToGridLengthConverter x:Key="PercentToGridLength" />
             <conv:EmptyStringToNullConverter x:Key="EmptyToNull" />
             <Style x:Key="BorderlessIconButtonStyle" TargetType="Button">
-                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="Background" Value="{ThemeResource ControlFillColorTransparentBrush}" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Padding" Value="8" />
                 <Setter Property="MinWidth" Value="32" />
