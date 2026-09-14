@@ -68,6 +68,40 @@ public sealed class UsageEtaClassifierTests
     }
 
     [Fact]
+    public void ResetTimestampAdvanceSplitsCyclesEvenWhenTheDropIsSmall()
+    {
+        // A low window that rolls over drops by less than the threshold, so the reset
+        // timestamp is the only thing separating the two cycles.
+        var older = Now.AddHours(3);
+        var newer = Now.AddHours(8);
+        IReadOnlyList<UsageSample> samples =
+        [
+            new(Now.AddMinutes(-90), .02, older), new(Now.AddMinutes(-75), .04, older),
+            new(Now.AddMinutes(-60), .06, older), new(Now.AddMinutes(-45), .02, newer),
+            new(Now.AddMinutes(-30), .06, newer), new(Now, .12, newer),
+        ];
+
+        var fresh = UsageEtaClassifier.ProjectExhaustion(samples.Skip(3).ToList(), Now);
+        Assert.NotNull(fresh);
+        Assert.Equal(fresh, UsageEtaClassifier.ProjectExhaustion(samples, Now));
+    }
+
+    [Fact]
+    public void RecalculatedUsageWithinOneCycleKeepsTheSeries()
+    {
+        // A decrease far past the drop threshold, but under an unchanged reset: the series
+        // holds together instead of truncating to the one sample after it.
+        var reset = Now.AddHours(3);
+        IReadOnlyList<UsageSample> samples =
+        [
+            new(Now.AddMinutes(-60), .400, reset), new(Now.AddMinutes(-30), .520, reset),
+            new(Now, .440, reset),
+        ];
+
+        Assert.NotNull(UsageEtaClassifier.ProjectExhaustion(samples, Now));
+    }
+
+    [Fact]
     public void SamplesOutsideLookbackAreIgnored()
     {
         // Two of three samples are older than the 90-minute lookback → not enough left.

@@ -152,7 +152,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             using var command = connection.CreateCommand();
             command.CommandText =
                 """
-                SELECT tool, window_key, captured_at, used_ratio FROM samples
+                SELECT tool, window_key, captured_at, used_ratio, reset_time FROM samples
                 WHERE captured_at >= $since ORDER BY captured_at
                 """;
             command.Parameters.AddWithValue("$since", since);
@@ -166,7 +166,8 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                 }
                 list.Add(new UsageSample(
                     DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)),
-                    reader.GetDouble(3)));
+                    reader.GetDouble(3),
+                    reader.IsDBNull(4) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4))));
             }
         });
     }
@@ -188,7 +189,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             {
                 continue;
             }
-            list.Add(new UsageSample(snapshot.CapturedAt, window.UsedRatio));
+            list.Add(new UsageSample(snapshot.CapturedAt, window.UsedRatio, window.ResetTime));
             list.RemoveAll(s => s.CapturedAt < cutoff);
         }
     }

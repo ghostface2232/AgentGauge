@@ -173,11 +173,14 @@ public sealed class UsageNotificationEvaluator
     {
         var resetTimeAdvanced = previous.ResetTime is { } oldReset
             && current.ResetTime is { } newReset
-            && newReset > oldReset.AddMinutes(1);
+            && newReset > oldReset + UsageCycleBoundary.MinimumResetAdvance;
         var usageDropped = current.UsedRatio <= previous.Ratio - ResetDropMinimum;
 
         // Reset timestamps are the authoritative cycle identity. The fallback covers
         // providers that temporarily omit them, but requires a strong high-to-low drop.
+        // The shape matches UsageCycleBoundary (timestamps decide; magnitude only stands in
+        // for them) while staying stricter: a toast fires once and cannot be taken back,
+        // where a sparkline segmented wrongly re-draws on the next reading.
         return (resetTimeAdvanced && usageDropped)
             || (previous.ResetTime is null && current.ResetTime is null
                 && previous.Ratio >= MinimumThreshold(current.Type)

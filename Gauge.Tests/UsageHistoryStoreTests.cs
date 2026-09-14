@@ -69,6 +69,25 @@ public sealed class UsageHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void SamplesCarryTheReportedResetTime()
+    {
+        // Cycle-boundary detection reads this off the samples, so it has to survive both
+        // the in-memory tail and the hydration a later session starts from.
+        var captured = _time.Now.AddMinutes(-2);
+        using (var store = new UsageHistoryStore(_dir, _time))
+        {
+            store.Record(Snapshot("Codex", 0.40, captured));
+            Assert.Equal(captured.AddHours(2), Recent(store));
+        }
+
+        using var reopened = new UsageHistoryStore(_dir, _time);
+        Assert.Equal(captured.AddHours(2), Recent(reopened));
+
+        static DateTimeOffset? Recent(UsageHistoryStore store) => Assert.Single(
+            store.GetRecent("Codex", UsageWindowType.FiveHour.ToString(), TimeSpan.FromHours(1))).ResetTime;
+    }
+
+    [Fact]
     public void SamplesOlderThanRetentionArePrunedOnLaterRecord()
     {
         using var store = new UsageHistoryStore(_dir, _time);
