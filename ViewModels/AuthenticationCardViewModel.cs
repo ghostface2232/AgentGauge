@@ -53,12 +53,8 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
         set => IsHidden = !value;
     }
 
-    /// <summary>
-    /// Chip beside the toggle: "표시" while shown, "숨김" while hidden. The wording names the
-    /// visibility the switch controls rather than an activation state — a hidden tool stays
-    /// registered and keeps its credentials, so "비활성" overstated what turning it off does.
-    /// </summary>
-    public string VisibilityText => Loc.Get(IsHidden ? "Tool_Hidden" : "Tool_Shown");
+    /// <summary>Chip beside the toggle: "활성" while shown, "비활성" while hidden.</summary>
+    public string VisibilityText => Loc.Get(IsHidden ? "Tool_Inactive" : "Tool_Active");
 
     public string ToolName { get; }
     public IAsyncRelayCommand LoginCommand { get; }

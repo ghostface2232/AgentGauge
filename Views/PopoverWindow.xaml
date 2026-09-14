@@ -132,13 +132,13 @@
                         </Grid>
                         <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Opacity="0.75"
                                    Style="{StaticResource CaptionTextBlockStyle}" />
-                        <!-- Show/hide: a state chip on the left ("표시"/"숨김") and a bare
+                        <!-- Show/hide: a state chip on the left ("활성"/"비활성") and a bare
                              switch on the right, on = shown. The long "hide · pause refresh"
                              header is gone; the chip says the state and the switch's
                              automation name/tooltip explains the off side. The two chips share
                              a cell and swap by visibility, so no bool-to-brush converter is
-                             needed: the shown chip borrows the reset chip's informational
-                             tint, the hidden one a neutral control fill. -->
+                             needed: the active chip borrows the reset chip's informational
+                             tint, the inactive one a neutral control fill. -->
                         <Grid ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -872,19 +872,6 @@
                                           ItemsSource="{Binding Global.LanguageOptions}"
                                           SelectedIndex="{Binding Global.LanguageIndex, Mode=TwoWay}" />
                             </Grid>
-                            <!-- settings.json notice: a write the file refused, or a document
-                                 replaced because it stopped being JSON. Collapsed otherwise.
-                                 Without it a switch that snapped back on its own reads as a
-                                 bug rather than as the disk saying no. The text is bound, not
-                                 localized here, because App picks which of the two it is. It
-                                 carries no divider and no 48dip row height — it is not a
-                                 setting, and sizing it like one would leave a gap in the
-                                 normal case. -->
-                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap"
-                                       Text="{Binding Global.SettingsNotice}"
-                                       Foreground="{ThemeResource UsageCautionTextBrush}"
-                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                       Visibility="{Binding Global.HasSettingsNotice, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                     </Border>
 
