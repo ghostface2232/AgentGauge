@@ -25,6 +25,7 @@ public partial class App : Application
     private ProviderStatusService? _statusService;
     private HttpClient? _statusHttpClient;
     private UsageNotificationService? _notificationService;
+    private readonly DispatcherTimer _refreshIndicatorTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private UsageViewModel? _viewModel;
     private SettingsViewModel? _settingsViewModel;
     private IReadOnlyDictionary<ToolKind, IAuthenticationProvider>? _authentication;
@@ -182,6 +183,10 @@ public partial class App : Application
         _coordinator.Updated += OnUsageUpdated;
         // These arrive on the UI thread; the started/completed pair drives the small
         // per-card refresh-in-progress bar in the popover header.
+        _refreshIndicatorTimer.Tick += (_, _) =>
+        {
+            if (_viewModel?.ExpireRefreshIndicators() != true) _refreshIndicatorTimer.Stop();
+        };
         _coordinator.RefreshStarted += OnRefreshStarted;
         _coordinator.RefreshCompleted += OnRefreshCompleted;
         _coordinator.AuthenticationRequired += OnAuthenticationRequired;
@@ -254,7 +259,10 @@ public partial class App : Application
     }
 
     private void OnRefreshStarted(object? sender, IReadOnlyList<string> toolNames)
-        => _viewModel?.SetRefreshing(toolNames);
+    {
+        _viewModel?.SetRefreshing(toolNames);
+        _refreshIndicatorTimer.Start();
+    }
 
     private void OnRefreshCompleted(object? sender, IReadOnlyList<string> toolNames)
         => _viewModel?.ClearRefreshing(toolNames);
@@ -505,6 +513,7 @@ public partial class App : Application
         // on this App instance during the teardown window.
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         SystemEvents.SessionSwitch -= OnSessionSwitch;
+        _refreshIndicatorTimer.Stop();
         _coordinator?.Dispose();
         _coordinator = null;
         _statusService?.Dispose();

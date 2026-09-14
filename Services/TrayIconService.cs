@@ -83,6 +83,8 @@ public sealed class TrayIconService : IDisposable
 
     // Held so we can dispose the previous GDI icon handle when swapping icons.
     private Icon? _currentIcon;
+    // ICO sources carry their size frames; DPI does not change this source-cache key.
+    private readonly Dictionary<string, Icon> _iconCache = new();
     // We own the start-on-boot state and reflect it via right-aligned text.
     private bool _startOnBoot;
     // Mirror of the per-kind notification state, reflected the same way.
@@ -270,7 +272,7 @@ public sealed class TrayIconService : IDisposable
         _currentIcon = icon;
         _trayIcon.UpdateIcon(icon);
         // Dispose the old GDI handle after the swap so we don't leak it.
-        if (!ReferenceEquals(previous, icon))
+        if (previous is not null && !ReferenceEquals(previous, icon) && !_iconCache.ContainsValue(previous))
         {
             previous?.Dispose();
         }
@@ -358,9 +360,12 @@ public sealed class TrayIconService : IDisposable
         foreach (var fileName in new[] { $"{stem}{_levelSuffix}.ico", $"{stem}.ico", $"{LightIconStem}.ico" })
         {
             var path = Path.Combine(AppContext.BaseDirectory, "Assets", fileName);
+            if (_iconCache.TryGetValue(path, out var cached)) return cached;
             if (File.Exists(path))
             {
-                return new Icon(path);
+                var icon = new Icon(path);
+                _iconCache.Add(path, icon);
+                return icon;
             }
         }
 
@@ -431,7 +436,9 @@ public sealed class TrayIconService : IDisposable
         _foregroundLock.Restore();
         AppDomain.CurrentDomain.ProcessExit -= _processExitHandler;
         _trayIcon.Dispose();
-        _currentIcon?.Dispose();
+        if (_currentIcon is not null && !_iconCache.ContainsValue(_currentIcon)) _currentIcon.Dispose();
+        foreach (var icon in _iconCache.Values) icon.Dispose();
+        _iconCache.Clear();
         _currentIcon = null;
     }
 

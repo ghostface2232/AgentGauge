@@ -20,6 +20,9 @@ public sealed partial class UsageViewModel : ObservableObject
     /// (cards then keep the order the coordinator supplies).</summary>
     private readonly ToolRegistry? _registry;
     private readonly IUsageHistorySource? _history;
+    public static readonly TimeSpan RefreshIndicatorLimit = TimeSpan.FromSeconds(30);
+    private readonly TimeProvider _time;
+    private readonly Dictionary<string, long> _refreshStarts = new();
     private IReadOnlyList<ProviderStatus> _serviceStatuses = Array.Empty<ProviderStatus>();
 
     public string TrayStatusSummary => string.Join(" · ", _serviceStatuses
@@ -40,8 +43,10 @@ public sealed partial class UsageViewModel : ObservableObject
     public UsageViewModel(
         ToolRegistry? registry = null,
         IUsageHistorySource? history = null,
-        Func<bool>? allToolsSignedOut = null)
+        Func<bool>? allToolsSignedOut = null,
+        TimeProvider? time = null)
     {
+        _time = time ?? TimeProvider.System;
         _registry = registry;
         _history = history;
         _allToolsSignedOut = allToolsSignedOut;
@@ -206,13 +211,20 @@ public sealed partial class UsageViewModel : ObservableObject
 
     private void MarkRefreshing(IReadOnlyCollection<string> toolNames, bool refreshing)
     {
-        foreach (var card in Cards)
+        foreach (var name in toolNames)
         {
-            if (toolNames.Contains(card.ToolName))
-            {
-                card.IsRefreshing = refreshing;
-            }
+            if (refreshing) _refreshStarts.TryAdd(name, _time.GetTimestamp());
+            else _refreshStarts.Remove(name);
         }
+        ExpireRefreshIndicators();
+    }
+
+    public bool ExpireRefreshIndicators()
+    {
+        foreach (var card in Cards)
+            card.IsRefreshing = _refreshStarts.TryGetValue(card.ToolName, out var start)
+                && _time.GetElapsedTime(start) < RefreshIndicatorLimit;
+        return Cards.Any(c => c.IsRefreshing);
     }
 
     private bool IsVisible(string name) => _registry is null
@@ -242,6 +254,7 @@ public sealed partial class UsageViewModel : ObservableObject
             : Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
         RefreshCards(recorded);
+        ExpireRefreshIndicators();
         ApplyServiceStatuses(_serviceStatuses);
 
         // A fresh install with nothing signed in doesn't produce "no record" tools: the
