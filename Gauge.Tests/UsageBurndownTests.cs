@@ -39,6 +39,40 @@ public sealed class UsageBurndownTests
     }
 
     [Fact]
+    public void ExpiredSnapshotKeepsCycleStartFilterWithoutIdealLine()
+    {
+        var start = Now.AddHours(-1);
+        var window = Window with { ResetTime = start.AddHours(5) };
+        UsageSample[] samples =
+        [
+            new(start.AddMinutes(-45), .1), new(start.AddMinutes(-30), .2), new(start.AddMinutes(-15), .3),
+            new(start.AddMinutes(10), .4), new(start.AddMinutes(20), .5), new(start.AddMinutes(30), .6),
+        ];
+        var before = UsageBurndown.Build(window, samples, window.ResetTime!.Value.AddSeconds(-1));
+        Assert.Equal(3, before.Count);
+        Assert.All(before, p => Assert.NotNull(p.IdealRemaining));
+        var after = UsageBurndown.Build(window, samples, window.ResetTime!.Value.AddSeconds(1));
+        Assert.Equal(3, after.Count);
+        Assert.Equal(before.Select(p => p.Sample), after.Select(p => p.Sample));
+        Assert.All(after, p => Assert.Null(p.IdealRemaining));
+    }
+
+    [Fact]
+    public void HoverSurvivesDataUpdateAndClearsOnInsufficientData()
+    {
+        var row = new UsageWindowRowViewModel(Window);
+        row.Burndown = UsageBurndown.Build(Window, Samples, Now);
+        row.HoverBurndown(1);
+        Assert.Contains("40%", row.CaptionText);
+        row.Burndown = UsageBurndown.Build(Window, [.. Samples, new(Now.AddMinutes(30), .7)], Now.AddMinutes(30));
+        Assert.Contains("30%", row.CaptionText);
+        row.Burndown = [];
+        Assert.Equal(row.ResetText, row.CaptionText);
+        row.Burndown = UsageBurndown.Build(Window, Samples, Now);
+        Assert.Equal(row.ResetText, row.CaptionText);
+    }
+
+    [Fact]
     public void UnknownDurationOmitsIdealAndHoverRestoresLatestCaption()
     {
         var row = new UsageWindowRowViewModel(Window);

@@ -124,13 +124,19 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasBurndown))]
     public partial IReadOnlyList<BurndownPoint> Burndown { get; set; } = [];
     public bool HasBurndown => Burndown.Count >= UsageBurndown.MinimumSamples;
+    // Normalized pointer position over the sparkline while hovered; null when the pointer
+    // left. Kept across data updates so a background refresh re-selects the nearest sample
+    // under a stationary pointer instead of dropping the caption back to the reset text.
+    private double? _hoverX;
     private string? _hoverCaption;
     public string CaptionText => _hoverCaption ?? ResetText;
     partial void OnResetTextChanged(string value) => OnPropertyChanged(nameof(CaptionText));
+    partial void OnBurndownChanged(IReadOnlyList<BurndownPoint> value) => HoverBurndown(HasBurndown ? _hoverX : null);
 
     public void HoverBurndown(double? x)
     {
-        _hoverCaption = x is { } position && UsageBurndown.Nearest(Burndown, position) is { } point
+        _hoverX = x;
+        _hoverCaption = x is { } position && HasBurndown && UsageBurndown.Nearest(Burndown, position) is { } point
             ? Loc.Format("Burndown_Hover", point.Sample.CapturedAt.ToLocalTime().ToString("HH:mm", Loc.Culture), point.Remaining * 100)
             : null;
         OnPropertyChanged(nameof(CaptionText));

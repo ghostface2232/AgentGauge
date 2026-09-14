@@ -14,9 +14,13 @@ public static class UsageBurndown
         var valid = samples.Where(s => s.CapturedAt <= now && s.CapturedAt >= now - Lookback
             && double.IsFinite(s.UsedRatio) && s.UsedRatio is >= 0 and <= 1)
             .OrderBy(s => s.CapturedAt).DistinctBy(s => s.CapturedAt).ToList();
+        // The cycle start is known whenever the snapshot carries a reset and a duration, and it
+        // keeps filtering pre-cycle readings even after a stale snapshot crosses its reset; only
+        // the ideal line needs the cycle to still be live, since it is drawn against that reset.
         DateTimeOffset? start = window is { ResetTime: { } reset, Duration: { } duration }
-            && duration > TimeSpan.Zero && reset > now && reset - now <= duration
+            && duration > TimeSpan.Zero && reset - now <= duration
             && duration.Ticks <= reset.UtcTicks ? reset - duration : null;
+        var ideal = start is not null && window.ResetTime > now;
         if (start is { } cycleStart) valid.RemoveAll(s => s.CapturedAt < cycleStart);
         // Never join the end of an old allowance to the beginning of a fresh one.
         for (var i = valid.Count - 1; i > 0; i--)
@@ -31,7 +35,7 @@ public static class UsageBurndown
         return valid.Select(s => new BurndownPoint(
             (s.CapturedAt - valid[0].CapturedAt).TotalSeconds / span,
             1 - s.UsedRatio,
-            start is { } origin ? Math.Clamp(1 - (s.CapturedAt - origin).TotalSeconds / window.Duration!.Value.TotalSeconds, 0, 1) : null,
+            ideal && start is { } origin ? Math.Clamp(1 - (s.CapturedAt - origin).TotalSeconds / window.Duration!.Value.TotalSeconds, 0, 1) : null,
             s)).ToList();
     }
 

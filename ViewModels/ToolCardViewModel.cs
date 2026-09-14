@@ -172,8 +172,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
             // read, so this stays cheap on the UI thread.
             var samples = _history?.GetRecent(ToolName, window.Key, UsageBurndown.Lookback) ?? [];
             existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
+            // The row re-resolves any active hover against the new points itself.
             existing.Burndown = UsageBurndown.Build(window, samples, DateTimeOffset.UtcNow);
-            existing.HoverBurndown(null);
         }
 
         AssignGroupHeaders(windows);
