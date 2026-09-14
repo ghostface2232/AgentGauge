@@ -42,6 +42,8 @@ internal static class Strings
         ["Tray_Exit"]         = ["종료",             "Exit",              "終了"],
 
         // ── Login button / auth card ───────────────────────────────────────
+        ["Settings_HideTool"] = ["도구 숨기기 · 갱신 일시 중지", "Hide tool · pause refresh", "ツールを非表示 · 更新を一時停止"],
+        ["Empty_AllHidden"] = ["모든 도구가 숨겨져 있습니다.", "All tools are hidden.", "すべてのツールが非表示です。"],
         ["Login"]             = ["로그인",            "Sign in",           "ログイン"],
         ["Login_Running"]     = ["로그인 중…",        "Signing in…",       "ログイン中…"],
         ["Login_Switch"]      = ["계정 전환",          "Switch account",    "アカウント切替"],

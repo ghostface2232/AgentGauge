@@ -25,11 +25,13 @@ public sealed class ToolRegistry
     // never-mutate contract structural rather than comment-enforced. Readers therefore
     // always see a consistent snapshot, never a torn mid-resize state.
     private volatile ReadOnlyCollection<ToolKind> _enabled;
+    private volatile ReadOnlyCollection<ToolKind> _hidden;
 
     public ToolRegistry(IToolRegistryStore store)
     {
         _store = store;
         _enabled = store.Load().Distinct().ToList().AsReadOnly();
+        _hidden = store.LoadHidden().Where(_enabled.Contains).Distinct().ToList().AsReadOnly();
     }
 
     /// <summary>Raised after the registered SET changes (add/remove), post-persist. The usage
@@ -40,6 +42,18 @@ public sealed class ToolRegistry
     /// <summary>Raised after only the display ORDER changes (drag-to-reorder), post-persist.
     /// The screens re-sort their cards in place; no re-fetch.</summary>
     public event EventHandler? OrderChanged;
+
+    public event EventHandler<ToolKind>? VisibilityChanged;
+    public bool IsHidden(ToolKind kind) => _hidden.Contains(kind);
+    public bool IsActive(ToolKind kind) => IsEnabled(kind) && !IsHidden(kind);
+
+    public void SetHidden(ToolKind kind, bool hidden)
+    {
+        if (!IsEnabled(kind) || IsHidden(kind) == hidden) return;
+        _hidden = (hidden ? _hidden.Append(kind) : _hidden.Where(k => k != kind)).ToList().AsReadOnly();
+        _store.SaveHidden(_hidden);
+        VisibilityChanged?.Invoke(this, kind);
+    }
 
     public bool IsEnabled(ToolKind kind) => _enabled.Contains(kind);
 
@@ -81,6 +95,8 @@ public sealed class ToolRegistry
         {
             return false;
         }
+        _hidden = _hidden.Where(k => k != kind).ToList().AsReadOnly();
+        _store.SaveHidden(_hidden);
         var next = new List<ToolKind>(snapshot);
         next.RemoveAt(index);
         _enabled = next.AsReadOnly();

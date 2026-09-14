@@ -55,6 +55,8 @@ public sealed class UsageNotificationService : IDisposable
         }
     }
 
+    public void SetToolHidden(string toolName, bool hidden) => _evaluator.SetToolHidden(toolName, hidden);
+
     public void Process(UsageState state)
     {
         if (!_preferences.Enabled) return;

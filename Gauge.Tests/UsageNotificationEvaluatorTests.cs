@@ -7,6 +7,24 @@ public sealed class UsageNotificationEvaluatorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 6, 19, 12, 0, 0, TimeSpan.Zero);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HideShowSkipsHiddenCrossingsIncludingCacheAndFailure(bool reset)
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        var initial = State(UsageWindowType.Weekly, .6, Now.AddDays(4), Now);
+        evaluator.Evaluate(initial, Now);
+        evaluator.SetToolHidden("Codex", true);
+        Assert.Empty(evaluator.Evaluate(initial, Now));
+        evaluator.SetToolHidden("Codex", false);
+        Assert.Empty(evaluator.Evaluate(initial, Now));
+        var end = reset ? Now.AddDays(11) : Now.AddDays(4);
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.Weekly, .8, end, Now.AddMinutes(1), failed: true), Now));
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.Weekly, .8, end, Now.AddMinutes(2)), Now));
+        Assert.Single(evaluator.Evaluate(State(UsageWindowType.Weekly, .95, end, Now.AddMinutes(3)), Now));
+    }
+
     [Fact]
     public void FirstObservationAboveThreshold_DoesNotNotify()
     {

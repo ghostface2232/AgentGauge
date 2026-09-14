@@ -20,7 +20,25 @@ public sealed class UsageNotificationEvaluator
     /// Use this when notifications are re-enabled to avoid replaying crossings that
     /// happened while the user had notifications turned off.
     /// </summary>
-    public void ResetBaseline() => _observations.Clear();
+    public void ResetBaseline()
+    {
+        _observations.Clear();
+        _resumeBaseline.Clear();
+    }
+
+    private readonly HashSet<string> _hidden = new();
+    private readonly HashSet<WindowKey> _resumeBaseline = new();
+
+    public void SetToolHidden(string toolName, bool hidden)
+    {
+        if (hidden)
+        {
+            _hidden.Add(toolName);
+            foreach (var key in _observations.Keys.Where(k => k.ToolName == toolName))
+                _resumeBaseline.Add(key);
+        }
+        else _hidden.Remove(toolName);
+    }
 
     public IReadOnlyList<UsageNotification> Evaluate(UsageState state, DateTimeOffset now)
     {
@@ -31,6 +49,21 @@ public sealed class UsageNotificationEvaluator
         {
             if (tool.Snapshot is not { } snapshot)
             {
+                continue;
+            }
+
+            if (_hidden.Contains(tool.ToolName))
+            {
+                foreach (var window in snapshot.Windows.Where(IsSupportedWindow))
+                {
+                    var key = new WindowKey(snapshot.ToolName, window.Key);
+                    _observations.TryAdd(key, Observation.CreateBaseline(window, snapshot.CapturedAt));
+                }
+                foreach (var key in _observations.Keys.Where(k => k.ToolName == tool.ToolName))
+                {
+                    present.Add(key);
+                    _resumeBaseline.Add(key);
+                }
                 continue;
             }
 
@@ -60,6 +93,13 @@ public sealed class UsageNotificationEvaluator
                 // They cannot represent a new transition.
                 if (snapshot.CapturedAt <= previous.CapturedAt)
                 {
+                    continue;
+                }
+
+                // A cache re-serve cannot consume the first-live baseline after showing a tool.
+                if (_resumeBaseline.Remove(key))
+                {
+                    _observations[key] = Observation.CreateBaseline(window, snapshot.CapturedAt);
                     continue;
                 }
 
@@ -107,6 +147,7 @@ public sealed class UsageNotificationEvaluator
         foreach (var stale in _observations.Keys.Where(key => !present.Contains(key)).ToList())
         {
             _observations.Remove(stale);
+            _resumeBaseline.Remove(stale);
         }
 
         return notifications;

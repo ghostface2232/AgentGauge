@@ -118,6 +118,9 @@
                         </Grid>
                         <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Opacity="0.75"
                                    Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ToggleSwitch Header="{loc:Localize Key=Settings_HideTool}"
+                                      IsOn="{Binding IsHidden, Mode=TwoWay}"
+                                      OffContent="" OnContent="" />
                         <Button Content="{Binding LoginButtonText}" Command="{Binding LoginCommand}"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
                                 Visibility="{Binding SupportsCliLogin, Converter={StaticResource BoolToVis}}" />

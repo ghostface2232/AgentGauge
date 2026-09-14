@@ -109,7 +109,8 @@ public sealed class SettingsViewModel
                 continue;
             }
 
-            var card = new AuthenticationCardViewModel(provider);
+            var card = new AuthenticationCardViewModel(provider) { IsHidden = _registry.IsHidden(kind) };
+            card.HiddenChanged += (_, hidden) => _registry.SetHidden(kind, hidden);
             card.AuthenticationSucceeded += (_, _) => AuthenticationSucceeded?.Invoke(this, EventArgs.Empty);
             card.RemoveRequested += (_, _) => RemoveTool(card.Tool);
             Authentication.Add(card);

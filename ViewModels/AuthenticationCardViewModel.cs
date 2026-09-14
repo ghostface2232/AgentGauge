@@ -33,6 +33,10 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     /// <summary>The tool this card represents (used by the registry to remove it).</summary>
     public ToolKind Tool => _provider.Tool;
 
+    [ObservableProperty] public partial bool IsHidden { get; set; }
+    public event EventHandler<bool>? HiddenChanged;
+    partial void OnIsHiddenChanged(bool value) => HiddenChanged?.Invoke(this, value);
+
     public string ToolName { get; }
     public IAsyncRelayCommand LoginCommand { get; }
 

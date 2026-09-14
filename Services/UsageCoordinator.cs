@@ -309,7 +309,7 @@ public sealed class UsageCoordinator : IDisposable
                 var removedAnyTool = reason == RefreshReason.ToolsChanged
                     && MergeIntoCache(
                         Array.Empty<ProviderSnapshotResult>(),
-                        enabledProviders.Select(provider => provider.ToolName).ToHashSet());
+                        _usageService.GetRegisteredToolNames());
                 EmitState();
                 if (removedAnyTool)
                 {
@@ -336,7 +336,7 @@ public sealed class UsageCoordinator : IDisposable
             }
             var results = await _usageService.GetSnapshotsAsync(
                 providersToRefresh, cancellationToken, InteractionFor(reason));
-            var enabledToolNames = enabledProviders.Select(provider => provider.ToolName).ToHashSet();
+            var enabledToolNames = _usageService.GetRegisteredToolNames();
             var purgedTools = MergeIntoCache(results, enabledToolNames);
             ReportAuthenticationOutcomes(results, priorCaptured);
             RecordHistory(results, priorCaptured);
@@ -554,6 +554,8 @@ public sealed class UsageCoordinator : IDisposable
             return staleKeys.Count > 0;
         }
     }
+
+    public void ReemitState() => EmitState();
 
     private void EmitState()
     {

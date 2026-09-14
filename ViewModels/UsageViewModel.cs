@@ -23,7 +23,7 @@ public sealed partial class UsageViewModel : ObservableObject
     private IReadOnlyList<ProviderStatus> _serviceStatuses = Array.Empty<ProviderStatus>();
 
     public string TrayStatusSummary => string.Join(" · ", _serviceStatuses
-        .Where(s => (_registry is null || _registry.IsEnabled(s.Tool)) && ProviderStatusText.IsVisible(s))
+        .Where(s => (_registry is null || _registry.IsActive(s.Tool)) && ProviderStatusText.IsVisible(s))
         .Select(s => $"{ToolCatalog.For(s.Tool).DisplayName}: {ProviderStatusText.Label(s)}"));
 
     public void ApplyServiceStatuses(IReadOnlyList<ProviderStatus> statuses)
@@ -215,6 +215,9 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
+    private bool IsVisible(string name) => _registry is null
+        || ToolCatalog.All.Any(d => d.DisplayName == name && _registry.IsActive(d.Kind));
+
     public void Apply(UsageState state)
     {
         // The usage surface shows every tool Gauge has a record for — i.e. one that has
@@ -225,7 +228,7 @@ public sealed partial class UsageViewModel : ObservableObject
         // Order by the shared registry display order so the cards match the settings screen
         // (and reflect a drag-to-reorder done on either surface). OrderBy is stable, so tools
         // without a registry slot keep the coordinator's relative order at the end.
-        var recorded = state.Tools.Where(t => t.HasData).OrderBy(t => OrderOf(t.ToolName)).ToList();
+        var recorded = state.Tools.Where(t => t.HasData && IsVisible(t.ToolName)).OrderBy(t => OrderOf(t.ToolName)).ToList();
 
         HighestUsageRatio = recorded
             .SelectMany(t => t.Snapshot!.Windows)
@@ -233,8 +236,8 @@ public sealed partial class UsageViewModel : ObservableObject
             .DefaultIfEmpty(0)
             .Max();
 
-        LastUpdatedAt = state.LastUpdatedAt;
-        LastUpdatedText = state.LastUpdatedAt is { } updated
+        LastUpdatedAt = recorded.Select(t => t.LastUpdatedAt).Max();
+        LastUpdatedText = LastUpdatedAt is { } updated
             ? Loc.Format("LastUpdated_At", updated.ToLocalTime().ToString("HH:mm"))
             : Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
@@ -253,7 +256,8 @@ public sealed partial class UsageViewModel : ObservableObject
         IsEmpty = recorded.Count == 0 || signedOutEmpty;
         if (IsEmpty)
         {
-            (EmptyMessage, IsSettingsCtaVisible) = BuildEmptyState(state, signedOutEmpty);
+            (EmptyMessage, IsSettingsCtaVisible) = _registry is not null && _registry.Enabled.Count > 0 && !_registry.Enabled.Any(_registry.IsActive)
+                ? (Loc.Get("Empty_AllHidden"), true) : BuildEmptyState(state, signedOutEmpty);
         }
         else
         {

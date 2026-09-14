@@ -7,6 +7,27 @@ namespace Gauge.Tests;
 
 public sealed class UsageCoordinatorTests
 {
+    [Fact]
+    public async Task HiddenToolKeepsCacheButStopsPolling()
+    {
+        var active = true;
+        var provider = new StubProvider("Codex");
+        var persistence = new FakePersistence();
+        using var coordinator = new UsageCoordinator(new UsageService([provider], _ => true, _ => active), persistence: persistence);
+        UsageState latest = UsageState.Empty;
+        coordinator.Updated += (_, state) => latest = state;
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+        var snapshot = Assert.Single(latest.Tools).Snapshot;
+        active = false;
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+        Assert.Equal(1, provider.CallCount);
+        Assert.Same(snapshot, Assert.Single(latest.Tools).Snapshot);
+        Assert.Same(snapshot, Assert.Single(persistence.Saved));
+        active = true;
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+        Assert.Equal(2, provider.CallCount);
+    }
+
     [Theory]
     [InlineData(ToolKind.Codex, 3)]
     [InlineData(ToolKind.ClaudeCode, 5)]

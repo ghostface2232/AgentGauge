@@ -7,6 +7,8 @@ public interface IToolRegistryStore
 {
     IReadOnlyCollection<ToolKind> Load();
     void Save(IReadOnlyCollection<ToolKind> enabled);
+    IReadOnlyCollection<ToolKind> LoadHidden() => Array.Empty<ToolKind>();
+    void SaveHidden(IReadOnlyCollection<ToolKind> hidden) { }
 }
 
 /// <summary>
@@ -40,6 +42,14 @@ public sealed class ToolRegistryStore : IToolRegistryStore
             .ToList();
         return kinds.Count > 0 ? kinds : Default;
     }
+
+    public IReadOnlyCollection<ToolKind> LoadHidden() =>
+        (AppSettingsFile.Load(_directory()).HiddenTools ?? [])
+            .Select(name => Enum.TryParse<ToolKind>(name, out var kind) ? (ToolKind?)kind : null)
+            .OfType<ToolKind>().Where(kind => Enum.IsDefined(kind)).Distinct().ToList();
+
+    public void SaveHidden(IReadOnlyCollection<ToolKind> hidden) =>
+        AppSettingsFile.Save(_directory(), dto => dto.HiddenTools = hidden.Select(k => k.ToString()).ToList());
 
     public void Save(IReadOnlyCollection<ToolKind> enabled)
         => AppSettingsFile.Save(_directory(),

@@ -134,7 +134,7 @@ public partial class App : Application
                 _antigravityProvider,
                 new GitHubCopilotProvider(_httpClient, credentials),
             },
-            _toolRegistry.IsEnabled);
+            _toolRegistry.IsEnabled, _toolRegistry.IsActive);
 
         // Global settings toggles (notifications, run-on-startup) shown at the top of the
         // settings panel. The view model only emits intent; App owns the services and
@@ -176,6 +176,9 @@ public partial class App : Application
                 _sessionLocked));
         _notificationService = new UsageNotificationService();
         _notificationService.SetPreferences(notificationPreferences);
+        foreach (var kind in _toolRegistry.Enabled)
+            _notificationService.SetToolHidden(ToolCatalog.For(kind).DisplayName, _toolRegistry.IsHidden(kind));
+        _toolRegistry.VisibilityChanged += OnToolVisibilityChanged;
         _coordinator.Updated += OnUsageUpdated;
         // These arrive on the UI thread; the started/completed pair drives the small
         // per-card refresh-in-progress bar in the popover header.
@@ -193,7 +196,7 @@ public partial class App : Application
 
         _coordinator.Start();
         _statusHttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-        _statusService = new ProviderStatusService(_statusHttpClient, _toolRegistry.IsEnabled);
+        _statusService = new ProviderStatusService(_statusHttpClient, _toolRegistry.IsActive);
         var statusDispatcher = DispatcherQueue.GetForCurrentThread();
         _statusService.Updated += (_, statuses) => statusDispatcher.TryEnqueue(() =>
         {
@@ -243,7 +246,7 @@ public partial class App : Application
         {
             return false;
         }
-        var enabled = _toolRegistry.Enabled;
+        var enabled = _toolRegistry.Enabled.Where(_toolRegistry.IsActive).ToList();
         return enabled.Count > 0 && enabled.All(kind =>
             kind != ToolKind.Antigravity
             && _authentication.TryGetValue(kind, out var provider)
@@ -284,6 +287,16 @@ public partial class App : Application
     {
         if (_viewModel is { } vm)
             _trayIcon?.UpdateToolTip(vm.TrayTooltipSummary, vm.LastUpdatedAt ?? DateTimeOffset.Now, vm.TrayStatusSummary);
+    }
+
+    private async void OnToolVisibilityChanged(object? sender, ToolKind kind)
+    {
+        if (_toolRegistry is null) return;
+        var hidden = _toolRegistry.IsHidden(kind);
+        _notificationService?.SetToolHidden(ToolCatalog.For(kind).DisplayName, hidden);
+        _coordinator?.ReemitState();
+        if (!hidden && _coordinator is { } coordinator)
+            await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
     }
 
     private async void OnToolRegistryChanged(object? sender, EventArgs e)

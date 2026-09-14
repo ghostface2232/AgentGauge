@@ -7,6 +7,7 @@ namespace Gauge.Services;
 internal sealed class AppSettingsDto
 {
     public List<string>? EnabledTools { get; set; }
+    public List<string>? HiddenTools { get; set; }
 
     /// <summary>Two-letter UI language code ("ko" / "en" / "ja"). Null until first resolved.</summary>
     public string? Language { get; set; }
