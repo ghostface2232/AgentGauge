@@ -42,6 +42,15 @@ internal static class Strings
         ["DisplayBasis_Used"]     = ["사용량",           "Used",              "使用量"],
         ["DisplayBasis_Remaining"] = ["남은 사용량",      "Remaining",         "残量"],
         ["Settings_Sparkline"]    = ["소진 추이 그래프",   "Trend sparkline",   "消費推移グラフ"],
+        // The card's notice row. The first is the user's one signal that the switch they
+        // flipped snapped back on purpose; the second explains a settings file that was
+        // replaced because it had stopped being readable ({0} = the kept copy's file name).
+        ["Settings_SaveFailed"]   = ["설정을 저장하지 못해 변경을 되돌렸습니다.",
+                                     "Couldn't save settings, so the change was reverted.",
+                                     "設定を保存できなかったため、変更を元に戻しました。"],
+        ["Settings_FileReset"]    = ["설정 파일이 손상되어 초기화했습니다. 이전 파일은 {0}(으)로 보관했습니다.",
+                                     "The settings file was damaged and has been reset. The old one is kept as {0}.",
+                                     "設定ファイルが破損していたため初期化しました。以前のファイルは {0} として保管しています。"],
         ["Tray_StartOnBoot"]  = ["Windows 시작 시 실행", "Start on boot",     "スタートアップに登録"],
         ["Tray_Exit"]         = ["종료",             "Exit",              "終了"],
 
@@ -50,8 +59,8 @@ internal static class Strings
         // The switch carries no visible label; the chip beside it states the current state
         // and this name goes to the automation peer and tooltip.
         ["Settings_ShowTool"] = ["도구 표시 (끄면 숨기고 갱신을 멈춥니다)", "Show tool (off hides it and pauses refresh)", "ツールを表示（オフで非表示にし更新を停止）"],
-        ["Tool_Active"] = ["활성", "Active", "有効"],
-        ["Tool_Inactive"] = ["비활성", "Inactive", "無効"],
+        ["Tool_Shown"] = ["표시", "Shown", "表示"],
+        ["Tool_Hidden"] = ["숨김", "Hidden", "非表示"],
         ["Empty_AllHidden"] = ["모든 도구가 숨겨져 있습니다.", "All tools are hidden.", "すべてのツールが非表示です。"],
         ["Burndown_Hover"] = ["{0} · {1:0}% 남음", "{0} · {1:0}% left", "{0} · 残り{1:0}%"],
         ["Usage_Accessible"] = ["{0}, {1}퍼센트 사용", "{0}, {1} percent used", "{0}、{1}パーセント使用"],

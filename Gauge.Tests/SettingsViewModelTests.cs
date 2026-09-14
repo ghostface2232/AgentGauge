@@ -27,11 +27,11 @@ public sealed class SettingsViewModelTests
         card.HiddenChanged += (_, hidden) => hiddenChanges.Add(hidden);
 
         Assert.True(card.IsShown);
-        Assert.Equal("활성", card.VisibilityText);
+        Assert.Equal("표시", card.VisibilityText);
 
         card.IsShown = false;
         Assert.True(card.IsHidden);
-        Assert.Equal("비활성", card.VisibilityText);
+        Assert.Equal("숨김", card.VisibilityText);
 
         card.IsHidden = false;
         Assert.True(card.IsShown);
