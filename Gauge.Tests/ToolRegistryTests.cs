@@ -58,6 +58,38 @@ public sealed class ToolRegistryTests
     }
 
     [Fact]
+    public void RemovingHiddenToolRaisesVisibilityChangedSoListenersUnhideIt()
+    {
+        var registry = new ToolRegistry(new InMemoryStore());
+        registry.SetHidden(ToolKind.Codex, true);
+        var visibility = new List<(ToolKind Kind, bool Hidden, bool Enabled)>();
+        registry.VisibilityChanged += (_, kind) =>
+            visibility.Add((kind, registry.IsHidden(kind), registry.IsEnabled(kind)));
+
+        Assert.True(registry.Remove(ToolKind.Codex));
+
+        // Handlers see the tool already removed and no longer hidden, so a mirror
+        // (the notification evaluator) clears its suppression before any re-add.
+        Assert.Equal([(ToolKind.Codex, false, false)], visibility);
+
+        registry.Add(ToolKind.Codex);
+        Assert.True(registry.IsActive(ToolKind.Codex));
+        Assert.Single(visibility);
+    }
+
+    [Fact]
+    public void RemovingVisibleToolDoesNotRaiseVisibilityChanged()
+    {
+        var registry = new ToolRegistry(new InMemoryStore());
+        var visibility = 0;
+        registry.VisibilityChanged += (_, _) => visibility++;
+
+        Assert.True(registry.Remove(ToolKind.Codex));
+
+        Assert.Equal(0, visibility);
+    }
+
+    [Fact]
     public void ReorderEnabledRaisesOrderChangedNotChangedAndPersists()
     {
         var store = new InMemoryStore();

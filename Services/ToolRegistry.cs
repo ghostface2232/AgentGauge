@@ -95,11 +95,22 @@ public sealed class ToolRegistry
         {
             return false;
         }
-        _hidden = _hidden.Where(k => k != kind).ToList().AsReadOnly();
-        _store.SaveHidden(_hidden);
+        var wasHidden = IsHidden(kind);
+        if (wasHidden)
+        {
+            _hidden = _hidden.Where(k => k != kind).ToList().AsReadOnly();
+            _store.SaveHidden(_hidden);
+        }
         var next = new List<ToolKind>(snapshot);
         next.RemoveAt(index);
         _enabled = next.AsReadOnly();
+        // Clearing the hidden flag is a visibility change too: listeners (the notification
+        // evaluator) mirror it and would otherwise keep suppressing the tool after a re-add.
+        // Raised after the membership swap so handlers observe the tool as already removed.
+        if (wasHidden)
+        {
+            VisibilityChanged?.Invoke(this, kind);
+        }
         Persist(membershipChanged: true);
         return true;
     }

@@ -26,6 +26,28 @@ public sealed class UsageNotificationEvaluatorTests
     }
 
     [Fact]
+    public void SnapshotCompletedWhileHidden_KeepsLatestTimestampForResumeBaseline()
+    {
+        // 60%/t0 -> hide -> in-flight request completes 65%/t1 while hidden -> show.
+        // The cache re-serve of 65%/t1 must not consume the resume baseline, so the
+        // first live poll (80%/t2) becomes the baseline instead of replaying 70%.
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.Weekly, .60, Now.AddDays(4), Now), Now);
+        evaluator.SetToolHidden("Codex", true);
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.Weekly, .65, Now.AddDays(4), Now.AddMinutes(1)), Now));
+        evaluator.SetToolHidden("Codex", false);
+
+        var cachedReserve = evaluator.Evaluate(State(UsageWindowType.Weekly, .65, Now.AddDays(4), Now.AddMinutes(1)), Now);
+        var firstLive = evaluator.Evaluate(State(UsageWindowType.Weekly, .80, Now.AddDays(4), Now.AddMinutes(2)), Now);
+        var nextCrossing = evaluator.Evaluate(State(UsageWindowType.Weekly, .95, Now.AddDays(4), Now.AddMinutes(3)), Now);
+
+        Assert.Empty(cachedReserve);
+        Assert.Empty(firstLive);
+        Assert.Single(nextCrossing);
+        Assert.Equal(UsageLevel.Danger, nextCrossing[0].Level);
+    }
+
+    [Fact]
     public void FirstObservationAboveThreshold_DoesNotNotify()
     {
         var evaluator = new UsageNotificationEvaluator();

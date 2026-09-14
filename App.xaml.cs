@@ -303,7 +303,8 @@ public partial class App : Application
         var hidden = _toolRegistry.IsHidden(kind);
         _notificationService?.SetToolHidden(ToolCatalog.For(kind).DisplayName, hidden);
         _coordinator?.ReemitState();
-        if (!hidden && _coordinator is { } coordinator)
+        // A removal clears the hidden flag too; Changed drives that re-fetch, not this path.
+        if (!hidden && _toolRegistry.IsEnabled(kind) && _coordinator is { } coordinator)
             await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
     }
 

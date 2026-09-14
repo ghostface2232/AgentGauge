@@ -54,10 +54,18 @@ public sealed class UsageNotificationEvaluator
 
             if (_hidden.Contains(tool.ToolName))
             {
+                // Track the newest snapshot seen while hidden (e.g. an in-flight request
+                // that completed after hiding). Otherwise, after showing, a cache re-serve
+                // of that snapshot would look newer than the stale baseline, consume the
+                // resume baseline, and let the first live poll replay an old crossing.
                 foreach (var window in snapshot.Windows.Where(IsSupportedWindow))
                 {
                     var key = new WindowKey(snapshot.ToolName, window.Key);
-                    _observations.TryAdd(key, Observation.CreateBaseline(window, snapshot.CapturedAt));
+                    if (!_observations.TryGetValue(key, out var existing)
+                        || snapshot.CapturedAt > existing.CapturedAt)
+                    {
+                        _observations[key] = Observation.CreateBaseline(window, snapshot.CapturedAt);
+                    }
                 }
                 foreach (var key in _observations.Keys.Where(k => k.ToolName == tool.ToolName))
                 {
