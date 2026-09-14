@@ -277,6 +277,21 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                     """;
                 command.ExecuteNonQuery();
             }
+            // Rows are keyed by display name, so a renamed tool carries its history across
+            // the rename. OR IGNORE keeps a row already present under the new name; the
+            // leftover old-name rows (if any collided) are then dropped.
+            foreach (var (oldName, newName) in ToolCatalog.RenamedDisplayNames)
+            {
+                using var migrate = connection.CreateCommand();
+                migrate.CommandText =
+                    """
+                    UPDATE OR IGNORE samples SET tool = $new WHERE tool = $old;
+                    DELETE FROM samples WHERE tool = $old;
+                    """;
+                migrate.Parameters.AddWithValue("$new", newName);
+                migrate.Parameters.AddWithValue("$old", oldName);
+                migrate.ExecuteNonQuery();
+            }
             _connection = connection;
             return connection;
         }

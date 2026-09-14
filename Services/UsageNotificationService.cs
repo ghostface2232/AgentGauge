@@ -75,10 +75,10 @@ public sealed class UsageNotificationService : IDisposable
         var now = DateTimeOffset.Now;
         var samples = new[]
         {
-            DemoThreshold(UsageWindowType.FiveHour, UsageLevel.Danger, "Claude Code", 90, now.AddHours(2).AddMinutes(40), now),
+            DemoThreshold(UsageWindowType.FiveHour, UsageLevel.Danger, "Claude", 90, now.AddHours(2).AddMinutes(40), now),
             DemoThreshold(UsageWindowType.Weekly, UsageLevel.Caution, "Codex", 70, now.AddDays(4), now),
             DemoThreshold(UsageWindowType.Weekly, UsageLevel.Danger, "Codex", 90, now.AddDays(1), now),
-            DemoReset(UsageWindowType.FiveHour, "Claude Code", 100, now),
+            DemoReset(UsageWindowType.FiveHour, "Claude", 100, now),
             DemoReset(UsageWindowType.Weekly, "Codex", 100, now),
         };
 

@@ -6,7 +6,7 @@ namespace Gauge.Tests;
 public sealed class ToolCatalogTests
 {
     [Theory]
-    [InlineData(ToolKind.ClaudeCode, "Claude Code", "claude", "/login")]
+    [InlineData(ToolKind.ClaudeCode, "Claude", "claude", "/login")]
     [InlineData(ToolKind.Codex, "Codex", "codex", "login")]
     [InlineData(ToolKind.Cursor, "Cursor", "", "")]
     public void DescriptorCarriesNameAndLoginCommand(ToolKind kind, string name, string command, string arguments)
@@ -31,7 +31,7 @@ public sealed class ToolCatalogTests
     }
 
     // Regression: a non-Claude tool's auth state must report its own name, not "Codex".
-    // (The old ternary `Tool == ClaudeCode ? "Claude Code" : "Codex"` leaked every other
+    // (The old ternary `Tool == ClaudeCode ? "Claude" : "Codex"` leaked every other
     // tool to "Codex"; the state name now comes straight from the descriptor.)
     [Theory]
     [InlineData(ToolKind.ClaudeCode)]

@@ -131,7 +131,8 @@ public sealed class UsageCacheStore : IUsageCachePersistence
 
     private static UsageSnapshot ToSnapshot(SnapshotDto dto) => new()
     {
-        ToolName = dto.ToolName,
+        // A cache written before a tool rename still identifies the tool by its old name.
+        ToolName = ToolCatalog.CurrentDisplayName(dto.ToolName),
         Plan = dto.Plan,
         ResetCredits = dto.ResetCredits,
         CapturedAt = dto.CapturedAt,

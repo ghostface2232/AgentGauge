@@ -50,10 +50,25 @@ public sealed record ToolDescriptor
 /// <summary>The single source of truth for every tool Gauge knows about.</summary>
 public static class ToolCatalog
 {
+    /// <summary>
+    /// Display names an earlier build persisted (usage history rows, the last-known usage
+    /// cache) mapped to the current name. The display name doubles as the tool's identity in
+    /// those stores, so a rename must be migrated there, not just relabeled.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> RenamedDisplayNames =
+        new Dictionary<string, string>(StringComparer.Ordinal) { ["Claude Code"] = "Claude" };
+
+    /// <summary>The current display name for a persisted one, whether current or renamed.</summary>
+    public static string CurrentDisplayName(string persistedName)
+        => RenamedDisplayNames.TryGetValue(persistedName, out var current) ? current : persistedName;
+
+    // "Claude", not "Claude Code": the account's Claude Code and Claude chat usage share one
+    // quota, so the card tracks Claude as a whole. Codex and Antigravity keep their product
+    // names because ChatGPT and Gemini meter their usage separately.
     public static readonly ToolDescriptor ClaudeCode = new()
     {
         Kind = ToolKind.ClaudeCode,
-        DisplayName = "Claude Code",
+        DisplayName = "Claude",
         StatusPageUrl = new("https://status.anthropic.com/"),
         LoginCommand = "claude",
         LoginArguments = "/login",

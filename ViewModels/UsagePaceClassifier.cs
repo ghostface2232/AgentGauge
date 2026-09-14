@@ -25,6 +25,9 @@ public static class UsagePaceClassifier
         var elapsed = duration - remaining;
         var elapsedRatio = elapsed.TotalSeconds / duration.TotalSeconds;
         if (elapsedRatio < MinimumElapsedRatio) return (string.Empty, UsageLevel.Ok);
+        // An exhausted window has no pace left to describe — "burning fast" beside 100% only
+        // restates the bar — so the caption is dropped and the ETA/reset lines carry the row.
+        if (window.UsedRatio >= 1) return (string.Empty, UsageLevel.Ok);
 
         // Positive means reserve, negative means deficit, measured in percentage points
         // of the full quota. No other window or history lane participates in this value.

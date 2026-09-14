@@ -38,7 +38,7 @@ public sealed class ToolCardViewModelTests
     [Fact]
     public void ViewModeDrivesBarAndGaugeFlags()
     {
-        var card = new ToolCardViewModel(Cached("Claude Code",
+        var card = new ToolCardViewModel(Cached("Claude",
             Window(null, null, UsageWindowType.FiveHour)));
 
         // Default is the bar layout.
@@ -54,7 +54,7 @@ public sealed class ToolCardViewModelTests
     [Fact]
     public void DisplayBasisReachesExistingAndLaterAddedRows()
     {
-        var card = new ToolCardViewModel(Cached("Claude Code",
+        var card = new ToolCardViewModel(Cached("Claude",
             Window("5h", null, UsageWindowType.FiveHour)));
         Assert.Equal("10%", card.Windows.Single().PercentText);
 
@@ -63,7 +63,7 @@ public sealed class ToolCardViewModelTests
         Assert.Equal("90%", card.Windows.Single().PercentText);
 
         // A window that appears on a later refresh inherits the card's basis.
-        card.Update(Cached("Claude Code",
+        card.Update(Cached("Claude",
             Window("5h", null, UsageWindowType.FiveHour),
             Window("weekly", null, UsageWindowType.Weekly)));
 
@@ -77,7 +77,7 @@ public sealed class ToolCardViewModelTests
     [Fact]
     public void SparklinePreferenceReachesExistingAndLaterAddedRows()
     {
-        var card = new ToolCardViewModel(Cached("Claude Code",
+        var card = new ToolCardViewModel(Cached("Claude",
             Window("5h", null, UsageWindowType.FiveHour)));
         Assert.True(card.ShowSparkline);
         Assert.True(card.Windows.Single().ShowSparkline);
@@ -87,7 +87,7 @@ public sealed class ToolCardViewModelTests
         Assert.False(card.Windows.Single().ShowSparkline);
 
         // A window that appears on a later refresh inherits the card's preference.
-        card.Update(Cached("Claude Code",
+        card.Update(Cached("Claude",
             Window("5h", null, UsageWindowType.FiveHour),
             Window("weekly", null, UsageWindowType.Weekly)));
 
@@ -97,7 +97,7 @@ public sealed class ToolCardViewModelTests
     [Fact]
     public void RefreshIssueDotOnlyTracksFailedLastAttempt()
     {
-        var healthy = Cached("Claude Code", Window(null, null, UsageWindowType.FiveHour));
+        var healthy = Cached("Claude", Window(null, null, UsageWindowType.FiveHour));
         var card = new ToolCardViewModel(healthy);
 
         Assert.False(card.HasRefreshIssue);
@@ -142,7 +142,7 @@ public sealed class ToolCardViewModelTests
     [Fact]
     public void GaugeGroupsCollapseUngroupedToolIntoOneRowWithoutDivider()
     {
-        var card = new ToolCardViewModel(Cached("Claude Code",
+        var card = new ToolCardViewModel(Cached("Claude",
             Window(null, null, UsageWindowType.FiveHour),
             Window(null, null, UsageWindowType.Weekly)));
 
@@ -154,7 +154,7 @@ public sealed class ToolCardViewModelTests
     [Fact]
     public void LeavesUngroupedToolOrderUntouchedAndHeaderless()
     {
-        var card = new ToolCardViewModel(Cached("Claude Code",
+        var card = new ToolCardViewModel(Cached("Claude",
             Window(null, null, UsageWindowType.FiveHour),
             Window(null, null, UsageWindowType.Weekly)));
 
@@ -165,7 +165,7 @@ public sealed class ToolCardViewModelTests
     [Fact]
     public void ScopedWindowAfterAccountWindowsGetsHeadingAndDivider()
     {
-        var card = new ToolCardViewModel(Cached("Claude Code",
+        var card = new ToolCardViewModel(Cached("Claude",
             Window(null, null, UsageWindowType.FiveHour),
             Window(null, null, UsageWindowType.Weekly),
             Window("claude-weekly-scoped-fable", "Fable", UsageWindowType.Weekly)));

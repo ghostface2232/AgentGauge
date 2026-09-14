@@ -13,39 +13,39 @@ public sealed class UsageViewModelTests
         var viewModel = new UsageViewModel();
 
         viewModel.Apply(State(
-            WithUsage("Claude Code", 0.42),
+            WithUsage("Claude", 0.42),
             WithoutRecord("Codex")));
 
         var card = Assert.Single(viewModel.Cards);
-        Assert.Equal("Claude Code", card.ToolName);
+        Assert.Equal("Claude", card.ToolName);
         Assert.False(viewModel.IsEmpty);
-        Assert.Equal("Claude Code 42%", viewModel.TrayTooltipSummary);
+        Assert.Equal("Claude 42%", viewModel.TrayTooltipSummary);
     }
 
     [Fact]
     public void SetDisplayBasisFlipsExistingCardsAndCardsAddedLater()
     {
         var viewModel = new UsageViewModel();
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithoutRecord("Codex")));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithoutRecord("Codex")));
 
         viewModel.SetDisplayBasis(UsageDisplayBasis.Remaining);
 
         Assert.Equal(UsageDisplayBasis.Remaining, viewModel.DisplayBasis);
         Assert.Equal("58%", Assert.Single(viewModel.Cards).Windows.Single().PercentText);
 
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.10)));
 
         Assert.All(viewModel.Cards, card => Assert.Equal(UsageDisplayBasis.Remaining, card.DisplayBasis));
         Assert.Equal("90%", viewModel.Cards.Single(c => c.ToolName == "Codex").Windows.Single().PercentText);
         // The tray/tooltip summary stays a usage figure regardless of the basis.
-        Assert.Equal("Claude Code 42% · Codex 10%", viewModel.TrayTooltipSummary);
+        Assert.Equal("Claude 42% · Codex 10%", viewModel.TrayTooltipSummary);
     }
 
     [Fact]
     public void SetShowSparklineReachesExistingCardsAndCardsAddedLater()
     {
         var viewModel = new UsageViewModel();
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithoutRecord("Codex")));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithoutRecord("Codex")));
         Assert.True(viewModel.ShowSparkline);
 
         viewModel.SetShowSparkline(false);
@@ -53,7 +53,7 @@ public sealed class UsageViewModelTests
         Assert.False(viewModel.ShowSparkline);
         Assert.False(Assert.Single(viewModel.Cards).ShowSparkline);
 
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.10)));
 
         Assert.All(viewModel.Cards, card => Assert.False(card.ShowSparkline));
         Assert.All(viewModel.Cards.SelectMany(c => c.Windows), row => Assert.False(row.ShowSparkline));
@@ -64,7 +64,7 @@ public sealed class UsageViewModelTests
     {
         var viewModel = new UsageViewModel();
 
-        viewModel.Apply(State(WithoutRecord("Claude Code"), WithoutRecord("Codex")));
+        viewModel.Apply(State(WithoutRecord("Claude"), WithoutRecord("Codex")));
 
         Assert.Empty(viewModel.Cards);
         Assert.True(viewModel.IsEmpty);
@@ -92,13 +92,13 @@ public sealed class UsageViewModelTests
         var viewModel = new UsageViewModel();
 
         viewModel.Apply(State(
-            WithUsage("Claude Code", 0.42),
+            WithUsage("Claude", 0.42),
             WithEmptyRecord("Codex")));
 
         Assert.Equal(2, viewModel.Cards.Count);
         Assert.False(viewModel.IsEmpty);
         Assert.Equal(
-            $"Claude Code 42% · {Loc.Format("Tray_NoData", "Codex")}",
+            $"Claude 42% · {Loc.Format("Tray_NoData", "Codex")}",
             viewModel.TrayTooltipSummary);
     }
 
@@ -106,9 +106,9 @@ public sealed class UsageViewModelTests
     public void ApplyRemovesCardWhenToolLosesItsRecord()
     {
         var viewModel = new UsageViewModel();
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithoutRecord("Codex")));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithoutRecord("Codex")));
 
-        viewModel.Apply(State(WithoutRecord("Claude Code"), WithUsage("Codex", 0.73)));
+        viewModel.Apply(State(WithoutRecord("Claude"), WithUsage("Codex", 0.73)));
 
         var card = Assert.Single(viewModel.Cards);
         Assert.Equal("Codex", card.ToolName);
@@ -123,9 +123,9 @@ public sealed class UsageViewModelTests
         var registry = new ToolRegistry(new OrderedStore(ToolKind.Codex, ToolKind.ClaudeCode));
         var viewModel = new UsageViewModel(registry);
 
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.73)));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.73)));
 
-        Assert.Equal(new[] { "Codex", "Claude Code" }, viewModel.Cards.Select(c => c.ToolName));
+        Assert.Equal(new[] { "Codex", "Claude" }, viewModel.Cards.Select(c => c.ToolName));
     }
 
     [Fact]
@@ -133,14 +133,14 @@ public sealed class UsageViewModelTests
     {
         var registry = new ToolRegistry(new OrderedStore(ToolKind.ClaudeCode, ToolKind.Codex));
         var viewModel = new UsageViewModel(registry);
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.73)));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.73)));
 
         // Dragging Codex above Claude on the main screen persists the new order…
-        viewModel.ReorderTools(new[] { "Codex", "Claude Code" });
+        viewModel.ReorderTools(new[] { "Codex", "Claude" });
         // …and a subsequent coordinator push reflects it in the cards.
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.73)));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.73)));
 
-        Assert.Equal(new[] { "Codex", "Claude Code" }, viewModel.Cards.Select(c => c.ToolName));
+        Assert.Equal(new[] { "Codex", "Claude" }, viewModel.Cards.Select(c => c.ToolName));
         Assert.Equal(new[] { ToolKind.Codex, ToolKind.ClaudeCode }, registry.Enabled);
     }
 
@@ -151,7 +151,7 @@ public sealed class UsageViewModelTests
         // the auth states are all Missing — the view must ask for sign-in, not show dead cards.
         var viewModel = new UsageViewModel(allToolsSignedOut: () => true);
 
-        viewModel.Apply(State(WithEmptyRecord("Claude Code"), WithEmptyRecord("Codex")));
+        viewModel.Apply(State(WithEmptyRecord("Claude"), WithEmptyRecord("Codex")));
 
         Assert.True(viewModel.IsEmpty);
         Assert.Equal(Loc.Get("Empty_NotSignedIn"), viewModel.EmptyMessage);
@@ -163,7 +163,7 @@ public sealed class UsageViewModelTests
     {
         var viewModel = new UsageViewModel(allToolsSignedOut: () => false);
 
-        viewModel.Apply(State(WithEmptyRecord("Claude Code")));
+        viewModel.Apply(State(WithEmptyRecord("Claude")));
 
         Assert.False(viewModel.IsEmpty);
         Assert.False(viewModel.IsSettingsCtaVisible);
@@ -176,7 +176,7 @@ public sealed class UsageViewModelTests
         var viewModel = new UsageViewModel();
 
         viewModel.Apply(State(
-            WithFailedRecord("Claude Code"),
+            WithFailedRecord("Claude"),
             WithFailedRecord("Codex")));
 
         Assert.True(viewModel.IsEmpty);
@@ -201,11 +201,11 @@ public sealed class UsageViewModelTests
     {
         var signedOut = true;
         var viewModel = new UsageViewModel(allToolsSignedOut: () => signedOut);
-        viewModel.Apply(State(WithEmptyRecord("Claude Code")));
+        viewModel.Apply(State(WithEmptyRecord("Claude")));
         Assert.True(viewModel.IsSettingsCtaVisible);
 
         signedOut = false;
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42)));
+        viewModel.Apply(State(WithUsage("Claude", 0.42)));
 
         Assert.False(viewModel.IsEmpty);
         Assert.False(viewModel.IsSettingsCtaVisible);
@@ -223,15 +223,15 @@ public sealed class UsageViewModelTests
     public void RefreshIndicatorFollowsStartAndCompleteNotApply()
     {
         var viewModel = new UsageViewModel();
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.10)));
 
         viewModel.SetRefreshing(new[] { "Codex", "Cursor" }); // Cursor has no card → ignored
 
-        Assert.False(viewModel.Cards.Single(c => c.ToolName == "Claude Code").IsRefreshing);
+        Assert.False(viewModel.Cards.Single(c => c.ToolName == "Claude").IsRefreshing);
         Assert.True(viewModel.Cards.Single(c => c.ToolName == "Codex").IsRefreshing);
 
         // A cached re-emit mid-fetch (debounce / gate bypass) must NOT hide the indicator.
-        viewModel.Apply(State(WithUsage("Claude Code", 0.42), WithUsage("Codex", 0.10)));
+        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.10)));
         Assert.True(viewModel.Cards.Single(c => c.ToolName == "Codex").IsRefreshing);
 
         // Only the matching completion concludes it.

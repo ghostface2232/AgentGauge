@@ -67,7 +67,7 @@ public sealed class UsageCoordinatorTests
     [Fact]
     public async Task RefreshStartedAndCompletedBracketTheFetch()
     {
-        var claude = new StubProvider("Claude Code");
+        var claude = new StubProvider("Claude");
         var codex = new StubProvider("Codex");
         using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { claude, codex }));
         var started = new List<IReadOnlyList<string>>();
@@ -77,8 +77,8 @@ public sealed class UsageCoordinatorTests
 
         await coordinator.RefreshAsync(RefreshReason.Manual);
 
-        Assert.Equal(new[] { "Claude Code", "Codex" }, Assert.Single(started));
-        Assert.Equal(new[] { "Claude Code", "Codex" }, Assert.Single(completed));
+        Assert.Equal(new[] { "Claude", "Codex" }, Assert.Single(started));
+        Assert.Equal(new[] { "Claude", "Codex" }, Assert.Single(completed));
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public sealed class UsageCoordinatorTests
     [Fact]
     public async Task ProviderFailureIsIsolatedAndLastSnapshotIsRetained()
     {
-        var good = new StubProvider("Claude Code");
+        var good = new StubProvider("Claude");
         var flaky = new StubProvider("Codex");
         using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { good, flaky }));
         UsageState? state = null;
@@ -214,7 +214,7 @@ public sealed class UsageCoordinatorTests
     [Fact]
     public async Task DisablingAToolPurgesItFromTheCache()
     {
-        var claude = new StubProvider("Claude Code");
+        var claude = new StubProvider("Claude");
         var codex = new StubProvider("Codex");
         var enabled = new HashSet<ToolKind> { ToolKind.ClaudeCode, ToolKind.Codex };
         using var coordinator = new UsageCoordinator(
@@ -229,7 +229,7 @@ public sealed class UsageCoordinatorTests
         await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
 
         var remaining = Assert.Single(state!.Tools);
-        Assert.Equal("Claude Code", remaining.ToolName);
+        Assert.Equal("Claude", remaining.ToolName);
     }
 
     [Fact]
@@ -381,13 +381,13 @@ public sealed class UsageCoordinatorTests
             {
                 new UsageSnapshot
                 {
-                    ToolName = "Claude Code",
+                    ToolName = "Claude",
                     CapturedAt = DateTimeOffset.UtcNow.AddMinutes(-20),
                     Windows = new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5h", UsedRatio = .5 } },
                 },
             },
         };
-        var provider = new StubProvider("Claude Code") { Throw = true };
+        var provider = new StubProvider("Claude") { Throw = true };
         using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }), persistence: persistence);
         UsageState? state = null;
         coordinator.Updated += (_, value) => state = value;
@@ -432,11 +432,11 @@ public sealed class UsageCoordinatorTests
         {
             Seed = new[]
             {
-                Seed("Claude Code"),
+                Seed("Claude"),
                 Seed("Codex"),
             },
         };
-        var claude = new StubProvider("Claude Code") { Throw = true };
+        var claude = new StubProvider("Claude") { Throw = true };
         var codex = new StubProvider("Codex") { Throw = true };
         var enabled = new HashSet<ToolKind> { ToolKind.ClaudeCode, ToolKind.Codex };
         using var coordinator = new UsageCoordinator(
@@ -453,7 +453,7 @@ public sealed class UsageCoordinatorTests
 
         Assert.True(persistence.SaveCalled);
         var saved = Assert.Single(persistence.Saved);
-        Assert.Equal("Claude Code", saved.ToolName);
+        Assert.Equal("Claude", saved.ToolName);
     }
 
     [Fact]

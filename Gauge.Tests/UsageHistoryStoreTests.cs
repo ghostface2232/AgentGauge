@@ -46,7 +46,7 @@ public sealed class UsageHistoryStoreTests : IDisposable
         using var store = new UsageHistoryStore(_dir, _time);
         store.Record(Snapshot("Codex", 0.10, _time.Now.AddHours(-3)));
         store.Record(Snapshot("Codex", 0.20, _time.Now));
-        store.Record(Snapshot("Claude Code", 0.90, _time.Now));
+        store.Record(Snapshot("Claude", 0.90, _time.Now));
 
         var samples = store.GetRecent("Codex", UsageWindowType.FiveHour.ToString(), TimeSpan.FromHours(1));
         var ratio = Assert.Single(samples).UsedRatio;

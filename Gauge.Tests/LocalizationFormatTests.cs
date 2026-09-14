@@ -59,10 +59,10 @@ public sealed class LocalizationFormatTests : IDisposable
 
         var title = NotificationText.ThresholdTitle("Codex", Window(UsageWindowType.Weekly), 90);
         var scopedTitle = NotificationText.ThresholdTitle(
-            "Claude Code", Window(UsageWindowType.Weekly, group: "Fable"), 70);
-        var resetTitle = NotificationText.ResetTitle("Claude Code", Window(UsageWindowType.FiveHour));
+            "Claude", Window(UsageWindowType.Weekly, group: "Fable"), 70);
+        var resetTitle = NotificationText.ResetTitle("Claude", Window(UsageWindowType.FiveHour));
         var scopedResetTitle = NotificationText.ResetTitle(
-            "Claude Code", Window(UsageWindowType.Weekly, group: "Fable"));
+            "Claude", Window(UsageWindowType.Weekly, group: "Fable"));
         var resetMessage = NotificationText.ResetMessage(100);
 
         Assert.DoesNotContain("{", title);

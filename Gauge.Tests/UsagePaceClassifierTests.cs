@@ -15,7 +15,10 @@ public sealed class UsagePaceClassifierTests
     [InlineData(.25, .25, "0% · 적정", UsageLevel.Ok)]
     [InlineData(.251, .25, "0% · 적정", UsageLevel.Ok)]
     [InlineData(0, .25, "+25% · 여유 있음", UsageLevel.Ok)]
-    [InlineData(1, .25, "−75% · 빠르게 소진 중", UsageLevel.Danger)]
+    [InlineData(.99, .25, "−74% · 빠르게 소진 중", UsageLevel.Danger)]
+    // Exhausted windows drop the caption: "burning fast" beside 100% adds nothing.
+    [InlineData(1, .25, "", UsageLevel.Ok)]
+    [InlineData(1.04, .25, "", UsageLevel.Ok)]
     public void ShowsSignedDifferenceFromItsOwnCycle(double used, double elapsed, string expected, UsageLevel level)
     {
         Assert.Equal((expected, level), UsagePaceClassifier.ForRow(Window(used, elapsed), Now));

@@ -17,7 +17,7 @@ public sealed class UsageCacheStoreTests : IDisposable
         var reset = DateTimeOffset.UtcNow.AddHours(2);
         var snapshot = new UsageSnapshot
         {
-            ToolName = "Claude Code",
+            ToolName = "Claude",
             Plan = "Max 20x",
             CapturedAt = captured,
             Windows = new[]
@@ -37,7 +37,7 @@ public sealed class UsageCacheStoreTests : IDisposable
         store.Save(new[] { snapshot });
         var loaded = Assert.Single(new UsageCacheStore(_dir).Load());
 
-        Assert.Equal("Claude Code", loaded.ToolName);
+        Assert.Equal("Claude", loaded.ToolName);
         Assert.Equal("Max 20x", loaded.Plan);
         Assert.Equal(captured, loaded.CapturedAt);
         Assert.Equal(2, loaded.Windows.Count);
@@ -59,13 +59,13 @@ public sealed class UsageCacheStoreTests : IDisposable
         store.Save(new[]
         {
             Snapshot("Codex", resetCredits: 4),
-            Snapshot("Claude Code", resetCredits: null),
+            Snapshot("Claude", resetCredits: null),
         });
 
         var loaded = new UsageCacheStore(_dir).Load();
 
         Assert.Equal(4, Assert.Single(loaded, s => s.ToolName == "Codex").ResetCredits);
-        Assert.Null(Assert.Single(loaded, s => s.ToolName == "Claude Code").ResetCredits);
+        Assert.Null(Assert.Single(loaded, s => s.ToolName == "Claude").ResetCredits);
     }
 
     private static UsageSnapshot Snapshot(string toolName, int? resetCredits) => new()
@@ -173,7 +173,7 @@ public sealed class UsageCacheStoreTests : IDisposable
     public void SaveOverwritesPreviousContents()
     {
         var store = new UsageCacheStore(_dir);
-        store.Save(new[] { Snapshot("Claude Code"), Snapshot("Codex") });
+        store.Save(new[] { Snapshot("Claude"), Snapshot("Codex") });
         store.Save(new[] { Snapshot("Codex") });
 
         var loaded = new UsageCacheStore(_dir).Load();
