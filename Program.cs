@@ -43,8 +43,12 @@ public static class Program
         // redirecting or disturbing it.
         var isNotificationDemo =
             args.Contains("--notification-demo", StringComparer.OrdinalIgnoreCase);
+        var isPopoverDemo =
+            args.Contains("--popover-demo", StringComparer.OrdinalIgnoreCase);
         var keyInstance = AppInstance.FindOrRegisterForKey(
-            isNotificationDemo ? $"{AppKey}.NotificationDemo" : AppKey);
+            isNotificationDemo ? $"{AppKey}.NotificationDemo"
+            : isPopoverDemo ? $"{AppKey}.PopoverDemo"
+            : AppKey);
         return !keyInstance.IsCurrent;
     }
 }

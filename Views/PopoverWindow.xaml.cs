@@ -533,10 +533,16 @@ public sealed partial class PopoverWindow : Window
         storyboard.Begin();
     }
 
+    /// <summary>
+    /// Developer visual-QA only (<c>--popover-demo</c>): keeps the popover open when it loses
+    /// activation so it can be inspected or screenshotted from another window.
+    /// </summary>
+    public bool SuppressLightDismiss { get; set; }
+
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         // Manual light dismiss: hide when the window loses activation.
-        if (args.WindowActivationState == WindowActivationState.Deactivated && _isShown)
+        if (args.WindowActivationState == WindowActivationState.Deactivated && _isShown && !SuppressLightDismiss)
         {
             Hide();
         }

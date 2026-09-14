@@ -240,8 +240,14 @@ public partial class App : Application
         // language-switch relaunch (--language-changed) both open the window once.
         // Otherwise the app would relaunch straight to the tray and the user couldn't
         // tell the update/new language had applied.
+        // --popover-demo is the visual-QA counterpart of --notification-demo: it opens the
+        // popover immediately (beside the normal tray instance) so a build can be eyeballed
+        // or screenshotted without clicking the tray icon.
+        var popoverDemo = commandLine.Contains("--popover-demo", StringComparer.OrdinalIgnoreCase);
+        _popover.SuppressLightDismiss = popoverDemo;
         if (commandLine.Contains("--updated", StringComparer.OrdinalIgnoreCase)
-            || commandLine.Contains("--language-changed", StringComparer.OrdinalIgnoreCase))
+            || commandLine.Contains("--language-changed", StringComparer.OrdinalIgnoreCase)
+            || popoverDemo)
         {
             _popover.Show();
         }
