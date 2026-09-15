@@ -60,6 +60,13 @@ public sealed class RefreshIndicatorTests
 
     private sealed class CodexOnlyStore : IToolRegistryStore
     {
+        private IReadOnlyCollection<ToolKind> _hidden = [];
+        public IReadOnlyCollection<ToolKind> LoadHidden() => _hidden;
+        public bool TrySaveHidden(IReadOnlyCollection<ToolKind> hidden)
+        {
+            _hidden = hidden.ToList();
+            return true;
+        }
         private IReadOnlyCollection<ToolKind> _state = [ToolKind.Codex];
         public IReadOnlyCollection<ToolKind> Load() => _state;
         public void Save(IReadOnlyCollection<ToolKind> enabled) => _state = enabled.ToList();

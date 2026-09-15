@@ -45,6 +45,7 @@ public sealed class SettingsViewModel
     public ObservableCollection<AuthenticationCardViewModel> Authentication { get; }
     public UpdateViewModel Update { get; }
     public event EventHandler? AuthenticationSucceeded;
+    public event EventHandler<bool>? SettingsWriteCompleted;
 
     /// <summary>Catalog tools not yet registered — the choices shown by the "+" picker.</summary>
     public IReadOnlyList<AddableTool> AddableTools =>
@@ -110,7 +111,12 @@ public sealed class SettingsViewModel
             }
 
             var card = new AuthenticationCardViewModel(provider) { IsHidden = _registry.IsHidden(kind) };
-            card.HiddenChanged += (_, hidden) => _registry.SetHidden(kind, hidden);
+            card.HiddenChanged += (_, hidden) =>
+            {
+                var saved = _registry.SetHidden(kind, hidden);
+                card.SyncHidden(_registry.IsHidden(kind));
+                SettingsWriteCompleted?.Invoke(this, saved);
+            };
             card.AuthenticationSucceeded += (_, _) => AuthenticationSucceeded?.Invoke(this, EventArgs.Empty);
             card.RemoveRequested += (_, _) => RemoveTool(card.Tool);
             Authentication.Add(card);

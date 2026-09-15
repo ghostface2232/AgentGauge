@@ -12,7 +12,8 @@ These previously-untestable areas now have small production seams and are covere
 | Refresh timing gates | `UsageCoordinator` takes a `TimeProvider` and reads both its gates — the 10s forced-refresh debounce and the per-provider cost floor — off monotonic timestamps. | `UsageCoordinatorTests` |
 | Transient credential-read retry | `CliCredentialSource` takes an injectable wait, so the retry that rides out a CLI's token rotation is exercised without spending its duration. | `CredentialSourceTests` |
 | Drag-reorder index math | The gesture's index math extracted to the pure `Views\ReorderPlan` (shift layout, snapshot-validity, commit bounds), consumed by `PopoverWindow.ReorderSurface`. | `ReorderPlanTests` |
-| Foreground-lock restore | Capture/restore extracted from `TrayIconService` into `ForegroundLockGuard` behind the `IForegroundLockTimeout` seam; the baseline persists to settings.json so a hard kill cannot lose the user's value. | `ForegroundLockGuardTests` |
+| Foreground-lock restore | `IForegroundLockTimeout` isolates the system setting. A locked/corrupt settings file, a failed baseline write, or an unreadable timeout prevents zeroing; hard-kill recovery and reuse of an existing persisted baseline are covered. | `ForegroundLockGuardTests` |
+| Tool visibility save failures | Locked settings leave visibility and polling unchanged. The settings card rolls back both switch directions, reports one failure, and retries successfully after unlocking. | `ToolVisibilityTests`, `SettingsViewModelTests` |
 
 What else is covered: provider JSON-schema tolerance (Claude/Codex/Cursor/Copilot/
 Antigravity), credential parsing and auth expiry, the cold-start half of 429

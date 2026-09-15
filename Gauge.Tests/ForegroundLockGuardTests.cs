@@ -134,15 +134,15 @@ public sealed class ForegroundLockGuardTests : IDisposable
     }
 
     [Fact]
-    public void UnreadableTimeoutStillZeroesButRestoreIsANoOp()
+    public void UnreadableTimeoutIsNeverChanged()
     {
-        // With no readable current value there is no baseline: the zero is still applied
-        // (the menu needs it regardless) but Restore has nothing to put back.
+        // Without a known baseline, even a clean exit could not undo the change.
         var timeout = new FakeTimeout { Current = 200_000, GetFails = true };
         var guard = new ForegroundLockGuard(timeout, () => _dir);
         guard.Disable();
         guard.Restore();
-        Assert.Equal(new uint[] { 0 }, timeout.SetCalls);
+        Assert.Empty(timeout.SetCalls);
+        Assert.Equal(200_000u, timeout.Current);
     }
 
     [Fact]
@@ -162,15 +162,13 @@ public sealed class ForegroundLockGuardTests : IDisposable
         guard.Restore();
 
         Assert.Equal("{ not valid json", File.ReadAllText(path));
-        Assert.Equal(new uint[] { 0 }, timeout.SetCalls);
+        Assert.Empty(timeout.SetCalls);
     }
 
     [Fact]
-    public void UnreadableSettingsWithALiveNonZeroRestoresFromMemoryWithoutPersisting()
+    public void UnreadableSettingsLeaveTheLiveNonZeroUntouched()
     {
-        // A non-zero live value is unambiguously the user's setting even when the file
-        // cannot be read: it must round-trip through this run in memory, while the
-        // failed read must not author a baseline write.
+        // Keeping the baseline only in memory would lose it on a hard kill.
         Directory.CreateDirectory(_dir);
         var path = Path.Combine(_dir, "settings.json");
         File.WriteAllText(path, "{ not valid json");
@@ -178,13 +176,69 @@ public sealed class ForegroundLockGuardTests : IDisposable
         var guard = new ForegroundLockGuard(timeout, () => _dir);
 
         guard.Disable();
+        Assert.Equal(150_000u, timeout.Current);
         Assert.Equal("{ not valid json", File.ReadAllText(path));
 
         guard.Restore();
         Assert.Equal(150_000u, timeout.Current);
-        // Nor may the restore write over a file it still cannot parse — that would rewrite
-        // it from defaults and drop every other store's keys (see ForegroundLockGuard.Restore).
+        Assert.Empty(timeout.SetCalls);
         Assert.Equal("{ not valid json", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void LockedSettingsAndAHardKillDoNotLoseTheOriginalTimeout()
+    {
+        Assert.True(AppSettingsFile.TrySave(_dir, dto => dto.Language = "ko"));
+        var timeout = new FakeTimeout { Current = 200_000 };
+        using (File.Open(Path.Combine(_dir, "settings.json"), FileMode.Open, FileAccess.Read, FileShare.None))
+            new ForegroundLockGuard(timeout, () => _dir).Disable();
+
+        Assert.Empty(timeout.SetCalls);
+        // No Restore on the first guard: simulate a hard kill followed by a healthy launch.
+        var next = new ForegroundLockGuard(timeout, () => _dir);
+        next.Disable();
+        Assert.Equal(0u, timeout.Current);
+        next.Restore();
+        Assert.Equal(200_000u, timeout.Current);
+    }
+
+    [Fact]
+    public void FailedBaselineWriteLeavesTheTimeoutUntouched()
+    {
+        Assert.True(AppSettingsFile.TrySave(_dir, dto => dto.Language = "ko"));
+        var path = Path.Combine(_dir, "settings.json");
+        var original = File.ReadAllText(path);
+        var timeout = new FakeTimeout { Current = 200_000 };
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+        try
+        {
+            Assert.True(AppSettingsFile.TryLoad(_dir, out _));
+            var guard = new ForegroundLockGuard(timeout, () => _dir);
+            guard.Disable();
+            guard.Restore();
+            Assert.Equal(200_000u, timeout.Current);
+            Assert.Empty(timeout.SetCalls);
+            Assert.Equal(original, File.ReadAllText(path));
+        }
+        finally { File.SetAttributes(path, FileAttributes.Normal); }
+    }
+
+    [Fact]
+    public void AlreadyPersistedBaselineDoesNotRequireAnotherWriteBeforeZeroing()
+    {
+        Assert.True(AppSettingsFile.TrySave(_dir, dto => dto.ForegroundLockTimeoutBaseline = 200_000));
+        var path = Path.Combine(_dir, "settings.json");
+        var timeout = new FakeTimeout { Current = 0 };
+        File.SetAttributes(path, FileAttributes.ReadOnly);
+        try
+        {
+            var guard = new ForegroundLockGuard(timeout, () => _dir);
+            guard.Disable();
+            guard.Restore();
+            Assert.Equal(new uint[] { 0, 200_000 }, timeout.SetCalls);
+            Assert.Equal(200_000u, timeout.Current);
+        }
+        finally { File.SetAttributes(path, FileAttributes.Normal); }
     }
 
     public void Dispose()

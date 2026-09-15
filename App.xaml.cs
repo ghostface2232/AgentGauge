@@ -188,6 +188,7 @@ public partial class App : Application
         _updateService = new UpdateService();
         _settingsViewModel = new SettingsViewModel(_toolRegistry, _authentication, _updateService, globalSettings);
         _settingsViewModel.AuthenticationSucceeded += OnAuthenticationSucceeded;
+        _settingsViewModel.SettingsWriteCompleted += (_, saved) => ReportSettingsWrite(saved);
         _settingsViewModel.Update.ExitRequested += OnUpdateExitRequested;
         _popover.BindSettingsViewModel(_settingsViewModel);
         _ = _settingsViewModel.RefreshAsync();

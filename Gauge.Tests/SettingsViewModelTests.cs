@@ -38,6 +38,49 @@ public sealed class SettingsViewModelTests
         Assert.Equal([true, false], hiddenChanges);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FailedVisibilitySaveRestoresTheSwitchAndReportsOnlyOneResult(bool initiallyHidden)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "GaugeTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.True(AppSettingsFile.TrySave(dir, dto =>
+            {
+                dto.EnabledTools = ["Codex"];
+                dto.HiddenTools = initiallyHidden ? ["Codex"] : [];
+            }));
+            var registry = new ToolRegistry(new ToolRegistryStore(() => dir));
+            var settings = new SettingsViewModel(registry,
+                new Dictionary<ToolKind, IAuthenticationProvider>
+                {
+                    [ToolKind.Codex] = new FakeAuthenticationProvider(State(AuthenticationStatus.Available, "")),
+                }, new UpdateService(), new GlobalSettingsViewModel(NotificationPreferences.Default, false, UsageViewMode.Bar));
+            var results = new List<bool>();
+            settings.SettingsWriteCompleted += (_, saved) => results.Add(saved);
+            var card = Assert.Single(settings.Authentication);
+            var requests = 0;
+            card.HiddenChanged += (_, _) => requests++;
+
+            using (File.Open(Path.Combine(dir, "settings.json"), FileMode.Open, FileAccess.Read, FileShare.None))
+                card.IsShown = initiallyHidden;
+
+            Assert.Equal(initiallyHidden, card.IsHidden);
+            Assert.Equal(!initiallyHidden, card.IsShown);
+            Assert.Equal(initiallyHidden ? "숨김" : "표시", card.VisibilityText);
+            Assert.Equal(1, requests);
+            Assert.Equal([false], results);
+
+            card.IsShown = initiallyHidden;
+            Assert.Equal(!initiallyHidden, card.IsHidden);
+            Assert.Equal(card.IsHidden, registry.IsHidden(ToolKind.Codex));
+            Assert.Equal(2, requests);
+            Assert.Equal([false, true], results);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
     private static AuthenticationState State(AuthenticationStatus status, string message) => new()
     {
         Tool = ToolKind.Codex, ToolName = "Codex", Status = status,

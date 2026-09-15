@@ -214,6 +214,13 @@ public sealed class UsageViewModelTests
 
     private sealed class OrderedStore(params ToolKind[] enabled) : IToolRegistryStore
     {
+        private IReadOnlyCollection<ToolKind> _hidden = [];
+        public IReadOnlyCollection<ToolKind> LoadHidden() => _hidden;
+        public bool TrySaveHidden(IReadOnlyCollection<ToolKind> hidden)
+        {
+            _hidden = hidden.ToList();
+            return true;
+        }
         private IReadOnlyCollection<ToolKind> _state = enabled;
         public IReadOnlyCollection<ToolKind> Load() => _state;
         public void Save(IReadOnlyCollection<ToolKind> e) => _state = e.ToList();

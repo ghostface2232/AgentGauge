@@ -47,12 +47,16 @@ public sealed class ToolRegistry
     public bool IsHidden(ToolKind kind) => _hidden.Contains(kind);
     public bool IsActive(ToolKind kind) => IsEnabled(kind) && !IsHidden(kind);
 
-    public void SetHidden(ToolKind kind, bool hidden)
+    /// <summary>Applies visibility only after persistence succeeds; false leaves polling unchanged.</summary>
+    public bool SetHidden(ToolKind kind, bool hidden)
     {
-        if (!IsEnabled(kind) || IsHidden(kind) == hidden) return;
-        _hidden = (hidden ? _hidden.Append(kind) : _hidden.Where(k => k != kind)).ToList().AsReadOnly();
-        _store.SaveHidden(_hidden);
+        if (!IsEnabled(kind)) return false;
+        if (IsHidden(kind) == hidden) return true;
+        var next = (hidden ? _hidden.Append(kind) : _hidden.Where(k => k != kind)).ToList().AsReadOnly();
+        if (!_store.TrySaveHidden(next)) return false;
+        _hidden = next;
         VisibilityChanged?.Invoke(this, kind);
+        return true;
     }
 
     public bool IsEnabled(ToolKind kind) => _enabled.Contains(kind);
@@ -99,7 +103,7 @@ public sealed class ToolRegistry
         if (wasHidden)
         {
             _hidden = _hidden.Where(k => k != kind).ToList().AsReadOnly();
-            _store.SaveHidden(_hidden);
+            _store.TrySaveHidden(_hidden);
         }
         var next = new List<ToolKind>(snapshot);
         next.RemoveAt(index);
@@ -175,7 +179,7 @@ public sealed class ToolRegistry
     public void Repersist()
     {
         _store.Save(_enabled);
-        _store.SaveHidden(_hidden);
+        _store.TrySaveHidden(_hidden);
     }
 
     private void Persist(bool membershipChanged)

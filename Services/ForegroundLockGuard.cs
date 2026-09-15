@@ -53,43 +53,27 @@ internal sealed class ForegroundLockGuard
     /// <summary>Captures and persists the restore baseline, then zeroes the live timeout.</summary>
     public void Disable()
     {
-        if (_timeout.TryGet(out var current))
+        if (!_timeout.TryGet(out var current))
         {
-            // TryLoad, not Load: an unreadable settings.json is indistinguishable from an
-            // absent one, and treating it as absent would read a crash-leftover 0 as the
-            // user's value and persist it — overwriting the real baseline the file may
-            // still hold, which is exactly the permanent loss this class exists to stop.
-            if (AppSettingsFile.TryLoad(_directory(), out var settings))
-            {
-                var persisted = settings.ForegroundLockTimeoutBaseline;
-                var baseline = current == 0 && persisted is uint saved ? saved : current;
-                lock (_gate)
-                {
-                    _baseline = baseline;
-                }
-                if (baseline != persisted)
-                {
-                    AppSettingsFile.Save(_directory(), dto => dto.ForegroundLockTimeoutBaseline = baseline);
-                }
-            }
-            else if (current != 0)
-            {
-                // File unreadable but the live value is non-zero: that is unambiguously
-                // the user's setting, so keep it in memory for this run's restore. Skip
-                // the persist — a transient read failure must never author a write over
-                // whatever baseline the file holds.
-                lock (_gate)
-                {
-                    _baseline = current;
-                }
-            }
-            // File unreadable AND live 0: cannot tell a deliberate user 0 from a crash
-            // leftover. Adopt nothing — Restore is a no-op this run and the on-disk
-            // baseline, if any, survives for the next healthy launch to recover.
+            DiagnosticsLog.Write("tray", "Foreground-lock timeout unavailable; leaving it unchanged");
+            return;
         }
 
-        // Applied even when the read failed: an unreadable current value doesn't make the
-        // menu need the zero any less, and Restore stays a no-op without a baseline.
+        // A memory-only baseline cannot survive a hard kill. Leave the live timeout alone
+        // unless its restore value is already on disk or this write successfully puts it there.
+        // A failed read also cannot distinguish a deliberate zero from a crash leftover.
+        if (!AppSettingsFile.TryLoad(_directory(), out var settings)) return;
+        var persisted = settings.ForegroundLockTimeoutBaseline;
+        var baseline = current == 0 && persisted is uint saved ? saved : current;
+        if (baseline != persisted
+            && !AppSettingsFile.TrySave(_directory(), dto => dto.ForegroundLockTimeoutBaseline = baseline))
+        {
+            return;
+        }
+        lock (_gate)
+        {
+            _baseline = baseline;
+        }
         _ = _timeout.TrySet(0);
     }
 

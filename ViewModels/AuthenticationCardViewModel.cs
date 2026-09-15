@@ -33,13 +33,22 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     /// <summary>The tool this card represents (used by the registry to remove it).</summary>
     public ToolKind Tool => _provider.Tool;
 
+    private bool _syncingVisibility;
     [ObservableProperty] public partial bool IsHidden { get; set; }
     public event EventHandler<bool>? HiddenChanged;
     partial void OnIsHiddenChanged(bool value)
     {
-        HiddenChanged?.Invoke(this, value);
+        if (!_syncingVisibility) HiddenChanged?.Invoke(this, value);
         OnPropertyChanged(nameof(IsShown));
         OnPropertyChanged(nameof(VisibilityText));
+    }
+
+    /// <summary>Reflects the registry's accepted state without issuing another save request.</summary>
+    public void SyncHidden(bool hidden)
+    {
+        _syncingVisibility = true;
+        try { IsHidden = hidden; }
+        finally { _syncingVisibility = false; }
     }
 
     /// <summary>

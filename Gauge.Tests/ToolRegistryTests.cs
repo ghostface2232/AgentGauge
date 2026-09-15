@@ -224,6 +224,13 @@ public sealed class ToolRegistryTests
     /// <summary>In-memory store seeded with the production default.</summary>
     private sealed class InMemoryStore : IToolRegistryStore
     {
+        private IReadOnlyCollection<ToolKind> _hidden = [];
+        public IReadOnlyCollection<ToolKind> LoadHidden() => _hidden;
+        public bool TrySaveHidden(IReadOnlyCollection<ToolKind> hidden)
+        {
+            _hidden = hidden.ToList();
+            return true;
+        }
         private IReadOnlyCollection<ToolKind> _state = new[] { ToolKind.ClaudeCode, ToolKind.Codex };
         public IReadOnlyCollection<ToolKind> Load() => _state;
         public void Save(IReadOnlyCollection<ToolKind> enabled) => _state = enabled.ToList();
