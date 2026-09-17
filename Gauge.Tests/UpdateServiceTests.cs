@@ -1,5 +1,6 @@
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using Gauge.Services;
 
@@ -7,12 +8,15 @@ namespace Gauge.Tests;
 
 /// <summary>
 /// Update pipeline with injected HttpClient/version/launcher: release-tag parsing,
-/// version comparison against the running build, and installer download/launch failure.
-/// Closes the "Update version comparison" and "Installer execution failure" rows from
-/// COVERAGE.md.
+/// version comparison against the running build, the asset digest GitHub publishes,
+/// and installer download/verification/launch failure. Closes the "Update version
+/// comparison" and "Installer execution failure" rows from COVERAGE.md.
 /// </summary>
 public sealed class UpdateServiceTests
 {
+    // Well-formed but arbitrary: CheckAsync only needs the digest's shape.
+    private static readonly string Digest = "sha256:" + new string('a', 64);
+
     [Theory]
     [InlineData("v0.2.4", true, "0.2.4")]
     [InlineData("V1.2.3", true, "1.2.3")]
@@ -36,7 +40,7 @@ public sealed class UpdateServiceTests
         var json = $$"""
         {
           "tag_name": "{{tag}}",
-          "assets": [ { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe" } ]
+          "assets": [ { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe", "digest": "{{Digest}}" } ]
         }
         """;
         var service = Service(json);
@@ -50,8 +54,45 @@ public sealed class UpdateServiceTests
     [Fact]
     public async Task MissingInstallerAssetIsCheckFailed()
     {
-        var service = Service("""{ "tag_name": "v9.9.9", "assets": [ { "name": "other.zip", "browser_download_url": "https://example.test/o.zip" } ] }""");
+        var service = Service($$"""{ "tag_name": "v9.9.9", "assets": [ { "name": "other.zip", "browser_download_url": "https://example.test/o.zip", "digest": "{{Digest}}" } ] }""");
         Assert.Equal(UpdateStatus.CheckFailed, (await service.CheckAsync()).Status);
+    }
+
+    [Theory]
+    [InlineData("sha256:0123456789ABCDEF0123456789abcdef0123456789ABCDEF0123456789abcdef", true, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")]
+    [InlineData("SHA256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", false, "")]
+    [InlineData("md5:0123456789abcdef0123456789abcdef", false, "")]
+    [InlineData("sha256:0123456789abcdef", false, "")]
+    [InlineData("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg", false, "")]
+    [InlineData("", false, "")]
+    [InlineData(null, false, "")]
+    public void ParsesGitHubAssetDigests(string? digest, bool expectedOk, string expectedSha256)
+    {
+        var ok = UpdateService.TryParseSha256Digest(digest, out var sha256);
+        Assert.Equal(expectedOk, ok);
+        Assert.Equal(expectedSha256, sha256);
+    }
+
+    [Fact]
+    public async Task CheckCarriesTheAssetDigestOnTheRelease()
+    {
+        var upper = "sha256:" + new string('B', 64);
+        var result = await Service(ReleaseJson("v9.9.9", upper)).CheckAsync();
+        Assert.Equal(UpdateStatus.UpdateAvailable, result.Status);
+        Assert.Equal(new string('b', 64), result.Release!.Sha256);
+    }
+
+    [Theory]
+    [InlineData("""{ "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe" }""")]
+    [InlineData("""{ "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe", "digest": null }""")]
+    [InlineData("""{ "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe", "digest": "sha512:00" }""")]
+    public async Task AssetWithoutUsableDigestIsNotOffered(string asset)
+    {
+        // A download that cannot be verified is never offered, exactly like a missing asset.
+        var service = Service($$"""{ "tag_name": "v9.9.9", "assets": [ {{asset}} ] }""");
+        var result = await service.CheckAsync();
+        Assert.Equal(UpdateStatus.CheckFailed, result.Status);
+        Assert.Null(result.Release);
     }
 
     [Theory]
@@ -67,25 +108,19 @@ public sealed class UpdateServiceTests
         // A release that ships only the x64 installer must read as CheckFailed on an
         // ARM64 build — silently installing the wrong-architecture payload is worse
         // than reporting no update.
-        var x64Only = """
-        {
-          "tag_name": "v9.9.9",
-          "assets": [ { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe" } ]
-        }
-        """;
-        var service = Service(x64Only, architecture: Architecture.Arm64);
+        var service = Service(ReleaseJson("v9.9.9", Digest), architecture: Architecture.Arm64);
         Assert.Equal(UpdateStatus.CheckFailed, (await service.CheckAsync()).Status);
     }
 
     [Fact]
     public async Task Arm64BuildPicksTheArm64AssetWhenPresent()
     {
-        var both = """
+        var both = $$"""
         {
           "tag_name": "v9.9.9",
           "assets": [
-            { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/x64.exe" },
-            { "name": "GaugeSetup-win-arm64.exe", "browser_download_url": "https://example.test/arm64.exe" }
+            { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/x64.exe", "digest": "{{Digest}}" },
+            { "name": "GaugeSetup-win-arm64.exe", "browser_download_url": "https://example.test/arm64.exe", "digest": "{{Digest}}" }
           ]
         }
         """;
@@ -104,7 +139,7 @@ public sealed class UpdateServiceTests
     [Fact]
     public async Task DownloadAndLaunchReportsLauncherOutcome()
     {
-        var release = new GitHubRelease(new Version(9, 9, 9), "v9.9.9", "https://example.test/setup.exe");
+        var release = Release("v9.9.9", Sha256Of("installer-bytes"));
 
         var succeeding = new FakeLauncher(result: true);
         Assert.True(await Service("installer-bytes", launcher: succeeding).DownloadAndLaunchAsync(release));
@@ -117,15 +152,40 @@ public sealed class UpdateServiceTests
     }
 
     [Fact]
+    public async Task DigestMismatchNeverLaunchesAndDiscardsTheDownload()
+    {
+        // The bytes served differ from what the release promised: nothing may run, and the
+        // rejected file must not linger where a later attempt could pick it up.
+        var launcher = new FakeLauncher(result: true);
+        var release = Release("v9.9.8", Sha256Of("what-the-release-promised"));
+
+        Assert.False(await Service("what-actually-arrived", launcher: launcher).DownloadAndLaunchAsync(release));
+        Assert.Null(launcher.LaunchedPath);
+        Assert.False(File.Exists(Path.Combine(Path.GetTempPath(), "Gauge", "GaugeSetup-v9.9.8.exe")));
+    }
+
+    [Fact]
     public async Task DownloadFailureReturnsFalseWithoutLaunching()
     {
         var launcher = new FakeLauncher(result: true);
         var service = Service("nope", HttpStatusCode.NotFound, launcher);
-        var release = new GitHubRelease(new Version(9, 9, 9), "v9.9.9", "https://example.test/setup.exe");
 
-        Assert.False(await service.DownloadAndLaunchAsync(release));
+        Assert.False(await service.DownloadAndLaunchAsync(Release("v9.9.9", Sha256Of("nope"))));
         Assert.Null(launcher.LaunchedPath);
     }
+
+    private static string ReleaseJson(string tag, string digest) => $$"""
+        {
+          "tag_name": "{{tag}}",
+          "assets": [ { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe", "digest": "{{digest}}" } ]
+        }
+        """;
+
+    private static GitHubRelease Release(string tag, string sha256)
+        => new(new Version(9, 9, 9), tag, "https://example.test/setup.exe", sha256);
+
+    private static string Sha256Of(string body)
+        => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(body)));
 
     private static UpdateService Service(
         string body,
