@@ -3,6 +3,7 @@ using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers;
 using Gauge.Services;
+using Gauge.Services.ApiCost;
 using Gauge.ViewModels;
 using Gauge.Views;
 using Microsoft.UI.Dispatching;
@@ -36,6 +37,8 @@ public partial class App : Application
     private DisplayBasisSettingsStore? _displayBasisSettingsStore;
     private SparklineSettingsStore? _sparklineSettingsStore;
     private WeeklyPaceModelSettingsStore? _paceModelSettingsStore;
+    private ApiCostSettingsStore? _apiCostSettingsStore;
+    private ApiCostService? _apiCostService;
     // The last values known to have reached settings.json. A save that the file refuses
     // reverts its surface to the value here, never to a fresh read: an unreadable
     // settings.json is indistinguishable from an absent one and reads as this build's
@@ -52,6 +55,7 @@ public partial class App : Application
     private UsageDisplayBasis _displayBasis;
     private bool _showSparkline = true;
     private WeeklyPaceModel _paceModel = WeeklyPaceModel.Uniform;
+    private bool _showApiCost;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
@@ -180,14 +184,17 @@ public partial class App : Application
         _showSparkline = _sparklineSettingsStore.Load();
         _paceModelSettingsStore = new WeeklyPaceModelSettingsStore();
         _paceModel = _paceModelSettingsStore.Load();
+        _apiCostSettingsStore = new ApiCostSettingsStore();
+        _showApiCost = _apiCostSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(
-            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline, _paceModel);
+            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline, _paceModel, _showApiCost);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
         globalSettings.DisplayBasisChangeRequested += OnGlobalDisplayBasisChanged;
         globalSettings.SparklineToggleRequested += OnGlobalSparklineToggled;
         globalSettings.PaceModelChangeRequested += OnGlobalPaceModelChanged;
+        globalSettings.ApiCostToggleRequested += OnGlobalApiCostToggled;
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
 
         _updateService = new UpdateService();
@@ -210,6 +217,18 @@ public partial class App : Application
         _viewModel.SetShowSparkline(_showSparkline);
         _viewModel.SetPaceModel(_paceModel);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
+
+        // API-equivalent cost from the CLIs' local session logs. Scanned only while the
+        // option is on, and only for tools that are registered and shown; results land on
+        // the cards through the view model, never in the usage cache or history.
+        _apiCostService = new ApiCostService(
+            new ApiCostScanner(
+                Path.Combine(AppSettingsFile.DefaultDirectory, "api-cost-ledger.json"),
+                ApiCostScanner.DefaultSources(ToolCatalog.ClaudeCode.DisplayName, ToolCatalog.Codex.DisplayName)),
+            DispatcherQueue.GetForCurrentThread(),
+            () => ToolCatalog.All.Where(d => _toolRegistry.IsActive(d.Kind)).Select(d => d.DisplayName).ToHashSet(StringComparer.Ordinal));
+        _apiCostService.Updated += (_, estimates) => _viewModel?.SetApiCosts(estimates);
+        _apiCostService.SetEnabled(_showApiCost);
         _popover.BindViewModel(_viewModel);
 
         _coordinator = new UsageCoordinator(
@@ -333,6 +352,8 @@ public partial class App : Application
 
     private async void OnPopoverOpened(object? sender, EventArgs e)
     {
+        // Debounced inside the service, and a no-op while the option is off.
+        _apiCostService?.RequestScan();
         if (_coordinator is not null)
         {
             await _coordinator.RefreshAsync(RefreshReason.PopoverOpened);
@@ -491,6 +512,7 @@ public partial class App : Application
                 dto.DisplayBasis = _displayBasis == UsageDisplayBasis.Remaining ? "remaining" : "used";
                 dto.ShowSparkline = _showSparkline;
                 dto.WeeklyPaceModel = WeeklyPaceModelSettingsStore.Serialize(_paceModel);
+                dto.ShowApiCost = _showApiCost;
                 if (_notificationPreferencesRead)
                 {
                     dto.NotificationsEnabled = _notificationPreferences.Enabled;
@@ -554,6 +576,21 @@ public partial class App : Application
         // The sparkline sits inside the existing primary row, so hiding it changes no
         // card height and no re-measure is needed.
         _viewModel?.SetShowSparkline(show);
+    }
+
+    private void OnGlobalApiCostToggled(object? sender, bool show)
+    {
+        if (!ReportSettingsWrite(_apiCostSettingsStore?.TrySave(show) == true))
+        {
+            _settingsViewModel?.Global.SetShowApiCost(_showApiCost);
+            return;
+        }
+        _showApiCost = show;
+        // Off clears the chips at once — no stale number lingers while nothing is read;
+        // on scans immediately and the chips appear when the first result lands. The chip
+        // shares the header line, so neither direction needs a re-measure.
+        if (!show) _viewModel?.SetApiCosts([]);
+        _apiCostService?.SetEnabled(show);
     }
 
     private void OnGlobalPaceModelChanged(object? sender, WeeklyPaceModel model)
@@ -704,6 +741,7 @@ public partial class App : Application
         SystemEvents.SessionSwitch -= OnSessionSwitch;
         _refreshIndicatorTimer.Stop();
         _coordinator?.Dispose();
+        _apiCostService?.Dispose();
         _coordinator = null;
         _statusService?.Dispose();
         _statusService = null;

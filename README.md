@@ -21,6 +21,7 @@ AgentGauge is a Windows system-tray app that lets you check the real usage limit
 - Choose how cards display usage — horizontal **bars** or circular **gauges** — from the view-mode dropdown in settings.
 - Progress bars/gauges and the tray icon turn yellow above 70% and red above 90%.
 - When a provider exposes both the window duration and reset time, an unobtrusive warning appears if usage is running meaningfully ahead of an even pace. For weekly and longer windows, the **weekly pace basis** setting picks the curve that "even" means: every day, workdays only (Mon–Fri, so a weekend off no longer reads as a deficit), or automatic, which follows your own recorded weekday pattern once two weeks of history exist.
+- Optional **API-equivalent cost** (off by default): beside each Claude and Codex card's plan, this month's usage priced at public API list rates — "≈ $340" — estimated from the token counts in the CLIs' local session logs. It is an estimate of what the same work would cost on the pay-as-you-go API, never your subscription bill; a trailing "+" means some model had no known rate, and the tooltip shows the token mix. Turning it on is what lets AgentGauge read those logs (token counts only — see PRIVACY.md).
 - Refreshes usage every few minutes, and immediately when you open the app from the tray.
 - Caps the popover height and scrolls internally when you add many tools.
 - Optional run on Windows startup.

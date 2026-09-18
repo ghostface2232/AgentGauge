@@ -58,6 +58,9 @@ internal sealed class AppSettingsDto
     /// <summary>Weekly pace model ("uniform" / "workdays" / "auto"). Null (absent) reads as uniform.</summary>
     public string? WeeklyPaceModel { get; set; }
 
+    /// <summary>Whether cards show the API-equivalent cost estimate. Null (absent) reads as off.</summary>
+    public bool? ShowApiCost { get; set; }
+
     /// <summary>
     /// The user's foreground-lock timeout, captured by <see cref="ForegroundLockGuard"/>
     /// before Gauge zeroes the live value and cleared again on a clean exit. Present at

@@ -199,6 +199,27 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
+    // Latest API-cost estimates by tool, kept so a card created after the scan (a tool
+    // shown again, a first snapshot arriving) still gets its chip without a rescan.
+    private readonly Dictionary<string, ApiCostEstimate> _apiCosts = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Publishes a scan's estimates to the cards, or clears every chip when given none
+    /// (the option was switched off).
+    /// </summary>
+    public void SetApiCosts(IReadOnlyList<ApiCostEstimate> estimates)
+    {
+        _apiCosts.Clear();
+        foreach (var estimate in estimates)
+        {
+            _apiCosts[estimate.ToolName] = estimate;
+        }
+        foreach (var card in Cards)
+        {
+            card.ApplyApiCost(_apiCosts.GetValueOrDefault(card.ToolName));
+        }
+    }
+
     /// <summary>Re-runs the level-to-brush bindings on every card after a live theme
     /// change — the resolved brush is theme-dependent, which bindings can't observe.</summary>
     public void RefreshLevelBrushes()
@@ -370,11 +391,13 @@ public sealed partial class UsageViewModel : ObservableObject
             var existing = Cards.FirstOrDefault(c => c.ToolName == tool.ToolName);
             if (existing is null)
             {
-                Cards.Add(new ToolCardViewModel(tool, _history)
+                var card = new ToolCardViewModel(tool, _history)
                 {
                     ViewMode = ViewMode, DisplayBasis = DisplayBasis, ShowSparkline = ShowSparkline,
                     PaceModel = PaceModel,
-                });
+                };
+                card.ApplyApiCost(_apiCosts.GetValueOrDefault(card.ToolName));
+                Cards.Add(card);
             }
             else
             {

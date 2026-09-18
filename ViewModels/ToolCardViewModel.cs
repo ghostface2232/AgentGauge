@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Gauge.Localization;
 using Gauge.Models;
@@ -137,6 +138,46 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// <summary>True when the tool reports at least one reset held (controls the chip).</summary>
     [ObservableProperty]
     public partial bool HasResetCredits { get; set; }
+
+    /// <summary>
+    /// This month's API-equivalent cost beside the plan label ("≈ $12.34"), from the local
+    /// session logs at public list rates; "+" marks a floor when some model had no known
+    /// rate. Empty when the option is off, nothing was scanned yet, or the month is empty.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasApiCost))]
+    public partial string ApiCostText { get; set; } = "";
+
+    /// <summary>Spelled-out form for the tooltip and the automation peer.</summary>
+    [ObservableProperty]
+    public partial string ApiCostDescription { get; set; } = "";
+
+    public bool HasApiCost => !string.IsNullOrEmpty(ApiCostText);
+
+    /// <summary>Shows or clears the cost estimate; null clears it (option off).</summary>
+    public void ApplyApiCost(ApiCostEstimate? estimate)
+    {
+        if (estimate is null || estimate.IsEmpty)
+        {
+            ApiCostText = "";
+            ApiCostDescription = "";
+            return;
+        }
+        // Dollars are machine-facing here (a fixed "12.34" shape), so the invariant culture
+        // formats them; the token counts take the UI language's digit grouping.
+        var dollars = estimate.CostUsd.ToString("0.00", CultureInfo.InvariantCulture);
+        ApiCostText = Loc.Format(estimate.HasUnpriced ? "ApiCost_ValueFloor" : "ApiCost_Value", dollars);
+        var tokens = estimate.PricedTokens;
+        var description = Loc.Format("Tooltip_ApiCost",
+            Count(tokens.Input), Count(tokens.CacheRead), Count(tokens.CacheWrite + tokens.CacheWrite1h), Count(tokens.Output));
+        if (estimate.HasUnpriced)
+        {
+            description += Loc.Format("ApiCost_Unpriced", string.Join(", ", estimate.UnpricedModels), Count(estimate.UnpricedTokens));
+        }
+        ApiCostDescription = description;
+
+        static string Count(long value) => string.Format(Loc.Culture, "{0:N0}", value);
+    }
 
     [ObservableProperty]
     public partial bool HasAnyData { get; set; }

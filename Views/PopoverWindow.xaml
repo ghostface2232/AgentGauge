@@ -302,6 +302,20 @@
                                                 Text="{Binding Plan}"
                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                 Visibility="{Binding HasPlan, Converter={StaticResource BoolToVis}}" />
+                                            <!-- This month's API-equivalent cost estimate, beside the
+                                                 plan in the same dimmed caption so it reads as a
+                                                 property of the account, not a usage value. Opt-in
+                                                 (settings); the tooltip spells out the token mix and
+                                                 that it is an estimate, never a bill. -->
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                Opacity="0.5"
+                                                FontSize="15"
+                                                Text="{Binding ApiCostText}"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                AutomationProperties.Name="{Binding ApiCostDescription}"
+                                                ToolTipService.ToolTip="{Binding ApiCostDescription}"
+                                                Visibility="{Binding HasApiCost, Converter={StaticResource BoolToVis}}" />
                                             <!-- Keep stale last-good data visibly and semantically
                                                  labeled. Unlike a color-only dot, this text is exposed
                                                  by the TextBlock automation peer and needs no hover or
@@ -870,6 +884,22 @@
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
                                           ItemsSource="{Binding Global.PaceModelOptions}"
                                           SelectedIndex="{Binding Global.PaceModelIndex, Mode=TwoWay}" />
+                            </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <!-- API-equivalent cost on the card header: an on/off state, so a
+                                 toggle. Off by default — on is what lets the app read the CLIs'
+                                 local session logs (token counts only). -->
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_ApiCost}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ToggleSwitch Style="{StaticResource EdgeAlignedToggleSwitchStyle}" Grid.Column="1"
+                                              IsOn="{Binding Global.ShowApiCost, Mode=TwoWay}" />
                             </Grid>
                             <Border Height="1" Margin="0,2"
                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

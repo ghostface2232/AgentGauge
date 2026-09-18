@@ -26,7 +26,12 @@ both the rehydrated cache and the toast titles, usage-history recording/pruning
 per-local-weekday crediting, the long-gap drop, and reopen without double counting), the
 ETA projection (`UsageEtaClassifierTests`), the pace caption under every weekly pace model
 (`UsagePaceClassifierTests`, with the weighted-elapsed arithmetic in
-`WeeklyPaceTimelineTests` and persistence in `WeeklyPaceModelSettingsStoreTests`), notification
+`WeeklyPaceTimelineTests` and persistence in `WeeklyPaceModelSettingsStoreTests`), the
+API-equivalent cost estimate (`ApiCostParserTests` for the Claude/Codex log readers —
+de-duplication identity, the message-start skip, token normalization, cumulative totals and
+the usage-record precedence; `ApiCostScannerTests` for pricing tiers and unknown models,
+incremental resume from the last complete line, shrunk-file rescans, local-day attribution,
+the card chip and the opt-in setting), notification
 evaluation and preferences, tool-registry persistence validation, and the shared
 settings.json read-modify-write — that no write ever replaces a document it could not read,
 that the explicit recovery replaces only bytes that are not JSON at all (never valid JSON
