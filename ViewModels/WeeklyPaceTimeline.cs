@@ -56,7 +56,13 @@ public static class WeeklyPaceTimeline
         {
             var local = TimeZoneInfo.ConvertTime(cursor, zone);
             var nextMidnightLocal = local.Date.AddDays(1);
-            var nextMidnight = new DateTimeOffset(nextMidnightLocal, zone.GetUtcOffset(nextMidnightLocal));
+            // A zone that falls back at midnight has two 00:00s; GetUtcOffset would pick the
+            // second, crediting the repeated hour to the previous weekday. The larger offset
+            // is the first occurrence, so the day boundary sits where the calendar says.
+            var offset = zone.IsAmbiguousTime(nextMidnightLocal)
+                ? zone.GetAmbiguousTimeOffsets(nextMidnightLocal).Max()
+                : zone.GetUtcOffset(nextMidnightLocal);
+            var nextMidnight = new DateTimeOffset(nextMidnightLocal, offset);
             // A zone transition can place the derived midnight at or before the cursor;
             // stepping an hour keeps the walk finite without skipping a day boundary.
             if (nextMidnight <= cursor) nextMidnight = cursor.AddHours(1);

@@ -263,9 +263,11 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                 continue;
             }
             var sample = new UsageSample(snapshot.CapturedAt, window.UsedRatio, window.ResetTime);
-            // The tail's last reading is the previous one for the profile too: the tail
-            // spans six hours, inside the profile's twelve-hour crediting gap, and a gap
-            // longer than the tail is one the profile must not credit anyway.
+            // The tail's last reading is the previous one for the profile too. It is still
+            // present after a gap longer than the tail span, because the cutoff prune below
+            // runs after the add using the previous call's clock; the accumulator's own
+            // twelve-hour gate — not the tail span — decides whether the increase is
+            // credited, exactly as in the hydration fold. Keep the prune after the add.
             Accumulator(key).Add(list.Count > 0 ? list[^1] : null, sample, _zone);
             list.Add(sample);
             list.RemoveAll(s => s.CapturedAt < cutoff);

@@ -66,6 +66,29 @@ public sealed class WeeklyPaceTimelineTests
     }
 
     [Fact]
+    public void AFallBackAtMidnightKeepsTheRepeatedHourOnTheNewDay()
+    {
+        // A Cuba-style zone: daylight time ends at 01:00 on Sunday 9 August, so 00:00–01:00
+        // occurs twice. The first occurrence already belongs to Sunday, and Sunday is 25
+        // local hours long. Only Sunday carries weight, so half an hour into its first 00:00
+        // must read as 0.5 of 25 hours — not 0, which is what crediting the repeated hour to
+        // Saturday would give.
+        var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(
+            new DateTime(2026, 1, 1), new DateTime(2026, 12, 31), TimeSpan.FromHours(1),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, 0, 0, 0), 3, 8),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(new DateTime(1, 1, 1, 1, 0, 0), 8, 9));
+        var zone = TimeZoneInfo.CreateCustomTimeZone("Cuba-like", TimeSpan.FromHours(-5), "Cuba-like", "Standard", "Daylight", [rule]);
+        var start = new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.FromHours(-4));   // Monday, daylight
+        var end = new DateTimeOffset(2026, 8, 10, 0, 0, 0, TimeSpan.FromHours(-5));    // Monday, standard
+        var sundayFirstHalfHour = new DateTimeOffset(2026, 8, 9, 0, 30, 0, TimeSpan.FromHours(-4));
+        var sundayOnly = new double[] { 1, 0, 0, 0, 0, 0, 0 };
+
+        Assert.Equal(0.5 / 25, WeeklyPaceTimeline.ElapsedRatio(start, sundayFirstHalfHour, end, sundayOnly, zone)!.Value, 6);
+        // The whole of Sunday, both midnights included, is the full weight.
+        Assert.Equal(1.0, WeeklyPaceTimeline.ElapsedRatio(start, end, end, sundayOnly, zone)!.Value, 6);
+    }
+
+    [Fact]
     public void ClampsNowToTheCycle()
     {
         Assert.Equal(0.0, WeeklyPaceTimeline.ElapsedRatio(Monday, Monday.AddDays(-3), NextMonday, WeeklyPaceTimeline.WorkDayWeights, Utc));

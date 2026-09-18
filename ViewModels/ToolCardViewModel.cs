@@ -206,23 +206,25 @@ public sealed partial class ToolCardViewModel : ObservableObject
         for (var index = 0; index < windows.Count; index++)
         {
             var window = windows[index];
+            // The weekday profile behind the automatic pace model, and the ETA from the
+            // recorded burn rate. Both history reads are memory-backed after the first, so
+            // this stays cheap on the UI thread. The profile is set before Update so an
+            // existing row derives its caption once, against the current profile.
+            var profile = _history?.GetWeekdayProfile(ToolName, window.Key);
             var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
                 existing = new UsageWindowRowViewModel(window, DisplayBasis)
                 {
-                    ShowSparkline = ShowSparkline, PaceModel = PaceModel,
+                    ShowSparkline = ShowSparkline, PaceModel = PaceModel, WeekdayProfile = profile,
                 };
                 Windows.Insert(Math.Min(index, Windows.Count), existing);
             }
             else
             {
+                existing.WeekdayProfile = profile;
                 existing.Update(window);
             }
-            // The weekday profile behind the automatic pace model, and the ETA from the
-            // recorded burn rate. Both history reads are memory-backed after the first, so
-            // this stays cheap on the UI thread.
-            existing.WeekdayProfile = _history?.GetWeekdayProfile(ToolName, window.Key);
             var samples = _history?.GetRecent(ToolName, window.Key, UsageBurndown.Lookback) ?? [];
             existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
             // The row re-resolves any active hover against the new points itself.

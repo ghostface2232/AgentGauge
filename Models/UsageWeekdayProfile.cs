@@ -22,4 +22,18 @@ public sealed record UsageWeekdayProfile(IReadOnlyList<double> Weights, int Days
     /// at all — a window never drawn on has no shape to lend.
     /// </summary>
     public bool IsSufficient => DaysObserved >= MinimumDaysObserved && Weights.Count == 7 && Weights.Sum() > 0;
+
+    // Structural equality over the weights, not reference equality on the list: the store
+    // hands out a fresh snapshot on every read, and a row that receives the same profile
+    // again must not re-derive its caption or notify for a change that did not happen.
+    public bool Equals(UsageWeekdayProfile? other)
+        => other is not null && DaysObserved == other.DaysObserved && Weights.SequenceEqual(other.Weights);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(DaysObserved);
+        foreach (var weight in Weights) hash.Add(weight);
+        return hash.ToHashCode();
+    }
 }
