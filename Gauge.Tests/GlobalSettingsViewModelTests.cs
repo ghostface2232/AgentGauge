@@ -11,8 +11,60 @@ public sealed class GlobalSettingsViewModelTests
         bool startOnBoot = false,
         UsageViewMode viewMode = UsageViewMode.Bar,
         UsageDisplayBasis displayBasis = UsageDisplayBasis.Used,
-        bool showSparkline = true)
-        => new(notifications ?? NotificationPreferences.Default, startOnBoot, viewMode, displayBasis, showSparkline);
+        bool showSparkline = true,
+        WeeklyPaceModel paceModel = WeeklyPaceModel.Uniform)
+        => new(notifications ?? NotificationPreferences.Default, startOnBoot, viewMode, displayBasis, showSparkline, paceModel);
+
+    [Fact]
+    public void ConstructorDefaultsPaceModelToUniform()
+        => Assert.Equal((int)WeeklyPaceModel.Uniform, Create().PaceModelIndex);
+
+    [Fact]
+    public void ConstructorSetsPaceModelWithoutRaisingRequest()
+    {
+        var requests = 0;
+        var vm = Create(paceModel: WeeklyPaceModel.Automatic);
+        vm.PaceModelChangeRequested += (_, _) => requests++;
+        Assert.Equal((int)WeeklyPaceModel.Automatic, vm.PaceModelIndex);
+        Assert.Equal(0, requests);
+    }
+
+    [Fact]
+    public void PickingPaceModelRaisesRequestWithChosenModel()
+    {
+        var vm = Create();
+        var requested = new List<WeeklyPaceModel>();
+        vm.PaceModelChangeRequested += (_, model) => requested.Add(model);
+
+        vm.PaceModelIndex = (int)WeeklyPaceModel.WorkDays;
+        vm.PaceModelIndex = (int)WeeklyPaceModel.Automatic;
+        vm.PaceModelIndex = (int)WeeklyPaceModel.Uniform;
+
+        Assert.Equal([WeeklyPaceModel.WorkDays, WeeklyPaceModel.Automatic, WeeklyPaceModel.Uniform], requested);
+    }
+
+    [Fact]
+    public void ReflectingPaceModelDoesNotRaiseRequest()
+    {
+        // The reflect-back after a refused settings.json write must not loop as a new request.
+        var vm = Create();
+        var requests = 0;
+        vm.PaceModelChangeRequested += (_, _) => requests++;
+        vm.SetPaceModel(WeeklyPaceModel.WorkDays);
+        Assert.Equal((int)WeeklyPaceModel.WorkDays, vm.PaceModelIndex);
+        Assert.Equal(0, requests);
+    }
+
+    [Fact]
+    public void PaceModelOptionsFollowEnumOrder()
+    {
+        // The ComboBox index is cast straight to the enum, so the labels must line up.
+        var vm = Create();
+        Assert.Equal(3, vm.PaceModelOptions.Count);
+        Assert.Equal("매일 균등 (7일)", vm.PaceModelOptions[(int)WeeklyPaceModel.Uniform]);
+        Assert.Equal("근무일 (월–금)", vm.PaceModelOptions[(int)WeeklyPaceModel.WorkDays]);
+        Assert.Equal("자동 (사용 추이)", vm.PaceModelOptions[(int)WeeklyPaceModel.Automatic]);
+    }
 
     [Fact]
     public void ConstructorSetsInitialStateWithoutRaisingEvents()

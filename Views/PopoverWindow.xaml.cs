@@ -78,7 +78,7 @@ public sealed partial class PopoverWindow : Window
     private bool _isViewTransitioning;
     private bool _isSettingsView;
     private double _usageViewHeightDip;
-    private bool _usageLayoutRefreshPending;
+    private double _settingsViewHeightDip;
     private Storyboard? _viewTransitionStoryboard;
     private int _titleIconLoadId;
     private string? _titleIconKey;
@@ -150,7 +150,7 @@ public sealed partial class PopoverWindow : Window
                 if (scale <= 0 || Math.Abs(scale - _scale) < 0.001) return;
                 _scale = scale;
                 _ = UpdateTitleIcon();
-                PositionAndResize(_usageViewHeightDip);
+                PositionAndResize(CurrentViewHeightDip);
             };
         };
         _ = UpdateTitleIcon();
@@ -230,6 +230,9 @@ public sealed partial class PopoverWindow : Window
         var maxWindowDip = Math.Min((_workArea.Height / _scale) - (EdgeMarginDip * 2), MaxPopoverHeightDip);
         var maxBodyDip = maxWindowDip - FooterChromeAllowanceDip;
         BodyScroll.MaxHeight = Math.Max(120, maxBodyDip);
+        // The settings body is capped the same way: its header and bottom bar match the
+        // usage view's, so the same chrome allowance keeps it inside the work area.
+        SettingsScroll.MaxHeight = BodyScroll.MaxHeight;
 
         _isShown = true;
 
@@ -280,7 +283,6 @@ public sealed partial class PopoverWindow : Window
     /// </summary>
     public void RefreshUsageLayout()
     {
-        _usageLayoutRefreshPending = true;
         RootHost.DispatcherQueue.TryEnqueue(() =>
         {
             if (!_isShown || _isViewTransitioning || RootBorder.Visibility != Visibility.Visible) return;
@@ -406,19 +408,24 @@ public sealed partial class PopoverWindow : Window
 
     private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        // Keep the window height matched to the content as it loads/changes.
-        if (_isShown && !_isViewTransitioning && RootBorder.Visibility == Visibility.Visible)
+        // Keep the window height matched to the shown view's content as it loads/changes.
+        // Both views raise this; the one currently shown decides the height, so a settings
+        // change (a disclosure opening, a service added) grows the window like a card does.
+        if (_isShown && !_isViewTransitioning)
         {
             ResizeToContent();
         }
     }
 
+    /// <summary>The measured height of whichever view is currently shown.</summary>
+    private double CurrentViewHeightDip => _isSettingsView ? _settingsViewHeightDip : _usageViewHeightDip;
+
     /// <summary>
-    /// Resizes the window to the popover's intrinsic content height.
-    /// We measure <see cref="RootBorder"/> with the fixed popover width and an
-    /// UNBOUNDED height, so the result is the content's natural size and does not
-    /// depend on the window's current size. (Reading ActualHeight here instead would
-    /// feed the window's arranged — and therefore bounded — height back into the
+    /// Resizes the window to the shown view's intrinsic content height.
+    /// We measure <see cref="RootBorder"/> (or <see cref="SettingsBorder"/>) with the fixed
+    /// popover width and an UNBOUNDED height, so the result is the content's natural size
+    /// and does not depend on the window's current size. (Reading ActualHeight here instead
+    /// would feed the window's arranged — and therefore bounded — height back into the
     /// window size, collapsing it toward the minimum with each pass.)
     /// </summary>
     private void ResizeToContent()
@@ -431,14 +438,15 @@ public sealed partial class PopoverWindow : Window
         _isResizing = true;
         try
         {
-            if (SettingsBorder.Visibility == Visibility.Visible && _usageViewHeightDip > 0)
+            if (_isSettingsView)
             {
-                PositionAndResize(_usageViewHeightDip);
-                return;
+                MeasureAndStoreSettingsHeight();
             }
-
-            MeasureAndStoreUsageHeight();
-            PositionAndResize(_usageViewHeightDip);
+            else
+            {
+                MeasureAndStoreUsageHeight();
+            }
+            PositionAndResize(CurrentViewHeightDip);
         }
         finally
         {
@@ -724,11 +732,19 @@ public sealed partial class PopoverWindow : Window
         outgoing.Opacity = 1;
         outgoingTransform.X = 0;
 
-        if (ReferenceEquals(incoming, RootBorder) && _usageLayoutRefreshPending)
+        // Each view has its own height: the settings panel grows with its options, the usage
+        // view with its cards. Resize to the incoming view's content as the slide starts so
+        // the window lands at its size when the fade completes. The incoming view is
+        // visible (above) by now, so its unbounded measure is its real content height.
+        if (ReferenceEquals(incoming, RootBorder))
         {
             MeasureAndStoreUsageHeight();
-            PositionAndResize(_usageViewHeightDip);
         }
+        else
+        {
+            MeasureAndStoreSettingsHeight();
+        }
+        PositionAndResize(CurrentViewHeightDip);
 
         var duration = new Duration(TimeSpan.FromMilliseconds(durationMs));
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
@@ -751,6 +767,11 @@ public sealed partial class PopoverWindow : Window
             incoming.Opacity = 1;
             incomingTransform.X = 0;
             _isViewTransitioning = false;
+            // Content can change under the slide — SettingsOpened clears or re-raises the
+            // settings.json notice right after the measure above — and OnContentSizeChanged
+            // drops those events while transitioning, so settle on the real height once
+            // the incoming view has had a layout pass of its own.
+            if (_isShown) RootHost.DispatcherQueue.TryEnqueue(ResizeToContent);
         };
         // The completion handler deliberately ignores stale storyboards. Register this
         // one as the active transition before starting it; otherwise the identity check
@@ -790,7 +811,16 @@ public sealed partial class PopoverWindow : Window
         }
 
         _usageViewHeightDip = height;
-        _usageLayoutRefreshPending = false;
+    }
+
+    // The settings view's natural height. Its scroll's inner panel already carries the
+    // 12dip bottom margin above the update bar, so unlike the usage view no breathing-room
+    // inset is added here; SettingsScroll's MaxHeight clamps the measure once the options
+    // and service cards overflow, at which point the body scrolls.
+    private void MeasureAndStoreSettingsHeight()
+    {
+        SettingsBorder.Measure(new Size(PopoverWidthDip, double.PositiveInfinity));
+        _settingsViewHeightDip = SettingsBorder.DesiredSize.Height;
     }
 
     /// <summary>

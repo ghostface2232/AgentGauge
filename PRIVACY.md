@@ -1,6 +1,6 @@
 # AgentGauge: Privacy Policy
 
-**Effective date:** 2026-09-10
+**Effective date:** 2026-09-18
 **Contact:** baemingwan@gmail.com
 **Repository:** https://github.com/ghostface2232/AgentGauge
 
@@ -17,8 +17,11 @@ AgentGauge accesses the following information **read-only on the user's device**
 | OAuth tokens | Local files managed by each CLI (`%USERPROFILE%\.claude\.credentials.json`, `%USERPROFILE%\.codex\auth.json`, Cursor `state.vscdb`) | Authenticate requests to each tool's official usage API |
 | GitHub OAuth token (Copilot) | The `gh` CLI (`gh auth token`), or a `github-copilot` `apps.json`/`hosts.json` file under `%LOCALAPPDATA%` or `~\.config` (written by Copilot editor integrations) | Authenticate the request to GitHub's Copilot quota endpoint |
 | Usage data | Responses from each tool's official API, or — for Antigravity — from the app's local engine over a loopback (127.0.0.1) connection | Display limits and usage in the tray popover |
+| Token counts from local session logs (**only when "Show API-equivalent cost" is turned on; off by default**) | Claude Code's transcripts (`%USERPROFILE%\.claude\projects\**\*.jsonl` and `%USERPROFILE%\.config\claude\projects`, or under `CLAUDE_CONFIG_DIR` instead) and Codex's session rollouts (`%USERPROFILE%\.codex\sessions`, `archived_sessions`, or under `CODEX_HOME`) | Estimate this month's cost at public API list prices beside each card's plan label |
 
 For Antigravity, AgentGauge reads **no** credential file. It obtains usage from Antigravity's own local engine: either the one the running app already hosts, or, when the app is closed, an engine AgentGauge briefly launches that signs itself in from the user's existing on-disk Antigravity login and is shut down again immediately after the reading. AgentGauge does not read, write, refresh, or log Antigravity's credentials.
+
+The session logs also contain the conversations themselves. AgentGauge reads from them **only** each response's token counts, model name, timestamp, and message/response identifiers (to count a response once); it never reads, stores, or logs conversation content, file paths from the conversation, or prompts. The files are opened read-only and never modified. Nothing is read while the option is off, and turning it off stops the reading immediately. The prices are a table bundled with the app — no network request is made for this feature.
 
 AgentGauge **never writes or deletes** credential files itself and does not log or store tokens or login output. One nuance: when a CLI's on-disk token has expired, AgentGauge may briefly run that official CLI in the background (`claude`, `codex`) so the CLI refreshes its **own** token and rewrites its **own** credentials file — exactly as it would on next use. That refresh and its network traffic belong to the CLI, and its output is discarded unread by AgentGauge.
 
@@ -45,6 +48,7 @@ The only data AgentGauge stores on the user's PC is the following, which contain
 - `%APPDATA%\Gauge\settings.json` — only the user's own **app preferences**: the list of registered tools to display, the UI language, whether usage notifications are on, and the card view mode (bars or gauges)
 - `%APPDATA%\Gauge\usage-cache.json` — the **last good usage values** AgentGauge itself computed (tool name, plan label, window percentages and counts, reset times), kept so cards can show a last-known value right after a reboot. No tokens or credentials ever touch this file.
 - `%APPDATA%\Gauge\usage-history.db` — a local SQLite database of **usage samples** (tool, window, percentage, timestamp) retained for **90 days** and pruned automatically; used for trend/forecast features. Contains no tokens and no personal information.
+- `%APPDATA%\Gauge\api-cost-ledger.json` — present only once the API-cost option has been turned on: per scanned log file, its path, size, how far it was read, a hash of its first few kilobytes (to recognise the file if it is moved or rewritten), and per-day, per-model **token counts**; plus, for each message/response identifier already counted, its day, model and token counts. Everything dated more than about two months back is pruned, including the identifiers. No conversation content, tokens (credentials), or personal information.
 - `%APPDATA%\Gauge\logs\gauge.log` — a small rotating **diagnostics log** (error types and messages only). Tokens, credentials, and CLI output are never written to it.
 - Windows registry (`HKCU\...\Run`) — the **auto-start setting**, if enabled by the user
 

@@ -13,6 +13,9 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     // The provider's used fraction (unclamped), kept so the shown percent can be re-derived
     // when the display basis flips without waiting for the next refresh.
     private double _usedRatio;
+    // The last window as reported, kept so the pace caption can be re-derived when the pace
+    // model or the weekday profile changes without waiting for the next refresh.
+    private UsageWindow? _window;
 
     public UsageWindowRowViewModel(UsageWindow window, UsageDisplayBasis displayBasis = UsageDisplayBasis.Used)
     {
@@ -129,6 +132,24 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
 
     public bool HasPace => !string.IsNullOrEmpty(PaceText);
 
+    /// <summary>
+    /// App-wide weekly pace model, pushed here by the owning card. Changing it re-derives
+    /// the pace caption from the last reported window, so the settings dropdown takes effect
+    /// without a refresh.
+    /// </summary>
+    [ObservableProperty]
+    public partial WeeklyPaceModel PaceModel { get; set; } = WeeklyPaceModel.Uniform;
+
+    /// <summary>
+    /// This window's recorded per-weekday consumption, set by the owning card from the
+    /// usage history; consulted only by <see cref="WeeklyPaceModel.Automatic"/>.
+    /// </summary>
+    [ObservableProperty]
+    public partial UsageWeekdayProfile? WeekdayProfile { get; set; }
+
+    partial void OnPaceModelChanged(WeeklyPaceModel value) => ApplyPace();
+    partial void OnWeekdayProfileChanged(UsageWeekdayProfile? value) => ApplyPace();
+
     [ObservableProperty]
     public partial UsageLevel Level { get; set; }
 
@@ -212,6 +233,7 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
 
     public void Update(UsageWindow window)
     {
+        _window = window;
         Label = window.Label;
         FamilyLabel = window.GroupLabel ?? string.Empty;
         _usedRatio = window.UsedRatio;
@@ -222,7 +244,16 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
         CountsText = window is { UsedTokens: { } used, LimitTokens: { } limit }
             ? string.Format(Loc.Culture, "{0:N0} / {1:N0}", used, limit)
             : string.Empty;
-        PaceText = UsagePaceClassifier.ForRow(window);
+        ApplyPace();
+    }
+
+    // Derives the pace caption from the last reported window under the current model and
+    // profile. Nothing to derive before the first Update (the constructor's default hooks
+    // run against no window).
+    private void ApplyPace()
+    {
+        if (_window is null) return;
+        PaceText = UsagePaceClassifier.ForRow(_window, model: PaceModel, profile: WeekdayProfile);
     }
 
     /// <summary>
