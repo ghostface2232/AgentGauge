@@ -42,6 +42,13 @@ internal static class Strings
         ["DisplayBasis_Used"]     = ["사용량",           "Used",              "使用量"],
         ["DisplayBasis_Remaining"] = ["남은 사용량",      "Remaining",         "残量"],
         ["Settings_Sparkline"]    = ["소진 추이 그래프",   "Trend sparkline",   "消費推移グラフ"],
+        // The weekly pace model: which days the multi-day windows' quota is expected to be
+        // spent on. Uniform is the original even spread; work days flattens weekends;
+        // automatic shapes the curve from the recorded history once two weeks exist.
+        ["Settings_PaceModel"]    = ["주간 페이스 기준",    "Weekly pace basis", "週間ペース基準"],
+        ["PaceModel_Uniform"]     = ["매일 균등 (7일)",     "Every day (7 days)", "毎日均等（7日）"],
+        ["PaceModel_WorkDays"]    = ["근무일 (월–금)",      "Workdays (Mon–Fri)", "平日（月〜金）"],
+        ["PaceModel_Automatic"]   = ["자동 (사용 추이)",    "Automatic (from history)", "自動（使用傾向）"],
         // The card's notice row. The first is the user's one signal that the switch they
         // flipped snapped back on purpose; the second explains a settings file that was
         // replaced because it had stopped being readable ({0} = the kept copy's file name).

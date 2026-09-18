@@ -856,6 +856,23 @@
                             </Grid>
                             <Border Height="1" Margin="0,2"
                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <!-- Weekly pace model: which days the multi-day windows' quota is
+                                 expected to be spent on (every day / work days / from history).
+                                 Three named choices, so a dropdown. -->
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_PaceModel}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
+                                          ItemsSource="{Binding Global.PaceModelOptions}"
+                                          SelectedIndex="{Binding Global.PaceModelIndex, Mode=TwoWay}" />
+                            </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                             <!-- UI language. Options are each language's own native name, so
                                  the list itself needs no localization. Changing it persists
                                  the override and relaunches the app (language is fixed per

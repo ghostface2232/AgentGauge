@@ -22,7 +22,11 @@ invalidation (`ProviderCredentialSwitchTests`), coordinator cache merge (cold-st
 failure, failure→success, tool purge, debounce, the popover-open cost floor), the
 per-window label key that keeps GitHub Copilot's three billing-cycle quotas distinct in
 both the rehydrated cache and the toast titles, usage-history recording/pruning
-(`UsageHistoryStoreTests`), the ETA projection (`UsageEtaClassifierTests`), notification
+(`UsageHistoryStoreTests`, including the weekday profile behind the automatic pace model —
+per-local-weekday crediting, the long-gap drop, and reopen without double counting), the
+ETA projection (`UsageEtaClassifierTests`), the pace caption under every weekly pace model
+(`UsagePaceClassifierTests`, with the weighted-elapsed arithmetic in
+`WeeklyPaceTimelineTests` and persistence in `WeeklyPaceModelSettingsStoreTests`), notification
 evaluation and preferences, tool-registry persistence validation, and the shared
 settings.json read-modify-write — that no write ever replaces a document it could not read,
 that the explicit recovery replaces only bytes that are not JSON at all (never valid JSON

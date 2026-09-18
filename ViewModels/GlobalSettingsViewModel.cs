@@ -24,13 +24,15 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         bool startOnBoot,
         UsageViewMode viewMode,
         UsageDisplayBasis displayBasis = UsageDisplayBasis.Used,
-        bool showSparkline = true)
+        bool showSparkline = true,
+        WeeklyPaceModel paceModel = WeeklyPaceModel.Uniform)
     {
         SyncFromSystem(notifications, startOnBoot);
         _suspendSideEffects = true;
         ViewModeIndex = (int)viewMode;
         DisplayBasisIndex = (int)displayBasis;
         ShowSparkline = showSparkline;
+        PaceModelIndex = (int)paceModel;
         LanguageIndex = (int)Loc.Current;
         _suspendSideEffects = false;
     }
@@ -49,6 +51,9 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 
     /// <summary>Raised when the user flips the sparkline toggle (not on a programmatic sync).</summary>
     public event EventHandler<bool>? SparklineToggleRequested;
+
+    /// <summary>Raised when the user picks a different weekly pace model (not on a programmatic sync).</summary>
+    public event EventHandler<WeeklyPaceModel>? PaceModelChangeRequested;
 
     /// <summary>Raised when the user picks a different UI language (not on a programmatic sync).</summary>
     public event EventHandler<AppLanguage>? LanguageChangeRequested;
@@ -90,6 +95,17 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     /// the next launch would not honour.
     /// </summary>
     [ObservableProperty] public partial bool ShowSparkline { get; set; }
+
+    /// <summary>
+    /// Selected weekly pace model as a ComboBox index — 0 = Uniform, 1 = WorkDays,
+    /// 2 = Automatic — matching <see cref="PaceModelOptions"/> and the
+    /// <see cref="WeeklyPaceModel"/> enum's values.
+    /// </summary>
+    [ObservableProperty] public partial int PaceModelIndex { get; set; }
+
+    /// <summary>Localized labels for the pace-model dropdown, in <see cref="WeeklyPaceModel"/> order.</summary>
+    public IReadOnlyList<string> PaceModelOptions { get; } =
+        [Loc.Get("PaceModel_Uniform"), Loc.Get("PaceModel_WorkDays"), Loc.Get("PaceModel_Automatic")];
 
     /// <summary>
     /// Selected UI language as a ComboBox index matching the <see cref="AppLanguage"/> enum
@@ -138,6 +154,15 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         SparklineToggleRequested?.Invoke(this, value);
     }
 
+    partial void OnPaceModelIndexChanged(int value)
+    {
+        if (_suspendSideEffects) return;
+        if (value is >= 0 and <= (int)WeeklyPaceModel.Automatic)
+        {
+            PaceModelChangeRequested?.Invoke(this, (WeeklyPaceModel)value);
+        }
+    }
+
     partial void OnLanguageIndexChanged(int value)
     {
         if (_suspendSideEffects) return;
@@ -180,6 +205,14 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     {
         _suspendSideEffects = true;
         ShowSparkline = show;
+        _suspendSideEffects = false;
+    }
+
+    /// <summary>Reflects the persisted weekly pace model without raising a new request.</summary>
+    public void SetPaceModel(WeeklyPaceModel model)
+    {
+        _suspendSideEffects = true;
+        PaceModelIndex = (int)model;
         _suspendSideEffects = false;
     }
 

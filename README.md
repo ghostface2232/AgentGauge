@@ -20,7 +20,7 @@ AgentGauge is a Windows system-tray app that lets you check the real usage limit
 - Register the services you want in settings, and remove them from their card (default: Claude Code · Codex; add Cursor, Antigravity, or GitHub Copilot from settings).
 - Choose how cards display usage — horizontal **bars** or circular **gauges** — from the view-mode dropdown in settings.
 - Progress bars/gauges and the tray icon turn yellow above 70% and red above 90%.
-- When a provider exposes both the window duration and reset time, an unobtrusive warning appears if usage is running meaningfully ahead of an even pace.
+- When a provider exposes both the window duration and reset time, an unobtrusive warning appears if usage is running meaningfully ahead of an even pace. For weekly and longer windows, the **weekly pace basis** setting picks the curve that "even" means: every day, workdays only (Mon–Fri, so a weekend off no longer reads as a deficit), or automatic, which follows your own recorded weekday pattern once two weeks of history exist.
 - Refreshes usage every few minutes, and immediately when you open the app from the tray.
 - Caps the popover height and scrolls internally when you add many tools.
 - Optional run on Windows startup.

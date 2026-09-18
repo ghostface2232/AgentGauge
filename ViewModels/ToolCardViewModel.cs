@@ -101,6 +101,22 @@ public sealed partial class ToolCardViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// How multi-day windows' quota is expected to spread across the week (the pace
+    /// caption's reference curve). App-wide like <see cref="DisplayBasis"/>; pushed to every
+    /// row so rows created later inherit it and existing rows re-derive their caption.
+    /// </summary>
+    [ObservableProperty]
+    public partial WeeklyPaceModel PaceModel { get; set; } = WeeklyPaceModel.Uniform;
+
+    partial void OnPaceModelChanged(WeeklyPaceModel value)
+    {
+        foreach (var row in Windows)
+        {
+            row.PaceModel = value;
+        }
+    }
+
     /// <summary>Plan/subscription label shown beside the tool name (e.g. "Max 5x").</summary>
     [ObservableProperty]
     public partial string Plan { get; set; }
@@ -193,15 +209,20 @@ public sealed partial class ToolCardViewModel : ObservableObject
             var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
-                existing = new UsageWindowRowViewModel(window, DisplayBasis) { ShowSparkline = ShowSparkline };
+                existing = new UsageWindowRowViewModel(window, DisplayBasis)
+                {
+                    ShowSparkline = ShowSparkline, PaceModel = PaceModel,
+                };
                 Windows.Insert(Math.Min(index, Windows.Count), existing);
             }
             else
             {
                 existing.Update(window);
             }
-            // ETA from the recorded burn rate. GetRecent is memory-backed after its first
-            // read, so this stays cheap on the UI thread.
+            // The weekday profile behind the automatic pace model, and the ETA from the
+            // recorded burn rate. Both history reads are memory-backed after the first, so
+            // this stays cheap on the UI thread.
+            existing.WeekdayProfile = _history?.GetWeekdayProfile(ToolName, window.Key);
             var samples = _history?.GetRecent(ToolName, window.Key, UsageBurndown.Lookback) ?? [];
             existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
             // The row re-resolves any active hover against the new points itself.

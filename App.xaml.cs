@@ -35,6 +35,7 @@ public partial class App : Application
     private ViewModeSettingsStore? _viewModeSettingsStore;
     private DisplayBasisSettingsStore? _displayBasisSettingsStore;
     private SparklineSettingsStore? _sparklineSettingsStore;
+    private WeeklyPaceModelSettingsStore? _paceModelSettingsStore;
     // The last values known to have reached settings.json. A save that the file refuses
     // reverts its surface to the value here, never to a fresh read: an unreadable
     // settings.json is indistinguishable from an absent one and reads as this build's
@@ -50,6 +51,7 @@ public partial class App : Application
     private UsageViewMode _viewMode;
     private UsageDisplayBasis _displayBasis;
     private bool _showSparkline = true;
+    private WeeklyPaceModel _paceModel = WeeklyPaceModel.Uniform;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
@@ -176,13 +178,16 @@ public partial class App : Application
         _displayBasis = _displayBasisSettingsStore.Load();
         _sparklineSettingsStore = new SparklineSettingsStore();
         _showSparkline = _sparklineSettingsStore.Load();
+        _paceModelSettingsStore = new WeeklyPaceModelSettingsStore();
+        _paceModel = _paceModelSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(
-            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline);
+            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline, _paceModel);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
         globalSettings.DisplayBasisChangeRequested += OnGlobalDisplayBasisChanged;
         globalSettings.SparklineToggleRequested += OnGlobalSparklineToggled;
+        globalSettings.PaceModelChangeRequested += OnGlobalPaceModelChanged;
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
 
         _updateService = new UpdateService();
@@ -203,6 +208,7 @@ public partial class App : Application
         _viewModel.SetViewMode(_viewMode);
         _viewModel.SetDisplayBasis(_displayBasis);
         _viewModel.SetShowSparkline(_showSparkline);
+        _viewModel.SetPaceModel(_paceModel);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
         _popover.BindViewModel(_viewModel);
 
@@ -484,6 +490,7 @@ public partial class App : Application
                 dto.ViewMode = _viewMode == UsageViewMode.Gauge ? "gauge" : "bar";
                 dto.DisplayBasis = _displayBasis == UsageDisplayBasis.Remaining ? "remaining" : "used";
                 dto.ShowSparkline = _showSparkline;
+                dto.WeeklyPaceModel = WeeklyPaceModelSettingsStore.Serialize(_paceModel);
                 if (_notificationPreferencesRead)
                 {
                     dto.NotificationsEnabled = _notificationPreferences.Enabled;
@@ -547,6 +554,19 @@ public partial class App : Application
         // The sparkline sits inside the existing primary row, so hiding it changes no
         // card height and no re-measure is needed.
         _viewModel?.SetShowSparkline(show);
+    }
+
+    private void OnGlobalPaceModelChanged(object? sender, WeeklyPaceModel model)
+    {
+        if (!ReportSettingsWrite(_paceModelSettingsStore?.TrySave(model) == true))
+        {
+            _settingsViewModel?.Global.SetPaceModel(_paceModel);
+            return;
+        }
+        _paceModel = model;
+        // Rows re-derive their pace caption in place from the last reported window; the
+        // caption occupies the same line either way, so no re-measure is needed.
+        _viewModel?.SetPaceModel(model);
     }
 
     private void OnGlobalViewModeChanged(object? sender, UsageViewMode mode)

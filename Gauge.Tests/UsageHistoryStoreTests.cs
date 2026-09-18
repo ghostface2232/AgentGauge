@@ -194,6 +194,108 @@ public sealed class UsageHistoryStoreTests : IDisposable
         },
     };
 
+    // ── Weekday profile (automatic pace model) ──────────────────────────────────
+
+    [Fact]
+    public void WeekdayProfileCreditsIncreasesToTheLocalWeekdayAndIgnoresDecreases()
+    {
+        using var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc);
+        var monday = new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero);
+        RecordAt(store, monday, 0.10);
+        RecordAt(store, monday.AddHours(2), 0.30);                  // +0.20 Monday
+        RecordAt(store, monday.AddDays(1), 0.30);                   // Tuesday, no change
+        RecordAt(store, monday.AddDays(1).AddHours(2), 0.40);       // +0.10 Tuesday
+        RecordAt(store, monday.AddDays(2), 0.20);                   // Wednesday: a reset, not consumption
+        RecordAt(store, monday.AddDays(2).AddHours(2), 0.50);       // +0.30 Wednesday
+
+        var profile = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString());
+
+        Assert.NotNull(profile);
+        Assert.Equal(3, profile!.DaysObserved);
+        AssertWeights(profile, monday: 0.20, tuesday: 0.10, wednesday: 0.30);
+        Assert.False(profile.IsSufficient);
+        Assert.Null(store.GetWeekdayProfile("Codex", "SomethingElse"));
+        Assert.Null(store.GetWeekdayProfile("Claude", UsageWindowType.FiveHour.ToString()));
+    }
+
+    [Fact]
+    public void WeekdayProfileDropsAnIncreaseAcrossALongGap()
+    {
+        // A day of readings missing (the machine asleep): the consumption happened on days
+        // never observed, so it is not credited to the day the readings resumed.
+        using var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc);
+        var thursday = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
+        RecordAt(store, thursday, 0.50);
+        RecordAt(store, thursday.AddHours(11), 0.55);   // +0.05 Thursday (inside the gap)
+        RecordAt(store, thursday.AddHours(36), 0.90);   // Friday 20:00, 25h later: dropped
+
+        var profile = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString())!;
+        Assert.Equal(2, profile.DaysObserved);
+        AssertWeights(profile, thursday: 0.05);
+    }
+
+    [Fact]
+    public void WeekdayProfileSurvivesReopenWithoutDoubleCounting()
+    {
+        var monday = new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero);
+        using (var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc))
+        {
+            RecordAt(store, monday, 0.10);
+            RecordAt(store, monday.AddHours(1), 0.30);              // +0.20 Monday
+            RecordAt(store, monday.AddDays(1), 0.35);               // Tuesday, 23h gap: dropped
+            RecordAt(store, monday.AddDays(1).AddHours(1), 0.45);   // +0.10 Tuesday
+        }
+
+        using (var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc))
+        {
+            // Hydrated from the database: the same shape as before the restart.
+            var hydrated = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString())!;
+            Assert.Equal(2, hydrated.DaysObserved);
+            AssertWeights(hydrated, monday: 0.20, tuesday: 0.10);
+
+            // A reading recorded after hydration adds exactly its own increase — the delta
+            // to the tail's last sample — never re-folding what the database already gave.
+            RecordAt(store, monday.AddDays(1).AddHours(2), 0.50);  // +0.05 Tuesday
+            var updated = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString())!;
+            Assert.Equal(2, updated.DaysObserved);
+            AssertWeights(updated, monday: 0.20, tuesday: 0.15);
+        }
+    }
+
+    [Fact]
+    public void WeekdayProfileCountsDaysInTheGivenZone()
+    {
+        // 23:30 UTC on Monday is Tuesday 08:30 in Seoul, so the increase lands on Tuesday
+        // there and on Monday in UTC.
+        var seoul = TimeZoneInfo.CreateCustomTimeZone("KST", TimeSpan.FromHours(9), "KST", "KST");
+        var lateMondayUtc = new DateTimeOffset(2026, 8, 3, 23, 0, 0, TimeSpan.Zero);
+        using var store = new UsageHistoryStore(_dir, _time, seoul);
+        RecordAt(store, lateMondayUtc, 0.10);
+        RecordAt(store, lateMondayUtc.AddMinutes(30), 0.20);
+
+        var profile = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString())!;
+        AssertWeights(profile, tuesday: 0.10);
+        Assert.Equal(1, profile.DaysObserved);
+    }
+
+    private void RecordAt(UsageHistoryStore store, DateTimeOffset capturedAt, double ratio)
+    {
+        _time.Now = capturedAt;
+        store.Record(Snapshot("Codex", ratio, capturedAt));
+    }
+
+    private static void AssertWeights(UsageWeekdayProfile profile,
+        double sunday = 0, double monday = 0, double tuesday = 0, double wednesday = 0,
+        double thursday = 0, double friday = 0, double saturday = 0)
+    {
+        var expected = new[] { sunday, monday, tuesday, wednesday, thursday, friday, saturday };
+        Assert.Equal(7, profile.Weights.Count);
+        for (var day = 0; day < 7; day++)
+        {
+            Assert.Equal(expected[day], profile.Weights[day], 6);
+        }
+    }
+
     private sealed class MutableTime(DateTimeOffset now) : TimeProvider
     {
         public DateTimeOffset Now = now;

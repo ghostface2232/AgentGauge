@@ -290,9 +290,9 @@ AgentGauge는 "색상만으로 상태 전달 금지"와 "항상 퍼센트 숫자
 
 | 상태 | 항목 |
 | --- | --- |
-| ✅ 반영 | A 상태 폴링 (`ProviderStatusService`, v0.4.0) · B 적응형 갱신 (`AdaptiveRefreshPolicy`, 저전력·잠금 인식, 프로세스 스캔 없음) · C pace 3% 게이트 + 부호 표현 + en dash · E 도구 숨기기 (4대 불변식 채택) · F 번다운 스파크라인 + 호버 · M Narrator 이름 (`UsageAccessibilityTests`) · K 규범 테스트 3종 (XAML 색상 `PopoverXamlContractTests`, 로컬라이즈 키 `LocalizationKeyUsageTests`, InvariantCulture `CultureContractTests`) · L 업데이트 무결성 (GitHub 자산 `digest` 대조, `UpdateService`) |
+| ✅ 반영 | A 상태 폴링 (`ProviderStatusService`, v0.4.0) · B 적응형 갱신 (`AdaptiveRefreshPolicy`, 저전력·잠금 인식, 프로세스 스캔 없음) · C pace 3% 게이트 + 부호 표현 + en dash · D Work days (`WeeklyPaceModel` — 매일 균등 / 근무일 월–금 / 자동, 설정 드롭다운; 자동은 `UsageWeekdayProfile`로 14일 이상 히스토리가 쌓이면 요일별 소비 형태를 쓰고 그 전엔 균등) · E 도구 숨기기 (4대 불변식 채택) · F 번다운 스파크라인 + 호버 · M Narrator 이름 (`UsageAccessibilityTests`) · K 규범 테스트 3종 (XAML 색상 `PopoverXamlContractTests`, 로컬라이즈 키 `LocalizationKeyUsageTests`, InvariantCulture `CultureContractTests`) · L 업데이트 무결성 (GitHub 자산 `digest` 대조, `UpdateService`) |
 | 🟡 부분 | G — 아이콘 소스 캐시와 새로고침 링 30초 상한은 반영. 텍스트 아이콘 렌더 캐시는 `improvements.md` #6과 함께 |
-| ❌ 미반영 | D Work days · H 개인정보 숨기기 토글 + "안 하는 일" 목록 · I `Gauge.Core` 분리 + `--json`/`--diagnose` · J AGENTS.md 분할 · N 릴리스 노트 Highlights 형식 |
+| ❌ 미반영 | H 개인정보 숨기기 토글 + "안 하는 일" 목록 · I `Gauge.Core` 분리 + `--json`/`--diagnose` · J AGENTS.md 분할 · N 릴리스 노트 Highlights 형식 |
 
 "다섯 개만 한다면" 중 남은 것은 **H** 하나다.
 

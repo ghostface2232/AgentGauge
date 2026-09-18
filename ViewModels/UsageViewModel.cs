@@ -182,6 +182,23 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// App-wide weekly pace model for the pace captions. Owned here like
+    /// <see cref="DisplayBasis"/>: new cards inherit it and <see cref="SetPaceModel"/>
+    /// re-derives every card's captions at once.
+    /// </summary>
+    public WeeklyPaceModel PaceModel { get; private set; } = WeeklyPaceModel.Uniform;
+
+    /// <summary>Applies the pace model to every card's rows (called from the settings dropdown).</summary>
+    public void SetPaceModel(WeeklyPaceModel model)
+    {
+        PaceModel = model;
+        foreach (var card in Cards)
+        {
+            card.PaceModel = model;
+        }
+    }
+
     /// <summary>Re-runs the level-to-brush bindings on every card after a live theme
     /// change — the resolved brush is theme-dependent, which bindings can't observe.</summary>
     public void RefreshLevelBrushes()
@@ -356,6 +373,7 @@ public sealed partial class UsageViewModel : ObservableObject
                 Cards.Add(new ToolCardViewModel(tool, _history)
                 {
                     ViewMode = ViewMode, DisplayBasis = DisplayBasis, ShowSparkline = ShowSparkline,
+                    PaceModel = PaceModel,
                 });
             }
             else
