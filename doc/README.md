@@ -4,5 +4,6 @@ v0.3.1 기준 전방위 프로젝트 검토 결과 (2026-08-13). 코드·XAML·�
 
 - **[improvements.md](improvements.md)** — 개선 방향: UX 플로우, 비주얼 디자인, 제품/기능 갭, 카피·로컬라이제이션, 온보딩·배포. P1/P2/P3 우선순위 + S/M/L 규모.
 - **[bugs-and-issues.md](bugs-and-issues.md)** — 확인된 버그·이슈: HIGH 1건, MEDIUM 9건, LOW 9건 + 관찰 3건. 심각도 순, 각 건에 file:line·실패 시나리오·수정 방향 포함.
+- **[codexbar-reference.md](codexbar-reference.md)** — CodexBar(steipete) 조사 (2026-09-10, v0.3.4 기준): 아키텍처·기능별 대조, 가져올 것 A~N 우선순위, 가져오지 말 것, 그리고 §4 말미의 반영 현황.
 
 두 문서 모두 기존 v0.4 백로그(메모리에 기록된 스파크라인·컴팩트 모드·트레이 퍼센트 아이콘 등)와 중복되는 제안은 재우선순위 관점으로만 다룸.

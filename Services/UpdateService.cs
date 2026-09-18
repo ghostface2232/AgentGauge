@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Gauge.Services;
 
@@ -13,8 +15,11 @@ public enum UpdateStatus
     CheckFailed,
 }
 
-/// <summary>A release found on GitHub, with the installer asset to download.</summary>
-public sealed record GitHubRelease(Version Version, string TagName, string DownloadUrl);
+/// <summary>
+/// A release found on GitHub, with the installer asset to download and the lowercase hex
+/// SHA-256 GitHub computed for that asset on upload.
+/// </summary>
+public sealed record GitHubRelease(Version Version, string TagName, string DownloadUrl, string Sha256);
 
 public sealed record UpdateCheckResult(UpdateStatus Status, Version CurrentVersion, GitHubRelease? Release);
 
@@ -93,6 +98,7 @@ public sealed class UpdateService
             }
 
             string? downloadUrl = null;
+            string? digest = null;
             if (root.TryGetProperty("assets", out var assets))
             {
                 foreach (var asset in assets.EnumerateArray())
@@ -100,6 +106,7 @@ public sealed class UpdateService
                     if (string.Equals(asset.GetProperty("name").GetString(), _assetName, StringComparison.OrdinalIgnoreCase))
                     {
                         downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                        digest = asset.TryGetProperty("digest", out var value) ? value.GetString() : null;
                         break;
                     }
                 }
@@ -110,7 +117,16 @@ public sealed class UpdateService
                 return new UpdateCheckResult(UpdateStatus.CheckFailed, _currentVersion, null);
             }
 
-            var release = new GitHubRelease(version, tag, downloadUrl);
+            // An asset GitHub has not digested cannot be verified after download, so it is
+            // not offered at all — the same stance as a missing asset. Logged because the
+            // footer can only say the check failed.
+            if (!TryParseSha256Digest(digest, out var sha256))
+            {
+                DiagnosticsLog.Write("update", $"Release {tag}: installer asset has no usable sha256 digest; not offered.");
+                return new UpdateCheckResult(UpdateStatus.CheckFailed, _currentVersion, null);
+            }
+
+            var release = new GitHubRelease(version, tag, downloadUrl, sha256);
             var status = version > _currentVersion ? UpdateStatus.UpdateAvailable : UpdateStatus.UpToDate;
             return new UpdateCheckResult(status, _currentVersion, release);
         }
@@ -140,6 +156,16 @@ public sealed class UpdateService
                 await stream.CopyToAsync(file, cancellationToken);
             }
 
+            // Never launch bytes that are not the release's: /VERYSILENT would run a
+            // truncated or substituted download without anyone seeing it. The file is
+            // removed so a later attempt cannot pick it up either.
+            if (!await HasExpectedDigestAsync(installer, release.Sha256, cancellationToken))
+            {
+                File.Delete(installer);
+                DiagnosticsLog.Write("update", $"Installer for {release.TagName} failed sha256 verification; not launched.");
+                return false;
+            }
+
             // /VERYSILENT hides the installer UI entirely (no progress window); the
             // in-app ring spinner stands in for it. CloseApplications=yes closes the
             // running app, and the WizardSilent [Run] entry relaunches it afterwards.
@@ -152,6 +178,24 @@ public sealed class UpdateService
             DiagnosticsLog.Write("update", $"Installer download/launch failed: {ex.GetType().Name}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Reads the <c>digest</c> GitHub attaches to every release asset ("sha256:&lt;64 hex&gt;")
+    /// into lowercase hex. Anything else — absent, another algorithm, wrong length — is unusable.
+    /// </summary>
+    internal static bool TryParseSha256Digest(string? digest, out string sha256)
+    {
+        var match = digest is null ? null : Regex.Match(digest, "^sha256:([0-9A-Fa-f]{64})$");
+        sha256 = match is { Success: true } ? match.Groups[1].Value.ToLowerInvariant() : "";
+        return sha256.Length > 0;
+    }
+
+    private static async Task<bool> HasExpectedDigestAsync(string path, string sha256, CancellationToken cancellationToken)
+    {
+        await using var file = File.OpenRead(path);
+        var actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(file, cancellationToken));
+        return string.Equals(actual, sha256, StringComparison.Ordinal);
     }
 
     private static Version Normalize(Version? v) =>

@@ -69,7 +69,7 @@ When a sign-in is needed, you can start the relevant CLI login process from the 
 
 On startup AgentGauge quietly checks GitHub for the latest release and, if a newer version exists, surfaces it on the **Update** card in settings. You can also check manually with the card's **Check for updates** button.
 
-When an update is available, clicking **Update** downloads the installer and runs it silently: the running AgentGauge exits, the new version is installed in the same location, and the app restarts automatically. No administrator rights are required.
+When an update is available, clicking **Update** downloads the installer and runs it silently: the running AgentGauge exits, the new version is installed in the same location, and the app restarts automatically. No administrator rights are required. Before it runs, the downloaded installer is checked against the SHA-256 digest GitHub records for the release asset; a file that does not match is discarded.
 
 
 ## Current limitations
