@@ -115,6 +115,115 @@ public sealed class ApiCostScannerTests : IDisposable
         Assert.Equal((2026, 9), (estimate.Year, estimate.Month));
     }
 
+    // Claude Code's real streaming pattern: early writes carry a placeholder output count and
+    // a null stop reason (with cache fields, so the message-start rule does not catch them);
+    // the last write carries the real output.
+    private static string ClaudeStreamed(string id, string timestamp, long output, bool final)
+        => "{\"type\":\"assistant\",\"timestamp\":\"" + timestamp + "\",\"requestId\":\"req_" + id + "\",\"sessionId\":\"s\","
+           + "\"message\":{\"id\":\"" + id + "\",\"model\":\"claude-opus-5\",\"stop_reason\":" + (final ? "\"tool_use\"" : "null") + ","
+           + "\"usage\":{\"input_tokens\":2,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0,\"output_tokens\":" + output + "}}}";
+
+    [Fact]
+    public void AStreamedMessageCountsItsFinalOutputNotThePlaceholder()
+    {
+        WriteClaude("a.jsonl",
+            ClaudeStreamed("m1", "2026-09-10T10:00:00Z", 2, final: false),
+            ClaudeStreamed("m1", "2026-09-10T10:00:01Z", 2, final: false),
+            ClaudeStreamed("m1", "2026-09-10T10:00:02Z", 1_000_000, final: true));
+
+        var estimate = Assert.Single(Scanner().Scan(Tools("Claude")));
+
+        Assert.Equal(new TokenTotals(2, 0, 0, 0, 1_000_000), estimate.PricedTokens);
+        Assert.Equal((2 * 5m + 1_000_000 * 25m) / 1_000_000m, estimate.CostUsd);
+        // One response, whichever write was counted.
+        Assert.Equal(1, ApiCostLedger.Load(LedgerPath).Files.Values.SelectMany(f => f.Days).Sum(r => r.Requests));
+    }
+
+    [Fact]
+    public void ALaterScanCorrectsAPlaceholderCountedEarlier()
+    {
+        // The scan lands between the placeholder and the final write.
+        var path = WriteClaude("a.jsonl", ClaudeStreamed("m1", "2026-09-10T10:00:00Z", 2, final: false));
+        Assert.Equal(2, Scanner().Scan(Tools("Claude"))[0].PricedTokens.Output);
+
+        File.AppendAllText(path, ClaudeStreamed("m1", "2026-09-10T10:00:02Z", 1_000_000, final: true) + "\n");
+        Assert.Equal(1_000_000, Scanner().Scan(Tools("Claude"))[0].PricedTokens.Output);
+
+        // The final write arriving again (a resumed session copying it) changes nothing.
+        WriteClaude("b.jsonl", ClaudeStreamed("m1", "2026-09-10T10:00:02Z", 1_000_000, final: true));
+        Assert.Equal(1_000_000, Scanner().Scan(Tools("Claude"))[0].PricedTokens.Output);
+    }
+
+    [Fact]
+    public void AnArchivedCodexSessionIsNotCountedAgain()
+    {
+        // Older rollouts have only token_count (no response ids), so nothing but the file's
+        // own identity keeps a moved copy from being read as new usage.
+        var path = WriteCodex("rollout.jsonl",
+            """{"timestamp":"2026-09-02T03:00:00Z","type":"session_meta","payload":{"id":"sess-1"}}""",
+            """{"timestamp":"2026-09-02T03:00:01Z","type":"turn_context","payload":{"model":"gpt-5.3-codex"}}""",
+            """{"timestamp":"2026-09-02T03:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000000,"cached_input_tokens":0,"output_tokens":0}}}}""");
+        Assert.Equal(1.75m, Assert.Single(Scanner().Scan(Tools("Codex"))).CostUsd);
+
+        // Codex archives the thread: the file moves, bytes and write time unchanged.
+        var archived = Path.Combine(CodexRoot, "archived_sessions", "rollout.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(archived)!);
+        File.Move(path, archived);
+
+        Assert.Equal(1.75m, Assert.Single(Scanner().Scan(Tools("Codex"))).CostUsd);
+        var ledger = ApiCostLedger.Load(LedgerPath);
+        Assert.True(ledger.Files.ContainsKey(archived));
+        Assert.False(ledger.Files.ContainsKey(path));
+    }
+
+    [Fact]
+    public void AFileRewrittenInPlaceIsReadAgainFromTheStart()
+    {
+        var path = WriteClaude("a.jsonl", Claude("m1", "2026-09-10T10:00:00Z", input: 1_000_000));
+        Assert.Equal(5m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+
+        // Same length, different opening bytes: the old prefix no longer applies. (The write
+        // time is moved on explicitly — a same-length rewrite within the same millisecond
+        // is indistinguishable from no change, and is not what this test is about.)
+        File.WriteAllText(path, Claude("m9", "2026-09-10T10:00:00Z", input: 2_000_000) + "\n");
+        File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
+        Assert.Equal(10m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+    }
+
+    [Fact]
+    public void PruningDropsOldKeysAndEntriesOfGoneFiles()
+    {
+        var path = WriteClaude("a.jsonl", Claude("m1", "2026-08-01T10:00:00Z", input: 1_000_000));
+        _time.Now = new DateTimeOffset(2026, 8, 2, 0, 0, 0, TimeSpan.Zero);
+        Scanner().Scan(Tools("Claude"));
+        Assert.NotEmpty(ApiCostLedger.Load(LedgerPath).Keys);
+
+        // Two and a half months later the day, its key, and — once the file is gone — the
+        // file's entry are all dropped; nothing old accumulates.
+        File.Delete(path);
+        _time.Now = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero);
+        Scanner().Scan(Tools("Claude"));
+        var ledger = ApiCostLedger.Load(LedgerPath);
+        Assert.Empty(ledger.Keys);
+        Assert.Empty(ledger.Files);
+    }
+
+    [Fact]
+    public void OddlyShapedLinesAndLedgersNeverStopTheScan()
+    {
+        WriteClaude("a.jsonl",
+            """{"type":"assistant","timestamp":123,"message":{"id":"x","model":7,"usage":{"input_tokens":5}}}""",
+            """{"type":["assistant"],"usage":1}""",
+            Claude("m1", "2026-09-10T10:00:00Z", input: 1_000_000));
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(LedgerPath, """{"Version":3,"Files":null,"Keys":null}""");
+
+        Assert.Equal(5m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+
+        File.WriteAllText(LedgerPath, """{"Version":3,"Files":{"C:\\x.jsonl":{"Tool":"Claude","Days":null}},"Keys":{"k":null}}""");
+        Assert.Equal(5m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+    }
+
     [Fact]
     public void UnknownModelsCountTokensButNoDollars()
     {
@@ -248,6 +357,8 @@ public sealed class ApiCostScannerTests : IDisposable
         Assert.Equal("≈ $1234.50", card.ApiCostText);
         Assert.Contains("API", card.ApiCostDescription);
         Assert.Contains("입력 1", card.ApiCostDescription);
+        // A screen reader hears the amount first, then the explanation.
+        Assert.StartsWith("≈ $1234.50. ", card.ApiCostAccessibleName);
 
         card.ApplyApiCost(estimate with { UnpricedTokens = 42, UnpricedModels = ["codex-auto-review"] });
         Assert.Equal("≈ $1234.50+", card.ApiCostText);

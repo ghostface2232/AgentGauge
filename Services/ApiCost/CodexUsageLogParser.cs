@@ -75,8 +75,9 @@ public sealed class CodexUsageLogParser
                     return null;
             }
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
         {
+            // A malformed or unexpectedly shaped line is skipped, never allowed to stop the scan.
             return null;
         }
     }

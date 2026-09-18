@@ -148,9 +148,17 @@ public sealed partial class ToolCardViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasApiCost))]
     public partial string ApiCostText { get; set; } = "";
 
-    /// <summary>Spelled-out form for the tooltip and the automation peer.</summary>
+    /// <summary>Spelled-out form for the tooltip.</summary>
     [ObservableProperty]
     public partial string ApiCostDescription { get; set; } = "";
+
+    /// <summary>
+    /// The automation name: the amount itself, then the explanation. The amount has to lead —
+    /// an automation name replaces the visible text for a screen reader, so the description
+    /// alone would never say the number.
+    /// </summary>
+    [ObservableProperty]
+    public partial string ApiCostAccessibleName { get; set; } = "";
 
     public bool HasApiCost => !string.IsNullOrEmpty(ApiCostText);
 
@@ -161,6 +169,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
         {
             ApiCostText = "";
             ApiCostDescription = "";
+            ApiCostAccessibleName = "";
             return;
         }
         // Dollars are machine-facing here (a fixed "12.34" shape), so the invariant culture
@@ -175,6 +184,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
             description += Loc.Format("ApiCost_Unpriced", string.Join(", ", estimate.UnpricedModels), Count(estimate.UnpricedTokens));
         }
         ApiCostDescription = description;
+        ApiCostAccessibleName = ApiCostText + ". " + description;
 
         static string Count(long value) => string.Format(Loc.Culture, "{0:N0}", value);
     }

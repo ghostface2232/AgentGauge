@@ -313,7 +313,7 @@
                                                 FontSize="15"
                                                 Text="{Binding ApiCostText}"
                                                 Style="{StaticResource CaptionTextBlockStyle}"
-                                                AutomationProperties.Name="{Binding ApiCostDescription}"
+                                                AutomationProperties.Name="{Binding ApiCostAccessibleName}"
                                                 ToolTipService.ToolTip="{Binding ApiCostDescription}"
                                                 Visibility="{Binding HasApiCost, Converter={StaticResource BoolToVis}}" />
                                             <!-- Keep stale last-good data visibly and semantically

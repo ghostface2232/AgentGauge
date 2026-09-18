@@ -22,6 +22,12 @@ public sealed class ApiCostService : IDisposable
     private readonly TimeProvider _time;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private CancellationTokenSource? _loop;
+    // The enabled loop's token, readable from the scan thread without touching the source
+    // (which SetEnabled(false) disposes). Default — never cancellable — while disabled.
+    private CancellationToken _activeToken;
+    // Set when a scan was asked for while another held the gate; the running one re-runs
+    // once it finishes, so toggling off and on mid-scan still produces a fresh result.
+    private volatile bool _rerunRequested;
     private long _lastScanTimestamp;
     private bool _disposed;
 
@@ -45,13 +51,15 @@ public sealed class ApiCostService : IDisposable
         if (enabled == IsEnabled) return;
         if (!enabled)
         {
+            _activeToken = default;
             _loop?.Cancel();
             _loop?.Dispose();
             _loop = null;
             return;
         }
         _loop = new CancellationTokenSource();
-        _ = RunLoopAsync(_loop.Token);
+        _activeToken = _loop.Token;
+        _ = RunLoopAsync(_activeToken);
     }
 
     /// <summary>A popover open: scan if the last one is old enough (no-op while disabled).</summary>
@@ -59,7 +67,7 @@ public sealed class ApiCostService : IDisposable
     {
         if (!IsEnabled || _loop is null) return;
         if (_lastScanTimestamp != 0 && _time.GetElapsedTime(_lastScanTimestamp) < OpenDebounce) return;
-        _ = ScanOnceAsync(_loop.Token);
+        _ = ScanOnceAsync(_activeToken);
     }
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
@@ -81,7 +89,13 @@ public sealed class ApiCostService : IDisposable
 
     private async Task ScanOnceAsync(CancellationToken cancellationToken)
     {
-        if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false)) return; // a scan is already running
+        if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            // A scan is already running — possibly one the user just cancelled by switching
+            // the option off and on. Ask it to run again when it finishes.
+            _rerunRequested = true;
+            return;
+        }
         try
         {
             _lastScanTimestamp = _time.GetTimestamp();
@@ -102,7 +116,9 @@ public sealed class ApiCostService : IDisposable
             if (cancellationToken.IsCancellationRequested || estimates is null) return;
             _dispatcher.TryEnqueue(() =>
             {
-                if (!_disposed) Updated?.Invoke(this, estimates);
+                // Checked again on the UI thread, where switching off cancels and clears: a
+                // result queued just before that must not bring the chips back.
+                if (!_disposed && !cancellationToken.IsCancellationRequested) Updated?.Invoke(this, estimates);
             });
         }
         catch (OperationCanceledException)
@@ -117,6 +133,15 @@ public sealed class ApiCostService : IDisposable
         finally
         {
             _gate.Release();
+            if (_rerunRequested)
+            {
+                _rerunRequested = false;
+                var active = _activeToken;
+                if (active.CanBeCanceled && !active.IsCancellationRequested && !_disposed)
+                {
+                    _ = ScanOnceAsync(active);
+                }
+            }
         }
     }
 
@@ -124,6 +149,7 @@ public sealed class ApiCostService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _activeToken = default;
         _loop?.Cancel();
         _loop?.Dispose();
         _loop = null;

@@ -10,11 +10,14 @@ namespace Gauge.Services.ApiCost;
 /// token counts, model name, timestamp and message identity are read; the conversation
 /// content on the same line is never touched.
 ///
-/// Claude Code writes a streamed message more than once (each write repeats the same
-/// usage), so the record's key — the message id with the request id, or with the session
-/// id when a request id is absent — lets the caller keep one. A line whose stop reason is
-/// still null with input but no output and no cache fields is the proxy's message-start
-/// estimate, not a completed response, and is skipped.
+/// Claude Code writes a streamed message more than once, and the writes differ: the early
+/// ones (stop reason still null) carry a placeholder output count of a few tokens, and only
+/// the last carries the real one. Every write is returned with the same key — the message id
+/// with the request id, or with the session id when a request id is absent — and the ledger
+/// keeps the most complete (<see cref="ApiCostLedger.Add"/>). A line with a null stop reason,
+/// input but no output, and no cache fields at all is an API proxy's message-start estimate
+/// and is skipped; Claude Code's own placeholders always carry cache fields, so they are
+/// not caught by that rule and rely on the ledger instead.
 /// </summary>
 public static class ClaudeUsageLogParser
 {
@@ -33,11 +36,10 @@ public static class ClaudeUsageLogParser
             using var document = JsonDocument.Parse(line);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return false;
-            if (!root.TryGetProperty("type", out var type) || type.GetString() != "assistant") return false;
+            if (String(root, "type") != "assistant") return false;
             if (!root.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.Object) return false;
             if (!message.TryGetProperty("usage", out var usage) || usage.ValueKind != JsonValueKind.Object) return false;
-            if (!root.TryGetProperty("timestamp", out var timestampElement)
-                || timestampElement.GetString() is not { } timestampText
+            if (String(root, "timestamp") is not { } timestampText
                 || !DateTimeOffset.TryParse(timestampText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var timestamp))
                 return false;
 
@@ -62,13 +64,13 @@ public static class ClaudeUsageLogParser
             var tokens = new TokenTotals(input, cacheRead, cacheWrite, cacheWrite1h, output);
             if (tokens.IsZero) return false;
 
-            var model = message.TryGetProperty("model", out var modelElement) && modelElement.GetString() is { Length: > 0 } name
-                ? name : UnknownModel;
+            var model = String(message, "model") is { Length: > 0 } name ? name : UnknownModel;
             record = new UsageLogRecord(timestamp, model, tokens, Key(root, message));
             return true;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException)
         {
+            // A malformed or unexpectedly shaped line is skipped, never allowed to stop the scan.
             return false;
         }
     }
