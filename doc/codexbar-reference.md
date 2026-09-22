@@ -290,11 +290,13 @@ AgentGauge는 "색상만으로 상태 전달 금지"와 "항상 퍼센트 숫자
 
 | 상태 | 항목 |
 | --- | --- |
-| ✅ 반영 | A 상태 폴링 (`ProviderStatusService`, v0.4.0) · B 적응형 갱신 (`AdaptiveRefreshPolicy`, 저전력·잠금 인식, 프로세스 스캔 없음) · C pace 3% 게이트 + 부호 표현 + en dash · E 도구 숨기기 (4대 불변식 채택) · F 번다운 스파크라인 + 호버 · M Narrator 이름 (`UsageAccessibilityTests`) · K 규범 테스트 3종 (XAML 색상 `PopoverXamlContractTests`, 로컬라이즈 키 `LocalizationKeyUsageTests`, InvariantCulture `CultureContractTests`) · L 업데이트 무결성 (GitHub 자산 `digest` 대조, `UpdateService`) |
+| ✅ 반영 | A 상태 폴링 (`ProviderStatusService`, v0.4.0) · B 적응형 갱신 (`AdaptiveRefreshPolicy`, 저전력·잠금 인식, 프로세스 스캔 없음) · C pace 3% 게이트 + 부호 표현 + en dash · D Work days (`WeeklyPaceModel` — 매일 균등 / 근무일 월–금 / 자동, 설정 드롭다운; 자동은 `UsageWeekdayProfile`로 14일 이상 히스토리가 쌓이면 요일별 소비 형태를 쓰고 그 전엔 균등) · E 도구 숨기기 (4대 불변식 채택) · F 번다운 스파크라인 + 호버 · M Narrator 이름 (`UsageAccessibilityTests`) · K 규범 테스트 3종 (XAML 색상 `PopoverXamlContractTests`, 로컬라이즈 키 `LocalizationKeyUsageTests`, InvariantCulture `CultureContractTests`) · L 업데이트 무결성 (GitHub 자산 `digest` 대조, `UpdateService`) |
 | 🟡 부분 | G — 아이콘 소스 캐시와 새로고침 링 30초 상한은 반영. 텍스트 아이콘 렌더 캐시는 `improvements.md` #6과 함께 |
-| ❌ 미반영 | D Work days · H 개인정보 숨기기 토글 + "안 하는 일" 목록 · I `Gauge.Core` 분리 + `--json`/`--diagnose` · J AGENTS.md 분할 · N 릴리스 노트 Highlights 형식 |
+| ❌ 미반영 | H 개인정보 숨기기 토글 + "안 하는 일" 목록 · I `Gauge.Core` 분리 + `--json`/`--diagnose` · J AGENTS.md 분할 · N 릴리스 노트 Highlights 형식 |
 
 "다섯 개만 한다면" 중 남은 것은 **H** 하나다.
+
+**번복 (2026-09-18) — 3.9 비용/지출**: "하지 않는 쪽"으로 판단했던 로컬 비용 스캔을 **좁은 범위로** 도입했다. CodexBar 소스(`Sources/CodexBarCore/Vendored/CostUsage/`)를 직접 확인한 뒤, 판단 근거였던 두 부담을 이렇게 줄였다. 유지보수 부담은 models.dev 라이브 조회·역사적 가격·커스텀 오버레이 없이 **번들 가격표 하나**로(오래되면 "가격 미확인"으로 드러날 뿐 틀린 숫자가 되지 않음), 규모 부담은 Claude·Codex 두 도구와 **이번 달 합계 하나**로(일별 원장 차트·히트맵·30일 창 없음). 3.9절이 전제 조건으로 꼽은 분리와 라벨링 규율은 그대로 지켰다 — 쿼터는 API, 비용은 로컬 로그. 추정은 "≈"로, 가격 미확인 모델이 있으면 "+" 하한으로 표시하고 툴팁에 명시한다. CodexBar와 달리 첫 실행 자동 활성화는 하지 않는다(기본 꺼짐, 켜는 것이 곧 로그 읽기 동의). 설계 상세는 AGENTS.md "API-equivalent cost".
 
 ---
 
@@ -306,7 +308,7 @@ AgentGauge는 "색상만으로 상태 전달 금지"와 "항상 퍼센트 숫자
 | 브라우저 쿠키 임포트 | 위와 동일. Windows에서는 DPAPI 복호화가 필요해 "비밀번호를 저장하지 않는다"는 약속이 설명하기 어려워진다. |
 | agent-aware 로컬 프로세스 스캔 | 실익 대비 프라이버시 서사 비용이 크다. CodexBar조차 명시적 동의 게이트, 스캔 예산, 세션 식별자 폐기까지 붙여야 했다. |
 | 메뉴바 토큰 레이아웃 에디터 / 조건부 토큰 | 트레이 아이콘 하나에 도구 5개인 앱에는 과설계다. V2/V3 이중 저장 같은 하위호환 부채가 따라온다. |
-| 로컬 비용 스캔(Usage & Spend) | 3.9 참조. 모델 가격 추적 유지보수가 앱 나머지 전체와 맞먹는다. |
+| ~~로컬 비용 스캔(Usage & Spend)~~ (2026-09-18 좁은 범위로 번복, §4 말미 참조) | 3.9 참조. 모델 가격 추적 유지보수가 앱 나머지 전체와 맞먹는다. |
 | 클라우드 설정 동기화 | 계정·서버 의존을 도입한다. 필요하면 설정 파일 내보내기/가져오기로 충분하다. |
 | WidgetKit에 대응하는 위젯 | 이미 MSIX 충돌로 거절된 결정이다. 대신 3.10의 `--json`이 서드파티 위젯 경로를 연다. |
 

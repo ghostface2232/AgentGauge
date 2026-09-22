@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Gauge.Localization;
 using Gauge.Models;
@@ -101,6 +102,22 @@ public sealed partial class ToolCardViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// How multi-day windows' quota is expected to spread across the week (the pace
+    /// caption's reference curve). App-wide like <see cref="DisplayBasis"/>; pushed to every
+    /// row so rows created later inherit it and existing rows re-derive their caption.
+    /// </summary>
+    [ObservableProperty]
+    public partial WeeklyPaceModel PaceModel { get; set; } = WeeklyPaceModel.Uniform;
+
+    partial void OnPaceModelChanged(WeeklyPaceModel value)
+    {
+        foreach (var row in Windows)
+        {
+            row.PaceModel = value;
+        }
+    }
+
     /// <summary>Plan/subscription label shown beside the tool name (e.g. "Max 5x").</summary>
     [ObservableProperty]
     public partial string Plan { get; set; }
@@ -121,6 +138,56 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// <summary>True when the tool reports at least one reset held (controls the chip).</summary>
     [ObservableProperty]
     public partial bool HasResetCredits { get; set; }
+
+    /// <summary>
+    /// This month's API-equivalent cost beside the plan label ("≈ $12.34"), from the local
+    /// session logs at public list rates; "+" marks a floor when some model had no known
+    /// rate. Empty when the option is off, nothing was scanned yet, or the month is empty.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasApiCost))]
+    public partial string ApiCostText { get; set; } = "";
+
+    /// <summary>Spelled-out form for the tooltip.</summary>
+    [ObservableProperty]
+    public partial string ApiCostDescription { get; set; } = "";
+
+    /// <summary>
+    /// The automation name: the amount itself, then the explanation. The amount has to lead —
+    /// an automation name replaces the visible text for a screen reader, so the description
+    /// alone would never say the number.
+    /// </summary>
+    [ObservableProperty]
+    public partial string ApiCostAccessibleName { get; set; } = "";
+
+    public bool HasApiCost => !string.IsNullOrEmpty(ApiCostText);
+
+    /// <summary>Shows or clears the cost estimate; null clears it (option off).</summary>
+    public void ApplyApiCost(ApiCostEstimate? estimate)
+    {
+        if (estimate is null || estimate.IsEmpty)
+        {
+            ApiCostText = "";
+            ApiCostDescription = "";
+            ApiCostAccessibleName = "";
+            return;
+        }
+        // Dollars are machine-facing here (a fixed "12.34" shape), so the invariant culture
+        // formats them; the token counts take the UI language's digit grouping.
+        var dollars = estimate.CostUsd.ToString("0.00", CultureInfo.InvariantCulture);
+        ApiCostText = Loc.Format(estimate.HasUnpriced ? "ApiCost_ValueFloor" : "ApiCost_Value", dollars);
+        var tokens = estimate.PricedTokens;
+        var description = Loc.Format("Tooltip_ApiCost",
+            Count(tokens.Input), Count(tokens.CacheRead), Count(tokens.CacheWrite + tokens.CacheWrite1h), Count(tokens.Output));
+        if (estimate.HasUnpriced)
+        {
+            description += Loc.Format("ApiCost_Unpriced", string.Join(", ", estimate.UnpricedModels), Count(estimate.UnpricedTokens));
+        }
+        ApiCostDescription = description;
+        ApiCostAccessibleName = ApiCostText + ". " + description;
+
+        static string Count(long value) => string.Format(Loc.Culture, "{0:N0}", value);
+    }
 
     [ObservableProperty]
     public partial bool HasAnyData { get; set; }
@@ -190,18 +257,25 @@ public sealed partial class ToolCardViewModel : ObservableObject
         for (var index = 0; index < windows.Count; index++)
         {
             var window = windows[index];
+            // The weekday profile behind the automatic pace model, and the ETA from the
+            // recorded burn rate. Both history reads are memory-backed after the first, so
+            // this stays cheap on the UI thread. The profile is set before Update so an
+            // existing row derives its caption once, against the current profile.
+            var profile = _history?.GetWeekdayProfile(ToolName, window.Key);
             var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
-                existing = new UsageWindowRowViewModel(window, DisplayBasis) { ShowSparkline = ShowSparkline };
+                existing = new UsageWindowRowViewModel(window, DisplayBasis)
+                {
+                    ShowSparkline = ShowSparkline, PaceModel = PaceModel, WeekdayProfile = profile,
+                };
                 Windows.Insert(Math.Min(index, Windows.Count), existing);
             }
             else
             {
+                existing.WeekdayProfile = profile;
                 existing.Update(window);
             }
-            // ETA from the recorded burn rate. GetRecent is memory-backed after its first
-            // read, so this stays cheap on the UI thread.
             var samples = _history?.GetRecent(ToolName, window.Key, UsageBurndown.Lookback) ?? [];
             existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
             // The row re-resolves any active hover against the new points itself.
