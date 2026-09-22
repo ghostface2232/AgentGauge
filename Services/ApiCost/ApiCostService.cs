@@ -62,11 +62,15 @@ public sealed class ApiCostService : IDisposable
         _ = RunLoopAsync(_activeToken);
     }
 
-    /// <summary>A popover open: scan if the last one is old enough (no-op while disabled).</summary>
-    public void RequestScan()
+    /// <summary>
+    /// A popover open: scan if the last one is old enough (no-op while disabled). With
+    /// <paramref name="force"/> — the set of scanned tools changed — scan regardless of the
+    /// debounce, so a tool just added or shown gets its chip now rather than on the timer.
+    /// </summary>
+    public void RequestScan(bool force = false)
     {
         if (!IsEnabled || _loop is null) return;
-        if (_lastScanTimestamp != 0 && _time.GetElapsedTime(_lastScanTimestamp) < OpenDebounce) return;
+        if (!force && _lastScanTimestamp != 0 && _time.GetElapsedTime(_lastScanTimestamp) < OpenDebounce) return;
         _ = ScanOnceAsync(_activeToken);
     }
 

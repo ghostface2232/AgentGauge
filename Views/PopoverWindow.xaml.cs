@@ -151,7 +151,10 @@ public sealed partial class PopoverWindow : Window
                 if (scale <= 0 || Math.Abs(scale - _scale) < 0.001) return;
                 _scale = scale;
                 _ = UpdateTitleIcon();
-                PositionAndResize(CurrentViewHeightDip);
+                // The work area holds fewer DIPs at a larger scale: recompute the caps and
+                // re-measure, or a tall view keeps its old cap and clips the bottom bar.
+                ApplyScrollCaps();
+                ResizeToContent();
             };
         };
         _ = UpdateTitleIcon();
@@ -229,15 +232,7 @@ public sealed partial class PopoverWindow : Window
         // refreshed. The key-dedupe inside makes this a no-op when the scale is unchanged.
         _ = UpdateTitleIcon();
 
-        // Cap the scrollable body so the window fits the work area AND never exceeds
-        // MaxPopoverHeightDip. The footer bar (FooterChromeAllowanceDip) stays pinned
-        // below; taller content scrolls within BodyScroll.
-        var maxWindowDip = Math.Min((_workArea.Height / _scale) - (EdgeMarginDip * 2), MaxPopoverHeightDip);
-        var maxBodyDip = maxWindowDip - FooterChromeAllowanceDip;
-        BodyScroll.MaxHeight = Math.Max(120, maxBodyDip);
-        // The settings body is capped the same way: its header and bottom bar match the
-        // usage view's, so the same chrome allowance keeps it inside the work area.
-        SettingsScroll.MaxHeight = BodyScroll.MaxHeight;
+        ApplyScrollCaps();
 
         _isShown = true;
 
@@ -277,6 +272,19 @@ public sealed partial class PopoverWindow : Window
 
         // Flash the scrollbar once content has settled, hinting the list scrolls, then auto-hide.
         RootHost.DispatcherQueue.TryEnqueue(() => _usageAutoHide?.Reveal());
+    }
+
+    // Cap the scrollable body so the window fits the work area AND never exceeds
+    // MaxPopoverHeightDip. The footer bar (FooterChromeAllowanceDip) stays pinned
+    // below; taller content scrolls within BodyScroll.
+    private void ApplyScrollCaps()
+    {
+        var maxWindowDip = Math.Min((_workArea.Height / _scale) - (EdgeMarginDip * 2), MaxPopoverHeightDip);
+        var maxBodyDip = maxWindowDip - FooterChromeAllowanceDip;
+        BodyScroll.MaxHeight = Math.Max(120, maxBodyDip);
+        // The settings body is capped the same way: its header and bottom bar match the
+        // usage view's, so the same chrome allowance keeps it inside the work area.
+        SettingsScroll.MaxHeight = BodyScroll.MaxHeight;
     }
 
     /// <summary>Binds the popover content to a view model for data display.</summary>

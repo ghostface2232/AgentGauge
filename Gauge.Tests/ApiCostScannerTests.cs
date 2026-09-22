@@ -47,6 +47,17 @@ public sealed class ApiCostScannerTests : IDisposable
     }
 
     [Fact]
+    public void SonnetFourFiveCarriesItsTwoHundredKPremiumButCurrentClaudeModelsDoNot()
+    {
+        // Cache reads count toward the 200K threshold, as Anthropic bills it.
+        var longPrompt = new TokenTotals(100_000, 100_001, 0, 0, 1_000);
+        Assert.Equal((100_000 * 6m + 100_001 * 0.6m + 1_000 * 22.5m) / 1_000_000m,
+            ApiCostPricing.Cost("claude-sonnet-4-5-20250929", longPrompt));
+        Assert.Equal((100_000 * 2m + 100_001 * 0.2m + 1_000 * 10m) / 1_000_000m,
+            ApiCostPricing.Cost("claude-sonnet-5", longPrompt));
+    }
+
+    [Fact]
     public void TheLongContextTierIsDecidedPerResponseNotPerDay()
     {
         // Two 200K-prompt responses on the same day sum to 400K, but neither crossed the

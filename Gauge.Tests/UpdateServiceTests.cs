@@ -96,6 +96,17 @@ public sealed class UpdateServiceTests
         Assert.Null(result.Release);
     }
 
+    [Fact]
+    public async Task ACurrentReleaseWithoutDigestReadsUpToDateNotFailed()
+    {
+        // The running build (0.2.4 in these tests) is already this version: nothing would be
+        // downloaded, so the missing digest is irrelevant and the footer says up to date.
+        var service = Service("""{ "tag_name": "v0.2.4", "assets": [ { "name": "GaugeSetup-win-x64.exe", "browser_download_url": "https://example.test/setup.exe" } ] }""");
+        var result = await service.CheckAsync();
+        Assert.Equal(UpdateStatus.UpToDate, result.Status);
+        Assert.Null(result.Release);
+    }
+
     [Theory]
     [InlineData(Architecture.X64, "GaugeSetup-win-x64.exe")]
     [InlineData(Architecture.Arm64, "GaugeSetup-win-arm64.exe")]

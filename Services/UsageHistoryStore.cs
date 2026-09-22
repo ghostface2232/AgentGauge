@@ -145,6 +145,19 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
         }
     }
 
+    /// <summary>
+    /// Hydrates the memory tail and folds the weekday profiles now. Called once off the UI
+    /// thread at startup, so the 28-day fold is not paid by whichever card happens to read
+    /// history first on the UI thread. Idempotent, and harmless if never called.
+    /// </summary>
+    public void Warm()
+    {
+        lock (_gate)
+        {
+            if (!_disposed) HydrateTailIfNeeded();
+        }
+    }
+
     public IReadOnlyList<UsageSample> GetRecent(string toolName, string windowKey, TimeSpan lookback)
     {
         var cutoff = _time.GetUtcNow() - lookback;
@@ -222,24 +235,19 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             {
                 command.CommandText =
                     """
-                    SELECT tool, window_key, captured_at, used_ratio FROM samples
+                    SELECT tool, window_key, captured_at, used_ratio, reset_time FROM samples
                     WHERE captured_at >= $since ORDER BY tool, window_key, captured_at
                     """;
                 command.Parameters.AddWithValue("$since", profileSince);
                 using var reader = command.ExecuteReader();
-                (string, string)? currentKey = null;
-                UsageSample? previous = null;
                 while (reader.Read())
                 {
                     var key = (reader.GetString(0), reader.GetString(1));
-                    if (key != currentKey)
-                    {
-                        currentKey = key;
-                        previous = null;
-                    }
-                    var sample = new UsageSample(DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)), reader.GetDouble(3));
-                    Accumulator(key).Add(previous, sample, _zone);
-                    previous = sample;
+                    var sample = new UsageSample(
+                        DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)),
+                        reader.GetDouble(3),
+                        reader.IsDBNull(4) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4)));
+                    Accumulator(key).Add(sample, _zone);
                 }
             }
         });
@@ -263,12 +271,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                 continue;
             }
             var sample = new UsageSample(snapshot.CapturedAt, window.UsedRatio, window.ResetTime);
-            // The tail's last reading is the previous one for the profile too. It is still
-            // present after a gap longer than the tail span, because the cutoff prune below
-            // runs after the add using the previous call's clock; the accumulator's own
-            // twelve-hour gate — not the tail span — decides whether the increase is
-            // credited, exactly as in the hydration fold. Keep the prune after the add.
-            Accumulator(key).Add(list.Count > 0 ? list[^1] : null, sample, _zone);
+            Accumulator(key).Add(sample, _zone);
             list.Add(sample);
             list.RemoveAll(s => s.CapturedAt < cutoff);
         }
@@ -284,25 +287,47 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
     }
 
     /// <summary>
-    /// One window's running weekday profile: the summed utilization increases per local
-    /// weekday and the distinct local dates seen. Decreases are never counted — a reset
-    /// or a provider recomputing its headline percent is not consumption — and an increase
-    /// across more than <see cref="MaximumProfileGap"/> is dropped rather than credited to
-    /// the day the readings resumed.
+    /// One window's running weekday profile: the utilization increases per local weekday
+    /// and the distinct local dates seen. A decrease is not consumption (a provider
+    /// recomputing its headline percent) — except across a reset, where the new reading is
+    /// what was used since it. An increase across more than <see cref="MaximumProfileGap"/>
+    /// is dropped rather than credited to the day the readings resumed.
+    ///
+    /// The accumulator keeps its own previous reading, so the hydration fold and the live
+    /// path compare against the same one: after a restart the first live reading is paired
+    /// with the database's last row, not with whatever the six-hour tail happened to hold.
     /// </summary>
     private sealed class WeekdayAccumulator
     {
+        // A reset moves the window's reset time forward by (roughly) its length; providers
+        // also jitter it by seconds between polls, which must not read as a reset.
+        private static readonly TimeSpan MinimumResetAdvance = TimeSpan.FromHours(1);
+
         private readonly double[] _weights = new double[7];
         private readonly HashSet<DateOnly> _days = new();
+        private UsageSample? _last;
 
-        public void Add(UsageSample? previous, UsageSample current, TimeZoneInfo zone)
+        public void Add(UsageSample current, TimeZoneInfo zone)
         {
+            // Readings arrive in capture order; a re-recorded or older one changes nothing.
+            if (_last is { } seen && current.CapturedAt <= seen.CapturedAt) return;
+            var previous = _last;
+            _last = current;
+
             var local = TimeZoneInfo.ConvertTime(current.CapturedAt, zone);
             _days.Add(DateOnly.FromDateTime(local.Date));
             if (previous is not { } last) return;
-            var delta = current.UsedRatio - last.UsedRatio;
-            if (delta <= 0 || !double.IsFinite(delta)) return;
             if (current.CapturedAt - last.CapturedAt > MaximumProfileGap) return;
+            var delta = current.UsedRatio - last.UsedRatio;
+            if (delta < 0
+                && current.ResetTime is { } reset && last.ResetTime is { } lastReset
+                && reset - lastReset >= MinimumResetAdvance)
+            {
+                // The window rolled over between the readings: everything now shown was
+                // used after the reset (a lower bound — use before it is not observable).
+                delta = current.UsedRatio;
+            }
+            if (delta <= 0 || !double.IsFinite(delta)) return;
             _weights[(int)local.DayOfWeek] += delta;
         }
 

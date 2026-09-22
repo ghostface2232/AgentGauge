@@ -130,8 +130,12 @@ public sealed class ApiCostScanner
         }
 
         LastScanComplete = complete;
+        // A write time of 0 means the file has not been read to its end yet (a new file whose
+        // only line is still being written): it is in progress, not old, and dropping it
+        // would re-hash and re-read it on every scan. A gone file is still pruned.
         ledger.Prune(oldestDay, File.Exists,
-            lastWriteMs => string.CompareOrdinal(DayKey(DateTimeOffset.FromUnixTimeMilliseconds(lastWriteMs)), oldestDay) < 0);
+            lastWriteMs => lastWriteMs != 0
+                && string.CompareOrdinal(DayKey(DateTimeOffset.FromUnixTimeMilliseconds(lastWriteMs)), oldestDay) < 0);
         ledger.Save(_ledgerPath);
 
         var local = TimeZoneInfo.ConvertTime(now, _zone);

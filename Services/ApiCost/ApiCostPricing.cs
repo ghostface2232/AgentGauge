@@ -35,7 +35,9 @@ public static class ApiCostPricing
         ["claude-opus-4-5"] = new(5, 0.5m, 6.25m, 25),
         ["claude-sonnet-5"] = new(2, 0.2m, 2.5m, 10),
         ["claude-sonnet-4-6"] = new(3, 0.3m, 3.75m, 15),
-        ["claude-sonnet-4-5"] = new(3, 0.3m, 3.75m, 15),
+        // Sonnet 4.5's 1M-context beta billed the whole request at a premium once the
+        // prompt (input + cache read + cache write) passed 200K; later models dropped it.
+        ["claude-sonnet-4-5"] = new(3, 0.3m, 3.75m, 15, 200_000, new(6, 0.6m, 7.5m, 22.5m)),
         ["claude-haiku-4-5"] = new(1, 0.1m, 1.25m, 5),
         // ── OpenAI (Codex) — the 272K prompt tier doubles the rate ───────
         // "codex-auto-review" is not here: see Excluded.

@@ -211,7 +211,9 @@ public partial class App : Application
         // History is additive analytics beside the last-known cache: live readings are
         // appended so trend/ETA features have data; a broken history DB never blocks startup.
         _historyStore = new UsageHistoryStore();
-        _viewModel = new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
+        var historyStore = _historyStore;
+        _ = Task.Run(historyStore.Warm);
+        _viewModel =new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
         _viewModel.SetViewMode(_viewMode);
         _viewModel.SetDisplayBasis(_displayBasis);
         _viewModel.SetShowSparkline(_showSparkline);
@@ -229,6 +231,9 @@ public partial class App : Application
             () => ToolCatalog.All.Where(d => _toolRegistry.IsActive(d.Kind)).Select(d => d.DisplayName).ToHashSet(StringComparer.Ordinal));
         _apiCostService.Updated += (_, estimates) => _viewModel?.SetApiCosts(estimates);
         _apiCostService.SetEnabled(_showApiCost);
+        // The scanned set follows registration and visibility; a change rescans at once.
+        _toolRegistry.Changed += (_, _) => _apiCostService?.RequestScan(force: true);
+        _toolRegistry.VisibilityChanged += (_, _) => _apiCostService?.RequestScan(force: true);
         _popover.BindViewModel(_viewModel);
 
         _coordinator = new UsageCoordinator(

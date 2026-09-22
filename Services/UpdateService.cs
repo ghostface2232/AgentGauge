@@ -122,6 +122,9 @@ public sealed class UpdateService
             // footer can only say the check failed.
             if (!TryParseSha256Digest(digest, out var sha256))
             {
+                // Nothing would be offered anyway: this build is current, and saying so
+                // beats a "check failed" about a download that was never going to happen.
+                if (version <= _currentVersion) return new UpdateCheckResult(UpdateStatus.UpToDate, _currentVersion, null);
                 DiagnosticsLog.Write("update", $"Release {tag}: installer asset has no usable sha256 digest; not offered.");
                 return new UpdateCheckResult(UpdateStatus.CheckFailed, _currentVersion, null);
             }
