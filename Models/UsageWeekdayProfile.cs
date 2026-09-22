@@ -3,10 +3,10 @@ namespace Gauge.Models;
 /// <summary>
 /// How one window's consumption has fallen across the days of the week, accumulated from
 /// the usage history: <see cref="Weights"/> holds, per <see cref="DayOfWeek"/> (Sunday
-/// first), the summed positive utilization increases recorded on that local weekday, and
-/// <see cref="DaysObserved"/> counts the distinct local dates that contributed readings.
-/// The weights are relative — only their ratios matter — so a window that is refilled and
-/// drained many times simply accumulates a taller profile of the same shape.
+/// first), the positive utilization increases recorded on that local weekday, averaged
+/// over the distinct dates that weekday was observed (so a weekday seen three times does
+/// not outweigh one seen twice), and <see cref="DaysObserved"/> counts the distinct local
+/// dates that contributed readings. The weights are relative — only their ratios matter.
 /// </summary>
 public sealed record UsageWeekdayProfile(IReadOnlyList<double> Weights, int DaysObserved)
 {

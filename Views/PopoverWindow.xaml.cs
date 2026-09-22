@@ -75,6 +75,7 @@ public sealed partial class PopoverWindow : Window
     // Guards against re-entrancy: MoveAndResize triggers a layout pass that fires
     // SizeChanged synchronously, which would call back into the resize logic.
     private bool _isResizing;
+    private bool _settingsResizeQueued;
     private bool _isViewTransitioning;
     private bool _isSettingsView;
     private double _usageViewHeightDip;
@@ -150,7 +151,10 @@ public sealed partial class PopoverWindow : Window
                 if (scale <= 0 || Math.Abs(scale - _scale) < 0.001) return;
                 _scale = scale;
                 _ = UpdateTitleIcon();
-                PositionAndResize(CurrentViewHeightDip);
+                // The work area holds fewer DIPs at a larger scale: recompute the caps and
+                // re-measure, or a tall view keeps its old cap and clips the bottom bar.
+                ApplyScrollCaps();
+                ResizeToContent();
             };
         };
         _ = UpdateTitleIcon();
@@ -165,6 +169,10 @@ public sealed partial class PopoverWindow : Window
         // Resize the window to match content height as it loads/changes (no filler).
         RootBorder.SizeChanged += OnContentSizeChanged;
         SettingsBorder.SizeChanged += OnContentSizeChanged;
+        // SettingsBorder stretches to the window and its scroll absorbs growth, so its own
+        // SizeChanged never sees a disclosure opening or a service being added. The panel
+        // inside the scroll is top-aligned and sized by its content, so it does.
+        SettingsContent.SizeChanged += OnSettingsContentSizeChanged;
 
         // Scrollbars reveal while scrolling and hide ~1s after it stops, so they don't sit
         // permanently over the cards' right edge.
@@ -224,15 +232,7 @@ public sealed partial class PopoverWindow : Window
         // refreshed. The key-dedupe inside makes this a no-op when the scale is unchanged.
         _ = UpdateTitleIcon();
 
-        // Cap the scrollable body so the window fits the work area AND never exceeds
-        // MaxPopoverHeightDip. The footer bar (FooterChromeAllowanceDip) stays pinned
-        // below; taller content scrolls within BodyScroll.
-        var maxWindowDip = Math.Min((_workArea.Height / _scale) - (EdgeMarginDip * 2), MaxPopoverHeightDip);
-        var maxBodyDip = maxWindowDip - FooterChromeAllowanceDip;
-        BodyScroll.MaxHeight = Math.Max(120, maxBodyDip);
-        // The settings body is capped the same way: its header and bottom bar match the
-        // usage view's, so the same chrome allowance keeps it inside the work area.
-        SettingsScroll.MaxHeight = BodyScroll.MaxHeight;
+        ApplyScrollCaps();
 
         _isShown = true;
 
@@ -272,6 +272,19 @@ public sealed partial class PopoverWindow : Window
 
         // Flash the scrollbar once content has settled, hinting the list scrolls, then auto-hide.
         RootHost.DispatcherQueue.TryEnqueue(() => _usageAutoHide?.Reveal());
+    }
+
+    // Cap the scrollable body so the window fits the work area AND never exceeds
+    // MaxPopoverHeightDip. The footer bar (FooterChromeAllowanceDip) stays pinned
+    // below; taller content scrolls within BodyScroll.
+    private void ApplyScrollCaps()
+    {
+        var maxWindowDip = Math.Min((_workArea.Height / _scale) - (EdgeMarginDip * 2), MaxPopoverHeightDip);
+        var maxBodyDip = maxWindowDip - FooterChromeAllowanceDip;
+        BodyScroll.MaxHeight = Math.Max(120, maxBodyDip);
+        // The settings body is capped the same way: its header and bottom bar match the
+        // usage view's, so the same chrome allowance keeps it inside the work area.
+        SettingsScroll.MaxHeight = BodyScroll.MaxHeight;
     }
 
     /// <summary>Binds the popover content to a view model for data display.</summary>
@@ -415,6 +428,19 @@ public sealed partial class PopoverWindow : Window
         {
             ResizeToContent();
         }
+    }
+
+    private void OnSettingsContentSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (!_isShown || !_isSettingsView || _isViewTransitioning || _settingsResizeQueued) return;
+        // Coalesced to one resize per dispatcher pass: an animating disclosure raises this
+        // on every layout step, and several of those can land before the next frame.
+        _settingsResizeQueued = true;
+        RootHost.DispatcherQueue.TryEnqueue(() =>
+        {
+            _settingsResizeQueued = false;
+            if (_isShown && _isSettingsView && !_isViewTransitioning) ResizeToContent();
+        });
     }
 
     /// <summary>The measured height of whichever view is currently shown.</summary>

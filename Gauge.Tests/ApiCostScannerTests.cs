@@ -47,6 +47,17 @@ public sealed class ApiCostScannerTests : IDisposable
     }
 
     [Fact]
+    public void SonnetFourFiveCarriesItsTwoHundredKPremiumButCurrentClaudeModelsDoNot()
+    {
+        // Cache reads count toward the 200K threshold, as Anthropic bills it.
+        var longPrompt = new TokenTotals(100_000, 100_001, 0, 0, 1_000);
+        Assert.Equal((100_000 * 6m + 100_001 * 0.6m + 1_000 * 22.5m) / 1_000_000m,
+            ApiCostPricing.Cost("claude-sonnet-4-5-20250929", longPrompt));
+        Assert.Equal((100_000 * 2m + 100_001 * 0.2m + 1_000 * 10m) / 1_000_000m,
+            ApiCostPricing.Cost("claude-sonnet-5", longPrompt));
+    }
+
+    [Fact]
     public void TheLongContextTierIsDecidedPerResponseNotPerDay()
     {
         // Two 200K-prompt responses on the same day sum to 400K, but neither crossed the
@@ -188,6 +199,67 @@ public sealed class ApiCostScannerTests : IDisposable
         File.WriteAllText(path, Claude("m9", "2026-09-10T10:00:00Z", input: 2_000_000) + "\n");
         File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddMinutes(1));
         Assert.Equal(10m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+    }
+
+    [Fact]
+    public void AFileHeldByAnotherProcessKeepsItsRowsUntilItCanBeReadAgain()
+    {
+        var path = WriteClaude("a.jsonl", Claude("m1", "2026-09-10T10:00:00Z", input: 1_000_000));
+        Assert.Equal(5m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+        File.AppendAllText(path, Claude("m2", "2026-09-11T10:00:00Z", input: 1_000_000) + "\n");
+
+        // Antivirus or a backup tool holding the file: its identity cannot be checked, which
+        // must not read as "rewritten" — the counted month stays, and the scan is not left
+        // incomplete (that would make the service rescan in a tight loop).
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var scanner = Scanner();
+            Assert.Equal(5m, scanner.Scan(Tools("Claude"))[0].CostUsd);
+            Assert.True(scanner.LastScanComplete);
+        }
+
+        Assert.Equal(10m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+    }
+
+    [Fact]
+    public void ANewFileHeldOnFirstSightIsReadOnALaterScan()
+    {
+        var path = WriteClaude("a.jsonl", Claude("m1", "2026-09-10T10:00:00Z", input: 1_000_000));
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Equal(0m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+            Assert.False(ApiCostLedger.Load(LedgerPath).Files.ContainsKey(path));
+        }
+
+        Assert.Equal(5m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
+        Assert.NotNull(ApiCostLedger.Load(LedgerPath).Files[path].Fingerprint);
+    }
+
+    [Fact]
+    public void TheBudgetStopsPartwayThroughALargeFileAndTheNextScanResumes()
+    {
+        // One file larger than the budget: the scan stops after its first line rather than
+        // reading the whole file past the budget, and the next one picks up the rest.
+        WriteClaude("a.jsonl",
+            Claude("m1", "2026-09-10T10:00:00Z", input: 1_000_000),
+            Claude("m2", "2026-09-11T10:00:00Z", input: 1_000_000));
+        var scanner = new ApiCostScanner(LedgerPath, Sources(), _time, Utc, maxBytesPerScan: 1);
+
+        Assert.Equal(5m, scanner.Scan(Tools("Claude"))[0].CostUsd);
+        Assert.False(scanner.LastScanComplete);
+        Assert.Equal(10m, scanner.Scan(Tools("Claude"))[0].CostUsd);
+        Assert.True(scanner.LastScanComplete);
+    }
+
+    [Fact]
+    public void ACancelledScanStopsWithoutSavingAndLeavesNothingHalfCounted()
+    {
+        WriteClaude("a.jsonl", Claude("m1", "2026-09-10T10:00:00Z", input: 1_000_000));
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => Scanner().Scan(Tools("Claude"), cancelled.Token));
+        Assert.Equal(5m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
     }
 
     [Fact]

@@ -263,6 +263,60 @@ public sealed class UsageHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void WeekdayProfileAveragesEachWeekdayOverTheTimesItWasSeen()
+    {
+        // The same 0.10 every day, but Monday observed twice and Tuesday once: a raw sum
+        // would give Monday double weight and make an even spender look off pace.
+        using var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc);
+        var monday = new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero);
+        foreach (var day in new[] { monday, monday.AddDays(1), monday.AddDays(7) })
+        {
+            RecordAt(store, day, 0.10);
+            RecordAt(store, day.AddHours(1), 0.20);
+        }
+
+        var profile = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString())!;
+        Assert.Equal(3, profile.DaysObserved);
+        AssertWeights(profile, monday: 0.10, tuesday: 0.10);
+    }
+
+    [Fact]
+    public void WeekdayProfileCreditsUseAfterAResetButNotAJitteredRecompute()
+    {
+        using var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc);
+        var monday = new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero);
+        var firstReset = monday.AddHours(1);
+        RecordAt(store, monday, 0.80, firstReset);
+        // Same window, reset time jittered by seconds, percent recomputed down: not a reset.
+        RecordAt(store, monday.AddMinutes(30), 0.75, firstReset.AddSeconds(20));
+        // Past the reset: the window rolled over, and the 0.05 shown was used since it.
+        RecordAt(store, monday.AddHours(2), 0.05, firstReset.AddHours(5));
+
+        var profile = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString())!;
+        AssertWeights(profile, monday: 0.05);
+    }
+
+    [Fact]
+    public void WeekdayProfilePairsTheFirstReadingAfterRestartWithTheLastStoredOne()
+    {
+        // Closed for eight hours — past the six-hour memory tail but inside the twelve-hour
+        // gap — the first reading after reopening still credits its increase, exactly as
+        // the next launch's fold of the same rows would.
+        var monday = new DateTimeOffset(2026, 8, 3, 8, 0, 0, TimeSpan.Zero);
+        using (var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc))
+        {
+            RecordAt(store, monday, 0.10);
+        }
+
+        using (var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc))
+        {
+            RecordAt(store, monday.AddHours(8), 0.30);
+            var profile = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString())!;
+            AssertWeights(profile, monday: 0.20);
+        }
+    }
+
+    [Fact]
     public void WeekdayProfileCountsDaysInTheGivenZone()
     {
         // 23:30 UTC on Monday is Tuesday 08:30 in Seoul, so the increase lands on Tuesday
@@ -278,10 +332,15 @@ public sealed class UsageHistoryStoreTests : IDisposable
         Assert.Equal(1, profile.DaysObserved);
     }
 
-    private void RecordAt(UsageHistoryStore store, DateTimeOffset capturedAt, double ratio)
+    private void RecordAt(UsageHistoryStore store, DateTimeOffset capturedAt, double ratio, DateTimeOffset? resetTime = null)
     {
         _time.Now = capturedAt;
-        store.Record(Snapshot("Codex", ratio, capturedAt));
+        var snapshot = Snapshot("Codex", ratio, capturedAt);
+        if (resetTime is { } reset)
+        {
+            snapshot = snapshot with { Windows = [snapshot.Windows[0] with { ResetTime = reset }] };
+        }
+        store.Record(snapshot);
     }
 
     private static void AssertWeights(UsageWeekdayProfile profile,

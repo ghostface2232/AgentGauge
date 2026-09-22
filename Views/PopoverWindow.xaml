@@ -696,8 +696,9 @@
         </Border>
 
         <!-- Settings is a second view inside the same acrylic popover. Stretches so
-             the update row can sit at the bottom (the window keeps the usage view's
-             height while settings is shown). -->
+             the update row can sit at the bottom; the window is sized to this view's own
+             measured height while it is shown. Because it stretches, its own SizeChanged
+             only follows the window — content changes are tracked on SettingsContent. -->
         <Border x:Name="SettingsBorder" VerticalAlignment="Stretch" Visibility="Collapsed">
             <Border.RenderTransform>
                 <TranslateTransform x:Name="SettingsViewTransform" />
@@ -731,10 +732,10 @@
                      matches the usage view's (its last card's 8dip + list's 4dip). The
                      list grows to a scroll as more services are registered or on a short
                      window — VerticalScrollBarVisibility=Auto turns the scrollbar on only
-                     when the content actually exceeds the (usage-matched) panel height. -->
+                     when the content actually exceeds the capped panel height. -->
                 <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollMode="Disabled" Padding="16,0,16,0">
-                <StackPanel Spacing="8" VerticalAlignment="Top" Margin="0,0,0,12">
+                <StackPanel x:Name="SettingsContent" Spacing="8" VerticalAlignment="Top" Margin="0,0,0,12">
                     <!-- App-wide toggles, grouped in one card directly under the title:
                          usage notifications and run-on-startup. Two-way bound to the
                          GlobalSettingsViewModel; the empty On/Off content keeps the switch

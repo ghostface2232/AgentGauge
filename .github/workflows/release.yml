@@ -26,6 +26,20 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # A tag that disagrees with <Version> would install as the old version and keep
+      # offering itself as an update forever, so refuse it before building anything.
+      - name: Check tag matches Gauge.csproj Version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content Gauge.csproj
+          $version = [string]($project.Project.PropertyGroup.Version | Select-Object -First 1)
+          if ("v$version" -ne '${{ github.ref_name }}') {
+            throw "Tag ${{ github.ref_name }} does not match Gauge.csproj <Version> $version."
+          }
+
+      - name: Run tests
+        run: dotnet test Gauge.Tests/Gauge.Tests.csproj -c Release
+
       - name: Install Inno Setup 6
         run: choco install innosetup --no-progress -y
 
@@ -36,11 +50,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # Creates a DRAFT release with the installer asset and auto-generated notes as a
-        # starting point — final notes and publishing are done manually. Idempotent: if a
-        # release/draft for this tag already exists (e.g. created locally by release.ps1,
-        # whose tag push also triggers this workflow), just replace the asset instead of
-        # failing.
-        run: >
-          gh release create "${{ github.ref_name }}" dist/GaugeSetup-win-x64.exe
-          --title "${{ github.ref_name }}" --draft --generate-notes
-          || gh release upload "${{ github.ref_name }}" dist/GaugeSetup-win-x64.exe --clobber
+        # starting point — final notes and publishing are done manually. If a draft for this
+        # tag already exists, its asset is replaced. A release that is already published
+        # (e.g. by release.ps1, whose tag push also triggers this workflow) is left alone:
+        # swapping its installer would change the digest clients already verified against.
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $isDraft = gh release view $tag --json isDraft --jq '.isDraft' 2> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag dist/GaugeSetup-win-x64.exe --title $tag --draft --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
+          } elseif ($isDraft -eq 'true') {
+            gh release upload $tag dist/GaugeSetup-win-x64.exe --clobber
+            if ($LASTEXITCODE -ne 0) { throw "gh release upload failed ($LASTEXITCODE)" }
+          } else {
+            Write-Host "Release $tag is already published; leaving its asset unchanged."
+          }
+          $global:LASTEXITCODE = 0

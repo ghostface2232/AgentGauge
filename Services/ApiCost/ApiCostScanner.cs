@@ -92,7 +92,6 @@ public sealed class ApiCostScanner
         {
             var files = source.Roots.Where(Directory.Exists)
                 .SelectMany(root => SafeEnumerate(root))
-                .Select(path => new FileInfo(path))
                 .Where(info => info.Length > 0)
                 .OrderByDescending(info => info.LastWriteTimeUtc)
                 .ToList();
@@ -116,14 +115,27 @@ public sealed class ApiCostScanner
                     complete = false;
                     break;
                 }
-                AdoptIfMoved(ledger, info, vanished);
-                budget -= ScanFile(ledger, source, info, oldestDay);
+                AdoptIfMoved(ledger, info, vanished, oldestDay);
+                var (read, finished) = ScanFile(ledger, source, info, oldestDay, budget, started, cancellationToken);
+                budget -= read;
+                if (!finished)
+                {
+                    // Stopped partway through this file at the byte or time budget; the next
+                    // scan resumes at the byte where this one stopped.
+                    complete = false;
+                    break;
+                }
             }
+            if (!complete) break;
         }
 
         LastScanComplete = complete;
+        // A write time of 0 means the file has not been read to its end yet (a new file whose
+        // only line is still being written): it is in progress, not old, and dropping it
+        // would re-hash and re-read it on every scan. A gone file is still pruned.
         ledger.Prune(oldestDay, File.Exists,
-            lastWriteMs => string.CompareOrdinal(DayKey(DateTimeOffset.FromUnixTimeMilliseconds(lastWriteMs)), oldestDay) < 0);
+            lastWriteMs => lastWriteMs != 0
+                && string.CompareOrdinal(DayKey(DateTimeOffset.FromUnixTimeMilliseconds(lastWriteMs)), oldestDay) < 0);
         ledger.Save(_ledgerPath);
 
         var local = TimeZoneInfo.ConvertTime(now, _zone);
@@ -159,9 +171,12 @@ public sealed class ApiCostScanner
 
     // A file the ledger does not know, whose opening bytes match an entry whose file has
     // vanished, is that file moved: re-key the entry instead of counting it again.
-    private static void AdoptIfMoved(ApiCostLedger ledger, FileInfo info, List<string> vanished)
+    private void AdoptIfMoved(ApiCostLedger ledger, FileInfo info, List<string> vanished, string oldestDay)
     {
         if (vanished.Count == 0 || ledger.Files.ContainsKey(info.FullName)) return;
+        // A file older than the window is never entered in the ledger, so it cannot be one
+        // that moved out from under an entry; don't hash it against every vanished entry.
+        if (IsBeforeWindow(info, oldestDay)) return;
         foreach (var old in vanished)
         {
             var state = ledger.Files[old];
@@ -173,20 +188,42 @@ public sealed class ApiCostScanner
         }
     }
 
-    // Returns the bytes read from this file.
-    private long ScanFile(ApiCostLedger ledger, LogSource source, FileInfo info, string oldestDay)
+    // Returns the bytes read from this file, and Finished = false when the byte or time
+    // budget ran out before the file's end (the caller then reports the scan incomplete). A
+    // file that cannot be opened right now (another process holding it, a transient IO
+    // error) is skipped for this pass and counts as finished: its already-counted rows stay
+    // in the ledger, so the published total is at worst briefly stale, never lower.
+    private (long Read, bool Finished) ScanFile(
+        ApiCostLedger ledger, LogSource source, FileInfo info, string oldestDay,
+        long budget, long started, CancellationToken cancellationToken)
     {
         var path = info.FullName;
         var lastWrite = new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds();
         if (ledger.Files.TryGetValue(path, out var state))
         {
-            if (state.Length == info.Length && state.LastWriteUtcMs == lastWrite) return 0;
-            // Shrunk, or rewritten in place: the parsed prefix no longer describes this file.
-            if (info.Length < state.ParsedBytes
-                || (state.Fingerprint is not null && Fingerprint(path, state.FingerprintLength) != state.Fingerprint))
+            if (state.Length == info.Length && state.LastWriteUtcMs == lastWrite) return (0, true);
+            if (info.Length < state.ParsedBytes)
             {
+                // Shrunk: the parsed prefix no longer describes this file.
                 ledger.Forget(path);
                 state = null;
+            }
+            else
+            {
+                // Rewritten in place? Unverifiable right now (the read failed) is not the
+                // same as changed: skip this pass rather than drop the file's rows.
+                var current = Fingerprint(path, state.FingerprintLength);
+                if (current is null) return (0, true);
+                if (state.Fingerprint is null)
+                {
+                    // An entry written before identities were required: adopt it now.
+                    state.Fingerprint = current;
+                }
+                else if (current != state.Fingerprint)
+                {
+                    ledger.Forget(path);
+                    state = null;
+                }
             }
         }
         if (state is null)
@@ -194,18 +231,22 @@ public sealed class ApiCostScanner
             // A file last written before the retention window cannot add a row we would
             // keep. It is skipped without an entry; if it is ever written again its write
             // time moves into the window and it is read then.
-            if (string.CompareOrdinal(DayKey(new DateTimeOffset(info.LastWriteTimeUtc)), oldestDay) < 0) return 0;
+            if (IsBeforeWindow(info, oldestDay)) return (0, true);
             var fingerprintLength = (int)Math.Min(FingerprintBytes, info.Length);
+            // No entry without an identity: without one a rewrite or a move could not be
+            // told apart from new data. Unreadable now, it is picked up on a later scan.
+            if (Fingerprint(path, fingerprintLength) is not { } fingerprint) return (0, true);
             state = new ApiCostLedger.FileState
             {
                 Tool = source.Tool,
-                Fingerprint = Fingerprint(path, fingerprintLength),
+                Fingerprint = fingerprint,
                 FingerprintLength = fingerprintLength,
             };
             ledger.Files[path] = state;
         }
 
         long read = 0;
+        var outOfBudget = false;
         var codex = source.Kind == LogKind.Codex ? new CodexUsageLogParser(state.Codex) : null;
         var consumed = state.ParsedBytes;
         var reachedEnd = false;
@@ -215,6 +256,16 @@ public sealed class ApiCostScanner
             stream.Seek(state.ParsedBytes, SeekOrigin.Begin);
             foreach (var (line, endOffset) in Lines(stream))
             {
+                // Checked per line, not per file: switching the option off must stop the
+                // read of a multi-gigabyte rollout now, not when it ends. The bytes consumed
+                // so far are kept (finally, below), so the next scan resumes here.
+                cancellationToken.ThrowIfCancellationRequested();
+                // At least one line per file per pass, so a scan always makes progress.
+                if (read > 0 && (read >= budget || _time.GetElapsedTime(started) > MaxDurationPerScan))
+                {
+                    outOfBudget = true;
+                    break;
+                }
                 read += endOffset - consumed;
                 consumed = endOffset;
                 UsageLogRecord? record = null;
@@ -227,7 +278,7 @@ public sealed class ApiCostScanner
                 ledger.Add(path, state, record.Key, day, record.Model, record.Tokens,
                     ApiCostPricing.IsLongContext(record.Model, record.Tokens));
             }
-            reachedEnd = true;
+            reachedEnd = !outOfBudget;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -247,8 +298,11 @@ public sealed class ApiCostScanner
             state.Length = info.Length;
             state.LastWriteUtcMs = lastWrite;
         }
-        return read;
+        return (read, !outOfBudget);
     }
+
+    private bool IsBeforeWindow(FileInfo info, string oldestDay)
+        => string.CompareOrdinal(DayKey(new DateTimeOffset(info.LastWriteTimeUtc)), oldestDay) < 0;
 
     private const int FingerprintBytes = 4096;
 
@@ -305,11 +359,20 @@ public sealed class ApiCostScanner
         // Whatever is pending never ended in a newline; it is not consumed.
     }
 
-    private static IEnumerable<string> SafeEnumerate(string root)
+    // FileInfo values from a directory enumeration carry the size and write time read during
+    // the listing, so a file deleted afterwards (Claude Code's session cleanup) cannot throw
+    // on .Length; an inaccessible subfolder is skipped instead of emptying the whole list.
+    private static readonly EnumerationOptions LogEnumeration = new()
+    {
+        RecurseSubdirectories = true,
+        IgnoreInaccessible = true,
+    };
+
+    private static IEnumerable<FileInfo> SafeEnumerate(string root)
     {
         try
         {
-            return Directory.EnumerateFiles(root, "*.jsonl", SearchOption.AllDirectories).ToList();
+            return new DirectoryInfo(root).EnumerateFiles("*.jsonl", LogEnumeration).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -122,6 +122,9 @@ public sealed class UpdateService
             // footer can only say the check failed.
             if (!TryParseSha256Digest(digest, out var sha256))
             {
+                // Nothing would be offered anyway: this build is current, and saying so
+                // beats a "check failed" about a download that was never going to happen.
+                if (version <= _currentVersion) return new UpdateCheckResult(UpdateStatus.UpToDate, _currentVersion, null);
                 DiagnosticsLog.Write("update", $"Release {tag}: installer asset has no usable sha256 digest; not offered.");
                 return new UpdateCheckResult(UpdateStatus.CheckFailed, _currentVersion, null);
             }
@@ -144,11 +147,12 @@ public sealed class UpdateService
     /// </summary>
     public async Task<bool> DownloadAndLaunchAsync(GitHubRelease release, CancellationToken cancellationToken = default)
     {
+        string? installer = null;
         try
         {
             var dir = Path.Combine(Path.GetTempPath(), "Gauge");
             Directory.CreateDirectory(dir);
-            var installer = Path.Combine(dir, $"GaugeSetup-{release.TagName}.exe");
+            installer = Path.Combine(dir, $"GaugeSetup-{release.TagName}.exe");
 
             await using (var stream = await _http.GetStreamAsync(release.DownloadUrl, cancellationToken))
             await using (var file = File.Create(installer))
@@ -161,8 +165,8 @@ public sealed class UpdateService
             // removed so a later attempt cannot pick it up either.
             if (!await HasExpectedDigestAsync(installer, release.Sha256, cancellationToken))
             {
-                File.Delete(installer);
                 DiagnosticsLog.Write("update", $"Installer for {release.TagName} failed sha256 verification; not launched.");
+                TryDelete(installer);
                 return false;
             }
 
@@ -176,7 +180,22 @@ public sealed class UpdateService
             // Type only: this catch is broad, and an IOException here would carry the
             // installer's full temp path — which embeds the Windows account name.
             DiagnosticsLog.Write("update", $"Installer download/launch failed: {ex.GetType().Name}");
+            // A dropped connection or a cancel leaves a truncated file behind; it would never
+            // be launched (each attempt recreates it), but it should not linger in %TEMP%.
+            if (installer is not null) TryDelete(installer);
             return false;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best effort (an antivirus scan may hold it); the next attempt overwrites it.
         }
     }
 
@@ -186,7 +205,7 @@ public sealed class UpdateService
     /// </summary>
     internal static bool TryParseSha256Digest(string? digest, out string sha256)
     {
-        var match = digest is null ? null : Regex.Match(digest, "^sha256:([0-9A-Fa-f]{64})$");
+        var match = digest is null ? null : Regex.Match(digest, @"^sha256:([0-9A-Fa-f]{64})\z");
         sha256 = match is { Success: true } ? match.Groups[1].Value.ToLowerInvariant() : "";
         return sha256.Length > 0;
     }

@@ -62,11 +62,15 @@ public sealed class ApiCostService : IDisposable
         _ = RunLoopAsync(_activeToken);
     }
 
-    /// <summary>A popover open: scan if the last one is old enough (no-op while disabled).</summary>
-    public void RequestScan()
+    /// <summary>
+    /// A popover open: scan if the last one is old enough (no-op while disabled). With
+    /// <paramref name="force"/> — the set of scanned tools changed — scan regardless of the
+    /// debounce, so a tool just added or shown gets its chip now rather than on the timer.
+    /// </summary>
+    public void RequestScan(bool force = false)
     {
         if (!IsEnabled || _loop is null) return;
-        if (_lastScanTimestamp != 0 && _time.GetElapsedTime(_lastScanTimestamp) < OpenDebounce) return;
+        if (!force && _lastScanTimestamp != 0 && _time.GetElapsedTime(_lastScanTimestamp) < OpenDebounce) return;
         _ = ScanOnceAsync(_activeToken);
     }
 
@@ -128,7 +132,9 @@ public sealed class ApiCostService : IDisposable
         catch (Exception ex)
         {
             // The estimate is a convenience; nothing about usage display depends on it.
-            DiagnosticsLog.Write("apicost", $"Scan failed: {ex.GetType().Name}: {ex.Message}");
+            // Type only: an IO exception's message embeds a transcript path (account name,
+            // project folder), which the diagnostics log does not need.
+            DiagnosticsLog.Write("apicost", $"Scan failed: {ex.GetType().Name}");
         }
         finally
         {
