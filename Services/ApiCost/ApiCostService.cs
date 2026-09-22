@@ -128,7 +128,9 @@ public sealed class ApiCostService : IDisposable
         catch (Exception ex)
         {
             // The estimate is a convenience; nothing about usage display depends on it.
-            DiagnosticsLog.Write("apicost", $"Scan failed: {ex.GetType().Name}: {ex.Message}");
+            // Type only: an IO exception's message embeds a transcript path (account name,
+            // project folder), which the diagnostics log does not need.
+            DiagnosticsLog.Write("apicost", $"Scan failed: {ex.GetType().Name}");
         }
         finally
         {

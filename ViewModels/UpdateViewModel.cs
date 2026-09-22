@@ -110,6 +110,11 @@ public sealed partial class UpdateViewModel : ObservableObject
         }
         else
         {
+            // Drop the cached release so the button falls back to "Check for updates": a
+            // retry then re-reads the release, picking up a re-uploaded asset's new digest
+            // instead of failing against the old one until the app restarts.
+            _available = null;
+            IsUpdateAvailable = false;
             StatusText = Loc.Get("Update_InstallFailed");
             IsBusy = false;
         }

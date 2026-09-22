@@ -23,14 +23,16 @@ failure, failure→success, tool purge, debounce, the popover-open cost floor), 
 per-window label key that keeps GitHub Copilot's three billing-cycle quotas distinct in
 both the rehydrated cache and the toast titles, usage-history recording/pruning
 (`UsageHistoryStoreTests`, including the weekday profile behind the automatic pace model —
-per-local-weekday crediting, the long-gap drop, and reopen without double counting), the
+per-local-weekday crediting averaged over each weekday's occurrences, the long-gap drop, and
+reopen without double counting), the
 ETA projection (`UsageEtaClassifierTests`), the pace caption under every weekly pace model
 (`UsagePaceClassifierTests`, with the weighted-elapsed arithmetic in
 `WeeklyPaceTimelineTests` and persistence in `WeeklyPaceModelSettingsStoreTests`), the
 API-equivalent cost estimate (`ApiCostParserTests` for the Claude/Codex log readers —
 de-duplication identity, the message-start skip, token normalization, cumulative totals and
 the usage-record precedence; `ApiCostScannerTests` for pricing tiers and unknown models,
-incremental resume from the last complete line, shrunk-file rescans, local-day attribution,
+incremental resume from the last complete line, shrunk-file rescans, a file held by another
+process keeping its rows, the byte budget stopping mid-file, cancellation, local-day attribution,
 the card chip and the opt-in setting), notification
 evaluation and preferences, tool-registry persistence validation, and the shared
 settings.json read-modify-write — that no write ever replaces a document it could not read,

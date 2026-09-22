@@ -31,12 +31,18 @@ Write-Host "==> Building installer for $tag..." -ForegroundColor Cyan
 if ($LASTEXITCODE -ne 0) { throw "build-installer.ps1 failed ($LASTEXITCODE)" }
 if (-not (Test-Path $installer)) { throw "Installer not found: $installer" }
 
-# Reuse an existing release for this tag (re-upload the asset) or create a new one.
-gh release view $tag *> $null
+# Reuse an existing DRAFT for this tag (re-upload the asset) or create a new release. A
+# published release is never touched: replacing its installer would ship new code under an
+# old version no client is ever offered, and change the asset digest clients already hold.
+$isDraft = gh release view $tag --json isDraft --jq '.isDraft' 2> $null
 $releaseExists = ($LASTEXITCODE -eq 0)
 
+if ($releaseExists -and $isDraft -ne 'true') {
+    throw "Release $tag is already published. Bump <Version> in Gauge.csproj for a new release."
+}
+
 if ($releaseExists) {
-    Write-Host "==> Release $tag already exists; replacing the installer asset..." -ForegroundColor Cyan
+    Write-Host "==> Draft $tag already exists; replacing the installer asset..." -ForegroundColor Cyan
     gh release upload $tag $installer --clobber
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed ($LASTEXITCODE)" }
 } else {

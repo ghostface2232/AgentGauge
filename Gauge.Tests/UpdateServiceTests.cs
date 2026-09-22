@@ -63,6 +63,7 @@ public sealed class UpdateServiceTests
     [InlineData("SHA256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", false, "")]
     [InlineData("md5:0123456789abcdef0123456789abcdef", false, "")]
     [InlineData("sha256:0123456789abcdef", false, "")]
+    [InlineData("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n", false, "")]
     [InlineData("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg", false, "")]
     [InlineData("", false, "")]
     [InlineData(null, false, "")]
@@ -174,6 +175,18 @@ public sealed class UpdateServiceTests
         Assert.Null(launcher.LaunchedPath);
     }
 
+    [Fact]
+    public async Task ADownloadCutOffPartwayLeavesNoTruncatedInstallerBehind()
+    {
+        var launcher = new FakeLauncher(result: true);
+        var service = new UpdateService(
+            new HttpClient(new CutOffHandler()), new Version(0, 2, 4), launcher, Architecture.X64);
+
+        Assert.False(await service.DownloadAndLaunchAsync(Release("v9.9.7", Sha256Of("whole-installer"))));
+        Assert.Null(launcher.LaunchedPath);
+        Assert.False(File.Exists(Path.Combine(Path.GetTempPath(), "Gauge", "GaugeSetup-v9.9.7.exe")));
+    }
+
     private static string ReleaseJson(string tag, string digest) => $$"""
         {
           "tag_name": "{{tag}}",
@@ -209,6 +222,37 @@ public sealed class UpdateServiceTests
             Arguments = arguments;
             return result;
         }
+    }
+
+    // Serves a few bytes of the body, then drops the connection.
+    private sealed class CutOffHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StreamContent(new CutOffStream()),
+            });
+    }
+
+    private sealed class CutOffStream : Stream
+    {
+        private bool _served;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_served) throw new IOException("connection reset");
+            _served = true;
+            buffer[offset] = (byte)'M';
+            return 1;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class StubHandler(string body, HttpStatusCode status) : HttpMessageHandler

@@ -25,7 +25,11 @@ public sealed class CultureContractTests
     {
         var root = RepoRoot();
         var failures = new List<string>();
-        foreach (var file in SourceFiles(root))
+        var files = SourceFiles(root).ToList();
+        // A tripwire that scanned nothing passes vacuously; the app has well over this many
+        // source files, so a filter or root mistake shows up here instead of as a green run.
+        Assert.True(files.Count > 50, $"Scanned only {files.Count} source files under {root}.");
+        foreach (var file in files)
         {
             var source = File.ReadAllText(file);
             foreach (Match match in ParseCall.Matches(source))
@@ -86,15 +90,24 @@ public sealed class CultureContractTests
         return source.Length;
     }
 
-    private static IEnumerable<string> SourceFiles(string root)
+    // Excluded by the path's top-level folder relative to the repo root, not by a substring
+    // of the absolute path — a clone living under some ...\bin\... folder would otherwise
+    // exclude every file. Build output can also nest (bin/obj under a project folder), so
+    // those two are excluded at any depth within the repo.
+    private static readonly HashSet<string> ExcludedTopLevel = new(StringComparer.OrdinalIgnoreCase)
     {
-        var sep = Path.DirectorySeparatorChar;
-        return Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-            .Where(p => !p.Contains($"{sep}obj{sep}")
-                     && !p.Contains($"{sep}bin{sep}")
-                     && !p.Contains($"{sep}Gauge.Tests{sep}")
-                     && !p.Contains($"{sep}Ref{sep}"));
-    }
+        "Gauge.Tests", "Ref", "dist", ".claude", ".git",
+    };
+
+    private static IEnumerable<string> SourceFiles(string root)
+        => Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
+            .Where(p =>
+            {
+                var parts = Path.GetRelativePath(root, p).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return !ExcludedTopLevel.Contains(parts[0])
+                    && !parts.Any(part => part.Equals("bin", StringComparison.OrdinalIgnoreCase)
+                                       || part.Equals("obj", StringComparison.OrdinalIgnoreCase));
+            });
 
     private static string RepoRoot()
     {

@@ -306,7 +306,21 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             _weights[(int)local.DayOfWeek] += delta;
         }
 
-        public UsageWeekdayProfile ToProfile() => new(_weights.ToArray(), _days.Count);
+        // The mean per observed occurrence of each weekday, not the raw sum: past the two-week
+        // gate the weekdays are rarely seen equally often (day 17 has three Mondays but two
+        // Thursdays), and a sum would weight the more-seen days up — an even spender would
+        // read as off pace. A weekday never observed stays 0, as before.
+        public UsageWeekdayProfile ToProfile()
+        {
+            var occurrences = new int[7];
+            foreach (var day in _days) occurrences[(int)day.DayOfWeek]++;
+            var weights = new double[7];
+            for (var d = 0; d < 7; d++)
+            {
+                weights[d] = occurrences[d] > 0 ? _weights[d] / occurrences[d] : 0;
+            }
+            return new(weights, _days.Count);
+        }
     }
 
     private void PruneIfDue()

@@ -75,6 +75,7 @@ public sealed partial class PopoverWindow : Window
     // Guards against re-entrancy: MoveAndResize triggers a layout pass that fires
     // SizeChanged synchronously, which would call back into the resize logic.
     private bool _isResizing;
+    private bool _settingsResizeQueued;
     private bool _isViewTransitioning;
     private bool _isSettingsView;
     private double _usageViewHeightDip;
@@ -165,6 +166,10 @@ public sealed partial class PopoverWindow : Window
         // Resize the window to match content height as it loads/changes (no filler).
         RootBorder.SizeChanged += OnContentSizeChanged;
         SettingsBorder.SizeChanged += OnContentSizeChanged;
+        // SettingsBorder stretches to the window and its scroll absorbs growth, so its own
+        // SizeChanged never sees a disclosure opening or a service being added. The panel
+        // inside the scroll is top-aligned and sized by its content, so it does.
+        SettingsContent.SizeChanged += OnSettingsContentSizeChanged;
 
         // Scrollbars reveal while scrolling and hide ~1s after it stops, so they don't sit
         // permanently over the cards' right edge.
@@ -415,6 +420,19 @@ public sealed partial class PopoverWindow : Window
         {
             ResizeToContent();
         }
+    }
+
+    private void OnSettingsContentSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (!_isShown || !_isSettingsView || _isViewTransitioning || _settingsResizeQueued) return;
+        // Coalesced to one resize per dispatcher pass: an animating disclosure raises this
+        // on every layout step, and several of those can land before the next frame.
+        _settingsResizeQueued = true;
+        RootHost.DispatcherQueue.TryEnqueue(() =>
+        {
+            _settingsResizeQueued = false;
+            if (_isShown && _isSettingsView && !_isViewTransitioning) ResizeToContent();
+        });
     }
 
     /// <summary>The measured height of whichever view is currently shown.</summary>

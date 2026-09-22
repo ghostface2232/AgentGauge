@@ -263,6 +263,24 @@ public sealed class UsageHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void WeekdayProfileAveragesEachWeekdayOverTheTimesItWasSeen()
+    {
+        // The same 0.10 every day, but Monday observed twice and Tuesday once: a raw sum
+        // would give Monday double weight and make an even spender look off pace.
+        using var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc);
+        var monday = new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero);
+        foreach (var day in new[] { monday, monday.AddDays(1), monday.AddDays(7) })
+        {
+            RecordAt(store, day, 0.10);
+            RecordAt(store, day.AddHours(1), 0.20);
+        }
+
+        var profile = store.GetWeekdayProfile("Codex", UsageWindowType.FiveHour.ToString())!;
+        Assert.Equal(3, profile.DaysObserved);
+        AssertWeights(profile, monday: 0.10, tuesday: 0.10);
+    }
+
+    [Fact]
     public void WeekdayProfileCountsDaysInTheGivenZone()
     {
         // 23:30 UTC on Monday is Tuesday 08:30 in Seoul, so the increase lands on Tuesday
