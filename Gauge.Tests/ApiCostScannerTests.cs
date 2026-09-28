@@ -1,3 +1,4 @@
+using System.Globalization;
 using Gauge.Models;
 using Gauge.Services;
 using Gauge.Services.ApiCost;
@@ -58,6 +59,19 @@ public sealed class ApiCostScannerTests : IDisposable
     }
 
     [Fact]
+    public void NewestModelsCarryTheirOwnCacheReadAndLongContextRates()
+    {
+        // claude-opus-5-5 reads cache at 0.05x input (0.2), not the usual 0.1x.
+        Assert.Equal(4m + 0.2m + 5m + 8m + 20m,
+            ApiCostPricing.Cost("claude-opus-5-5", new TokenTotals(1_000_000, 1_000_000, 1_000_000, 1_000_000, 1_000_000)));
+        // gpt-6-sol: 2/10 below 272K, 2x input and 1.5x output above it.
+        Assert.Equal((272_000 * 2m + 1_000 * 10m) / 1_000_000m,
+            ApiCostPricing.Cost("gpt-6-sol", new TokenTotals(272_000, 0, 0, 0, 1_000)));
+        Assert.Equal((272_001 * 4m + 1_000 * 15m) / 1_000_000m,
+            ApiCostPricing.Cost("gpt-6-sol", new TokenTotals(272_001, 0, 0, 0, 1_000)));
+    }
+
+    [Fact]
     public void TheLongContextTierIsDecidedPerResponseNotPerDay()
     {
         // Two 200K-prompt responses on the same day sum to 400K, but neither crossed the
@@ -98,6 +112,8 @@ public sealed class ApiCostScannerTests : IDisposable
     [InlineData("claude-opus-4-5-20251101", true)]
     [InlineData("CLAUDE-FABLE-5-1", true)]
     [InlineData(" gpt-5.5 ", true)]
+    [InlineData("gpt-6-luna", true)]
+    [InlineData("claude-mythos-5-1", true)]
     [InlineData("opus", false)]
     [InlineData("<synthetic>", false)]
     [InlineData("codex-auto-review", false)]
@@ -426,20 +442,34 @@ public sealed class ApiCostScannerTests : IDisposable
 
         card.ApplyApiCost(estimate);
         Assert.True(card.HasApiCost);
-        Assert.Equal("≈ $1234.50", card.ApiCostText);
+        Assert.Equal("≈ $1,235", card.ApiCostText);
         Assert.Contains("API", card.ApiCostDescription);
         Assert.Contains("입력 1", card.ApiCostDescription);
         // A screen reader hears the amount first, then the explanation.
-        Assert.StartsWith("≈ $1234.50. ", card.ApiCostAccessibleName);
+        Assert.StartsWith("≈ $1,235. ", card.ApiCostAccessibleName);
 
         card.ApplyApiCost(estimate with { UnpricedTokens = 42, UnpricedModels = ["codex-auto-review"] });
-        Assert.Equal("≈ $1234.50+", card.ApiCostText);
+        Assert.Equal("≈ $1,235+", card.ApiCostText);
         Assert.Contains("codex-auto-review", card.ApiCostDescription);
 
         card.ApplyApiCost(null);
         Assert.False(card.HasApiCost);
         card.ApplyApiCost(estimate with { CostUsd = 0, PricedTokens = TokenTotals.Zero });
         Assert.False(card.HasApiCost);
+    }
+
+    [Theory]
+    [InlineData("12.345", "≈ $12.35")]
+    [InlineData("99.99", "≈ $99.99")]
+    [InlineData("99.996", "≈ $100")]
+    [InlineData("100", "≈ $100")]
+    [InlineData("340.5", "≈ $341")]
+    public void CardDropsCentsFromOneHundredDollars(string cost, string expected)
+    {
+        var card = new ToolCardViewModel(new CachedUsage { ToolName = "Claude" });
+        card.ApplyApiCost(new ApiCostEstimate("Claude", 2026, 9, decimal.Parse(cost, CultureInfo.InvariantCulture),
+            new TokenTotals(1, 0, 0, 0, 0), 0, [], _time.Now));
+        Assert.Equal(expected, card.ApiCostText);
     }
 
     [Fact]
