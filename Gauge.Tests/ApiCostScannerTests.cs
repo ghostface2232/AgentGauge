@@ -1,3 +1,4 @@
+using System.Globalization;
 using Gauge.Models;
 using Gauge.Services;
 using Gauge.Services.ApiCost;
@@ -441,20 +442,34 @@ public sealed class ApiCostScannerTests : IDisposable
 
         card.ApplyApiCost(estimate);
         Assert.True(card.HasApiCost);
-        Assert.Equal("≈ $1234.50", card.ApiCostText);
+        Assert.Equal("≈ $1,235", card.ApiCostText);
         Assert.Contains("API", card.ApiCostDescription);
         Assert.Contains("입력 1", card.ApiCostDescription);
         // A screen reader hears the amount first, then the explanation.
-        Assert.StartsWith("≈ $1234.50. ", card.ApiCostAccessibleName);
+        Assert.StartsWith("≈ $1,235. ", card.ApiCostAccessibleName);
 
         card.ApplyApiCost(estimate with { UnpricedTokens = 42, UnpricedModels = ["codex-auto-review"] });
-        Assert.Equal("≈ $1234.50+", card.ApiCostText);
+        Assert.Equal("≈ $1,235+", card.ApiCostText);
         Assert.Contains("codex-auto-review", card.ApiCostDescription);
 
         card.ApplyApiCost(null);
         Assert.False(card.HasApiCost);
         card.ApplyApiCost(estimate with { CostUsd = 0, PricedTokens = TokenTotals.Zero });
         Assert.False(card.HasApiCost);
+    }
+
+    [Theory]
+    [InlineData("12.345", "≈ $12.35")]
+    [InlineData("99.99", "≈ $99.99")]
+    [InlineData("99.996", "≈ $100")]
+    [InlineData("100", "≈ $100")]
+    [InlineData("340.5", "≈ $341")]
+    public void CardDropsCentsFromOneHundredDollars(string cost, string expected)
+    {
+        var card = new ToolCardViewModel(new CachedUsage { ToolName = "Claude" });
+        card.ApplyApiCost(new ApiCostEstimate("Claude", 2026, 9, decimal.Parse(cost, CultureInfo.InvariantCulture),
+            new TokenTotals(1, 0, 0, 0, 0), 0, [], _time.Now));
+        Assert.Equal(expected, card.ApiCostText);
     }
 
     [Fact]

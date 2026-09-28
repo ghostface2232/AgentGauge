@@ -162,6 +162,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
     public bool HasApiCost => !string.IsNullOrEmpty(ApiCostText);
 
+    private const decimal WholeDollarThreshold = 100m;
+
     /// <summary>Shows or clears the cost estimate; null clears it (option off).</summary>
     public void ApplyApiCost(ApiCostEstimate? estimate)
     {
@@ -172,9 +174,15 @@ public sealed partial class ToolCardViewModel : ObservableObject
             ApiCostAccessibleName = "";
             return;
         }
-        // Dollars are machine-facing here (a fixed "12.34" shape), so the invariant culture
-        // formats them; the token counts take the UI language's digit grouping.
-        var dollars = estimate.CostUsd.ToString("0.00", CultureInfo.InvariantCulture);
+        // Dollars are machine-facing here (a fixed "12.34" / "1,235" shape), so the invariant
+        // culture formats them; the token counts take the UI language's digit grouping. From
+        // $100 the cents are dropped: an estimate gains nothing from them, and the header row
+        // does not trim, so a longer amount would be clipped. The threshold is checked after
+        // rounding to cents so 99.996 reads "100", not "100.00".
+        var cents = Math.Round(estimate.CostUsd, 2, MidpointRounding.AwayFromZero);
+        var dollars = cents >= WholeDollarThreshold
+            ? cents.ToString("#,##0", CultureInfo.InvariantCulture)
+            : cents.ToString("0.00", CultureInfo.InvariantCulture);
         ApiCostText = Loc.Format(estimate.HasUnpriced ? "ApiCost_ValueFloor" : "ApiCost_Value", dollars);
         var tokens = estimate.PricedTokens;
         var description = Loc.Format("Tooltip_ApiCost",
