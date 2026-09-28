@@ -58,6 +58,19 @@ public sealed class ApiCostScannerTests : IDisposable
     }
 
     [Fact]
+    public void NewestModelsCarryTheirOwnCacheReadAndLongContextRates()
+    {
+        // claude-opus-5-5 reads cache at 0.05x input (0.2), not the usual 0.1x.
+        Assert.Equal(4m + 0.2m + 5m + 8m + 20m,
+            ApiCostPricing.Cost("claude-opus-5-5", new TokenTotals(1_000_000, 1_000_000, 1_000_000, 1_000_000, 1_000_000)));
+        // gpt-6-sol: 2/10 below 272K, 2x input and 1.5x output above it.
+        Assert.Equal((272_000 * 2m + 1_000 * 10m) / 1_000_000m,
+            ApiCostPricing.Cost("gpt-6-sol", new TokenTotals(272_000, 0, 0, 0, 1_000)));
+        Assert.Equal((272_001 * 4m + 1_000 * 15m) / 1_000_000m,
+            ApiCostPricing.Cost("gpt-6-sol", new TokenTotals(272_001, 0, 0, 0, 1_000)));
+    }
+
+    [Fact]
     public void TheLongContextTierIsDecidedPerResponseNotPerDay()
     {
         // Two 200K-prompt responses on the same day sum to 400K, but neither crossed the
@@ -98,6 +111,8 @@ public sealed class ApiCostScannerTests : IDisposable
     [InlineData("claude-opus-4-5-20251101", true)]
     [InlineData("CLAUDE-FABLE-5-1", true)]
     [InlineData(" gpt-5.5 ", true)]
+    [InlineData("gpt-6-luna", true)]
+    [InlineData("claude-mythos-5-1", true)]
     [InlineData("opus", false)]
     [InlineData("<synthetic>", false)]
     [InlineData("codex-auto-review", false)]
