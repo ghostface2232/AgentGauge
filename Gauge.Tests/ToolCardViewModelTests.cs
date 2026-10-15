@@ -215,6 +215,35 @@ public sealed class ToolCardViewModelTests
         Assert.Empty(card.ResetCreditsText);
     }
 
+    [Fact]
+    public void HeaderChipsDropTheirLabelsOnlyWhenTheApiCostAndBothChipsAreShown()
+    {
+        var card = new ToolCardViewModel(Cached("Codex", 2, Window(null, null, UsageWindowType.FiveHour)));
+        var incident = new ProviderStatus(ToolKind.Codex, ProviderStatusLevel.Major, "Incident", DateTimeOffset.UtcNow);
+        var cost = new ApiCostEstimate("Codex", 2026, 10, 12m, new TokenTotals(1, 0, 0, 0, 1), 0, [], DateTimeOffset.UtcNow);
+        var changed = new List<string?>();
+        card.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        // Any two of the three still fit.
+        card.ApplyServiceStatus(incident);
+        Assert.True(card.ShowHeaderChipLabels);
+
+        card.ApplyApiCost(cost);
+        Assert.False(card.ShowHeaderChipLabels);
+        Assert.Contains(nameof(ToolCardViewModel.ShowHeaderChipLabels), changed);
+
+        // Losing any one of them brings the labels back.
+        card.Update(Cached("Codex", 0, Window(null, null, UsageWindowType.FiveHour)));
+        Assert.True(card.ShowHeaderChipLabels);
+        card.Update(Cached("Codex", 2, Window(null, null, UsageWindowType.FiveHour)));
+        Assert.False(card.ShowHeaderChipLabels);
+        card.ApplyApiCost(null);
+        Assert.True(card.ShowHeaderChipLabels);
+        card.ApplyApiCost(cost);
+        card.ApplyServiceStatus(incident with { Level = ProviderStatusLevel.Operational });
+        Assert.True(card.ShowHeaderChipLabels);
+    }
+
     private static UsageWindow Window(string? id, string? group, UsageWindowType type) => new()
     {
         Id = id,

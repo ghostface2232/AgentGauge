@@ -33,6 +33,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
     public string ToolName { get; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderChipLabels))]
     public partial bool HasServiceStatus { get; set; }
     [ObservableProperty]
     public partial string ServiceStatusText { get; set; } = "";
@@ -137,7 +138,16 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
     /// <summary>True when the tool reports at least one reset held (controls the chip).</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderChipLabels))]
     public partial bool HasResetCredits { get; set; }
+
+    /// <summary>
+    /// Whether the header chips carry their text labels. With the API-cost caption, the
+    /// service-status chip and the reset chip all shown, the header row is too narrow for
+    /// both labels (it does not trim), so the two chips fall back to icon only; their
+    /// tooltip and automation name still spell everything out.
+    /// </summary>
+    public bool ShowHeaderChipLabels => !(HasApiCost && HasServiceStatus && HasResetCredits);
 
     /// <summary>
     /// This month's API-equivalent cost beside the plan label ("≈ $12.34"), from the local
@@ -146,6 +156,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasApiCost))]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderChipLabels))]
     public partial string ApiCostText { get; set; } = "";
 
     /// <summary>Spelled-out form for the tooltip.</summary>
