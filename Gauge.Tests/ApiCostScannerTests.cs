@@ -69,6 +69,25 @@ public sealed class ApiCostScannerTests : IDisposable
             ApiCostPricing.Cost("gpt-6-sol", new TokenTotals(272_000, 0, 0, 0, 1_000)));
         Assert.Equal((272_001 * 4m + 1_000 * 15m) / 1_000_000m,
             ApiCostPricing.Cost("gpt-6-sol", new TokenTotals(272_001, 0, 0, 0, 1_000)));
+        // gpt-6.1-sol and claude-sonnet-5-5 read cache at 0.05x input.
+        Assert.Equal((100_000 * 2m + 100_000 * 0.1m + 1_000 * 10m) / 1_000_000m,
+            ApiCostPricing.Cost("gpt-6.1-sol", new TokenTotals(100_000, 100_000, 0, 0, 1_000)));
+        Assert.Equal((200_000 * 4m + 100_000 * 0.2m + 1_000 * 15m) / 1_000_000m,
+            ApiCostPricing.Cost("gpt-6.1-sol", new TokenTotals(200_000, 100_000, 0, 0, 1_000)));
+        Assert.Equal(2m + 0.1m + 2.5m + 4m + 10m,
+            ApiCostPricing.Cost("claude-sonnet-5-5", new TokenTotals(1_000_000, 1_000_000, 1_000_000, 1_000_000, 1_000_000)));
+    }
+
+    [Fact]
+    public void HaikuFiveFivePaysFiveTimesOnceItsPromptPassesOneHundredK()
+    {
+        // The threshold counts cache reads and writes, as Anthropic bills it.
+        var shortPrompt = new TokenTotals(50_000, 50_000, 0, 0, 1_000);
+        var longPrompt = new TokenTotals(50_000, 50_001, 0, 0, 1_000);
+        Assert.Equal((50_000 * 0.1m + 50_000 * 0.01m + 1_000 * 0.5m) / 1_000_000m,
+            ApiCostPricing.Cost("claude-haiku-5-5", shortPrompt));
+        Assert.Equal((50_000 * 0.5m + 50_001 * 0.05m + 1_000 * 2.5m) / 1_000_000m,
+            ApiCostPricing.Cost("claude-haiku-5-5", longPrompt));
     }
 
     [Fact]
@@ -114,6 +133,8 @@ public sealed class ApiCostScannerTests : IDisposable
     [InlineData(" gpt-5.5 ", true)]
     [InlineData("gpt-6-luna", true)]
     [InlineData("claude-mythos-5-1", true)]
+    [InlineData("gpt-6.1-sol", true)]
+    [InlineData("claude-haiku-5-5", true)]
     [InlineData("opus", false)]
     [InlineData("<synthetic>", false)]
     [InlineData("codex-auto-review", false)]
@@ -304,11 +325,11 @@ public sealed class ApiCostScannerTests : IDisposable
             """{"type":["assistant"],"usage":1}""",
             Claude("m1", "2026-09-10T10:00:00Z", input: 1_000_000));
         Directory.CreateDirectory(_dir);
-        File.WriteAllText(LedgerPath, """{"Version":3,"Files":null,"Keys":null}""");
+        File.WriteAllText(LedgerPath, $$"""{"Version":{{ApiCostLedger.CurrentVersion}},"Files":null,"Keys":null}""");
 
         Assert.Equal(5m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
 
-        File.WriteAllText(LedgerPath, """{"Version":3,"Files":{"C:\\x.jsonl":{"Tool":"Claude","Days":null}},"Keys":{"k":null}}""");
+        File.WriteAllText(LedgerPath, $$$"""{"Version":{{{ApiCostLedger.CurrentVersion}}},"Files":{"C:\\x.jsonl":{"Tool":"Claude","Days":null}},"Keys":{"k":null}}""");
         Assert.Equal(5m, Scanner().Scan(Tools("Claude"))[0].CostUsd);
     }
 

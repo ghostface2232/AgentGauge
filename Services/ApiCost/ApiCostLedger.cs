@@ -17,7 +17,11 @@ public sealed class ApiCostLedger
 {
     // 3: per-key token entries (so a later, more complete write of the same response can
     // correct what was counted) and file fingerprints. Earlier ledgers are rebuilt.
-    public const int CurrentVersion = 3;
+    // 4: no format change. The long-context tier is filed per response at scan time, and a
+    // model without a row is filed in the standard tier, so responses scanned before
+    // claude-haiku-5-5 and gpt-6.1-sol were priced would stay there. Bump again whenever a
+    // newly priced model carries a long-context tier.
+    public const int CurrentVersion = 4;
 
     /// <summary>Days kept: the current month, however long, plus the whole previous one.</summary>
     public static readonly TimeSpan Retention = TimeSpan.FromDays(62);
