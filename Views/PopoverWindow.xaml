@@ -353,7 +353,14 @@
                                             <!-- Header chip row: right-aligned, so with one chip it
                                                  sits on the header's right edge and with both they
                                                  line up side by side from that edge — the status
-                                                 chip first, the reset chip keeping the edge. -->
+                                                 chip first, the reset chip keeping the edge. When the
+                                                 API-cost caption is shown too, the row cannot fit both
+                                                 labels, so both chips drop to icon only
+                                                 (ShowHeaderChipLabels); the tooltip and automation name
+                                                 keep the full text. MinHeight="16" on each chip's inner
+                                                 row is the caption's line height, so an icon-only chip
+                                                 keeps the labelled chip's height and the header does
+                                                 not shift when the labels go. -->
                                             <StackPanel
                                                 Grid.Column="1"
                                                 Orientation="Horizontal"
@@ -380,7 +387,7 @@
                                                         Smoothing="0.75"
                                                         Padding="8,4,9,5"
                                                         Fill="{ThemeResource StatusChipFillBrush}">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <StackPanel Orientation="Horizontal" Spacing="4" MinHeight="16">
                                                             <FontIcon
                                                                 VerticalAlignment="Center"
                                                                 FontSize="10"
@@ -391,7 +398,8 @@
                                                                 FontSize="11"
                                                                 Text="{Binding ServiceStatusText}"
                                                                 Foreground="{ThemeResource StatusChipTextBrush}"
-                                                                Style="{StaticResource CaptionTextBlockStyle}" />
+                                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                                Visibility="{Binding ShowHeaderChipLabels, Converter={StaticResource BoolToVis}}" />
                                                         </StackPanel>
                                                     </ctrl:SquircleBorder>
                                                 </HyperlinkButton>
@@ -412,7 +420,7 @@
                                                     AutomationProperties.Name="{Binding ResetCreditsDescription}"
                                                     ToolTipService.ToolTip="{Binding ResetCreditsDescription}"
                                                     Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVis}}">
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4" MinHeight="16">
                                                         <FontIcon
                                                             VerticalAlignment="Center"
                                                             FontSize="10"
@@ -423,7 +431,8 @@
                                                             FontSize="11"
                                                             Text="{Binding ResetCreditsText}"
                                                             Foreground="{ThemeResource ResetChipTextBrush}"
-                                                            Style="{StaticResource CaptionTextBlockStyle}" />
+                                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                                            Visibility="{Binding ShowHeaderChipLabels, Converter={StaticResource BoolToVis}}" />
                                                     </StackPanel>
                                                 </ctrl:SquircleBorder>
                                             </StackPanel>
