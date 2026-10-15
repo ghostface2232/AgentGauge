@@ -10,7 +10,7 @@ namespace Gauge.Services.ApiCost;
 /// estimate anyway, and a stale row is visibly stale (the model shows as unpriced) rather
 /// than silently wrong. Reference: the providers' own pricing pages
 /// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing),
-/// checked 2026-09-28.
+/// checked 2026-10-15.
 /// </summary>
 public static class ApiCostPricing
 {
@@ -28,13 +28,17 @@ public static class ApiCostPricing
     private static readonly Dictionary<string, Rates> Table = new(StringComparer.OrdinalIgnoreCase)
     {
         // ── Anthropic ─────────────────────────────────────────────────────
-        // Fable 5.1, Mythos 5.1 and Opus 5.5 read cache below the usual 0.1x of input
-        // (0.025x and 0.05x); writes keep the standard 1.25x.
+        // Fable 5.1, Mythos 5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual 0.1x of
+        // input (0.025x and 0.05x); writes keep the standard 1.25x.
         ["claude-fable-5-1"] = new(10, 0.25m, 12.5m, 50),
         ["claude-mythos-5-1"] = new(10, 0.25m, 12.5m, 50),
         ["claude-fable-5"] = new(10, 1, 12.5m, 50),
         ["claude-mythos-5"] = new(10, 1, 12.5m, 50),
         ["claude-opus-5-5"] = new(4, 0.2m, 5, 20),
+        ["claude-sonnet-5-5"] = new(2, 0.1m, 2.5m, 10),
+        // Haiku 5.5 is the one current Claude model priced by prompt length: a request whose
+        // prompt (input + cache read + cache write) passes 100K pays 5x for everything.
+        ["claude-haiku-5-5"] = new(0.1m, 0.01m, 0.125m, 0.5m, 100_000, new(0.5m, 0.05m, 0.625m, 2.5m)),
         ["claude-opus-5"] = new(5, 0.5m, 6.25m, 25),
         ["claude-opus-4-8"] = new(5, 0.5m, 6.25m, 25),
         ["claude-opus-4-7"] = new(5, 0.5m, 6.25m, 25),
@@ -48,6 +52,8 @@ public static class ApiCostPricing
         ["claude-haiku-4-5"] = new(1, 0.1m, 1.25m, 5),
         // ── OpenAI (Codex) — the 272K prompt tier doubles the rate ───────
         // "codex-auto-review" is not here: see Excluded.
+        // gpt-6.1-sol keeps gpt-6-sol's rates but reads cache at 0.05x input.
+        ["gpt-6.1-sol"] = new(2, 0.1m, 2.5m, 10, 272_000, new(4, 0.2m, 5, 15)),
         ["gpt-6-astra"] = new(10, 1, 12.5m, 50, 272_000, new(20, 2, 25, 75)),
         ["gpt-6-sol"] = new(2, 0.2m, 2.5m, 10, 272_000, new(4, 0.4m, 5, 15)),
         ["gpt-6-luna"] = new(0.1m, 0.01m, 0.125m, 0.5m, 272_000, new(0.2m, 0.02m, 0.25m, 0.75m)),
