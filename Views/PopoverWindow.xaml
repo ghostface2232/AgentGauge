@@ -410,17 +410,20 @@
                                                      and the tinted fill alone carries it — an outline would
                                                      add a second edge next to the card's own. The chip text
                                                      is terse, so the spelled-out form goes to the tooltip
-                                                     and the automation peer. -->
+                                                     and the automation peer. The border is Raw, so the
+                                                     accessible text lives on the inner TextLeafPanel: one
+                                                     Text peer that keeps the balance reachable when the
+                                                     icon-only header hides the short label. -->
                                                 <ctrl:SquircleBorder
                                                     VerticalAlignment="Center"
                                                     Radius="8"
                                                     Smoothing="0.75"
                                                     Padding="8,4,9,5"
                                                     Fill="{ThemeResource ResetChipFillBrush}"
-                                                    AutomationProperties.Name="{Binding ResetCreditsDescription}"
                                                     ToolTipService.ToolTip="{Binding ResetCreditsDescription}"
                                                     Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVis}}">
-                                                    <StackPanel Orientation="Horizontal" Spacing="4" MinHeight="16">
+                                                    <ctrl:TextLeafPanel Spacing="4" MinHeight="16"
+                                                        AutomationProperties.Name="{Binding ResetCreditsDescription}">
                                                         <FontIcon
                                                             VerticalAlignment="Center"
                                                             FontSize="10"
@@ -433,7 +436,7 @@
                                                             Foreground="{ThemeResource ResetChipTextBrush}"
                                                             Style="{StaticResource CaptionTextBlockStyle}"
                                                             Visibility="{Binding ShowHeaderChipLabels, Converter={StaticResource BoolToVis}}" />
-                                                    </StackPanel>
+                                                    </ctrl:TextLeafPanel>
                                                 </ctrl:SquircleBorder>
                                             </StackPanel>
                                         </Grid>
