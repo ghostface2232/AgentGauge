@@ -37,7 +37,7 @@ jobs:
           ditto -x -k mac/build/AgentGauge-macOS.zip mac/build
           version="$(plutil -extract CFBundleShortVersionString raw mac/build/AgentGauge.app/Contents/Info.plist)"
           test "v$version" = "$RELEASE_TAG"
-          lipo -verify_arch arm64 x86_64 mac/build/AgentGauge.app/Contents/MacOS/AgentGauge
+          lipo mac/build/AgentGauge.app/Contents/MacOS/AgentGauge -verify_arch arm64 x86_64
       - name: Package and verify DMG
         run: bash mac/scripts/build-dmg.sh "$PWD/mac/build/AgentGauge.app" "$PWD/mac/build/AgentGauge-macOS.dmg"
       - name: Add DMG to release
