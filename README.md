@@ -6,6 +6,8 @@
 
 AgentGauge is a Windows system-tray app that lets you check the real usage limits of Claude Code, Codex, Cursor, Antigravity, and GitHub Copilot at a glance.
 
+A native macOS menu bar version (Claude and Codex for now) lives in [`mac/`](mac/README.md).
+
 ## Screenshots
 
 <img width="1440" alt="1" src="https://github.com/user-attachments/assets/2e961b59-b9d9-4be7-8bf8-78c42dc19e39" />
