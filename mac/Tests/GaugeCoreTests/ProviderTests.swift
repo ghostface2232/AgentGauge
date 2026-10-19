@@ -246,6 +246,29 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         XCTAssertEqual(credential.plan, "Pro")
     }
 
+    final class Clock: @unchecked Sendable {
+        let lock = NSLock()
+        var current: Date
+        init(_ current: Date) { self.current = current }
+        var now: Date { lock.withLock { current } }
+    }
+
+    func testCachedStrippedTokenExpiresAsUnrefreshable() async {
+        let keychain = FakeKeychain()
+        keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+        // Valid when first read, without the fields Claude Code needs to refresh it.
+        keychain.result = .data(Data(#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"r","expiresAt":2000000}}"#.utf8))
+        let clock = Clock(Date(timeIntervalSince1970: 1000))
+        let source = ClaudeCredentialSource(keychain: keychain, environment: [:],
+                                            homeDirectory: URL(fileURLWithPath: "/nonexistent"), now: { clock.now })
+
+        guard case .available = await source.read(interactive: false) else { return XCTFail("expected a credential") }
+        clock.lock.withLock { clock.current = Date(timeIntervalSince1970: 3000) }
+        let expired = await source.read(interactive: false)
+        XCTAssertEqual(expired, .invalid(.expiredUnrefreshable), "the item is unchanged, so the cache must keep its refreshability")
+        XCTAssertEqual(keychain.passwordReads, 1)
+    }
+
     func testDenialIsOnlyReaskedInteractively() async {
         let keychain = FakeKeychain()
         keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))

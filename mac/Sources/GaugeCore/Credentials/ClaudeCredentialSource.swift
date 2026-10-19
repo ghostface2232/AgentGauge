@@ -173,6 +173,10 @@ public actor ClaudeCredentialSource: CredentialSource {
     private let now: @Sendable () -> Date
     private var cachedItem: KeychainItem?
     private var cachedRead: CredentialRead?
+    /// The document behind a cached `.available` read. Expiry is re-judged from it rather than
+    /// from the credential, because whether an expired token can still be refreshed depends
+    /// on fields the credential does not carry.
+    private var cachedDocument: Data?
 
     public init(
         keychain: any KeychainReading = SecurityToolKeychain(),
@@ -203,7 +207,12 @@ public actor ClaudeCredentialSource: CredentialSource {
         if item.modified != nil, item == cachedItem, let cachedRead {
             switch cachedRead {
             case .available(let credential):
-                return CredentialParsing.revalidated(credential, now: now())
+                guard let cachedDocument else { return CredentialParsing.revalidated(credential, now: now()) }
+                let result = parse(cachedDocument)
+                // Once expired the outcome cannot change until the item does, so it is cached
+                // (and the unrefreshable case logged) only once.
+                if case .invalid = result { self.cachedRead = result }
+                return result
             case .invalid(.keychainDenied) where interactive:
                 break
             default:
@@ -212,12 +221,11 @@ public actor ClaudeCredentialSource: CredentialSource {
         }
 
         let result: CredentialRead
+        cachedDocument = nil
         switch await keychain.password(service: Self.keychainService, account: item.account) {
         case .data(let data):
-            result = CredentialParsing.claude(from: data, now: now())
-            if result == .invalid(.expiredUnrefreshable) {
-                Log.write("auth", "Claude keychain token is expired and lacks the fields Claude Code needs to refresh it; sign-in required")
-            }
+            result = parse(data)
+            if case .available = result { cachedDocument = data }
         case .notFound:
             result = .missing
         case .denied:
@@ -228,6 +236,14 @@ public actor ClaudeCredentialSource: CredentialSource {
         }
         cachedItem = item
         cachedRead = result
+        return result
+    }
+
+    private func parse(_ document: Data) -> CredentialRead {
+        let result = CredentialParsing.claude(from: document, now: now())
+        if result == .invalid(.expiredUnrefreshable) {
+            Log.write("auth", "Claude keychain token is expired and lacks the fields Claude Code needs to refresh it; sign-in required")
+        }
         return result
     }
 }
