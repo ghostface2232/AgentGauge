@@ -10,11 +10,11 @@ import Foundation
 /// identifiers.
 final class ApiCostLedger: Codable {
     // Tracks the Windows ledger's version so both platforms re-file at the same releases.
-    // 4: the long-context tier is filed per response at scan time, and a model without a
+    // 5: the long-context tier is filed per response at scan time, and a model without a
     // row is filed in the standard tier, so responses scanned before a model with a tier
     // was priced would stay there. Bump whenever a newly priced model carries a
     // long-context tier; a mismatched ledger is rebuilt from the logs.
-    static let currentVersion = 4
+    static let currentVersion = 5
 
     /// Days kept: the current month, however long, plus the whole previous one.
     static let retentionDays = 62

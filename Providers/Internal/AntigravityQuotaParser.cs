@@ -106,22 +106,41 @@ internal static class AntigravityQuotaParser
     }
 
     // Prefer the group's own metadata so future bucket-id changes do not break grouping, with
-    // the observed gemini-* / 3p-* prefixes retained as a compatibility fallback.
+    // the observed gemini-* / 3p-* prefixes retained as a compatibility fallback. Only the
+    // umbrella "Gemini Models" and "Claude and GPT models" groups are shortened; model-specific
+    // groups such as "Gemini 4 Argon" (gemini-argon-*) keep their own name so their weekly bar
+    // does not collapse into the general Gemini group as a duplicate "Weekly" row.
     private static string? FamilyLabel(string bucketId, string? displayName)
     {
-        var normalized = displayName?.Trim();
-        if (normalized?.Contains("gemini", StringComparison.OrdinalIgnoreCase) == true
-            || bucketId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase))
+        if (displayName?.Trim() is { Length: > 0 } normalized)
+        {
+            if (string.Equals(normalized, "Gemini", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(normalized, "Gemini Models", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Gemini";
+            }
+            if (string.Equals(normalized, "Claude/GPT", StringComparison.OrdinalIgnoreCase)
+                || (normalized.Contains("claude", StringComparison.OrdinalIgnoreCase)
+                    && normalized.Contains("gpt", StringComparison.OrdinalIgnoreCase)))
+            {
+                return "Claude/GPT";
+            }
+            return normalized;
+        }
+
+        if (bucketId.StartsWith("gemini-argon", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Gemini 4 Argon";
+        }
+        if (bucketId.StartsWith("gemini", StringComparison.OrdinalIgnoreCase))
         {
             return "Gemini";
         }
-        if (normalized?.Contains("claude", StringComparison.OrdinalIgnoreCase) == true
-            || normalized?.Contains("gpt", StringComparison.OrdinalIgnoreCase) == true
-            || bucketId.StartsWith("3p", StringComparison.OrdinalIgnoreCase))
+        if (bucketId.StartsWith("3p", StringComparison.OrdinalIgnoreCase))
         {
             return "Claude/GPT";
         }
-        return normalized is { Length: > 0 } ? normalized : null;
+        return null;
     }
 
     private static bool IsUnavailable(JsonElement element)

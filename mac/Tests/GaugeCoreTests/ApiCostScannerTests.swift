@@ -111,6 +111,9 @@ final class ApiCostScannerTests: XCTestCase {
         let cases: [(String, Bool)] = [
             ("claude-opus-4-5-20251101", true), ("CLAUDE-FABLE-5-1", true), (" gpt-5.5 ", true), ("gpt-6-luna", true),
             ("claude-mythos-5-1", true), ("gpt-6.1-sol", true), ("claude-haiku-5-5", true),
+            ("claude-opus-4-1-20250805", true), ("claude-opus-4-20250514", true), ("claude-sonnet-4-20250514", true), ("claude-haiku-3-5-20241022", true),
+            ("gpt-5.6-cyber", true), ("gpt-5.5-pro", true), ("gpt-5.5-cyber", true), ("gpt-5.4-pro", true),
+            ("gpt-5.2-pro", true), ("gpt-5.1-codex-max", true), ("gpt-5.1-codex-mini", true), ("gpt-5-pro", true), ("gpt-5-nano", true),
             ("opus", false), ("<synthetic>", false), ("codex-auto-review", false), ("unknown", false),
         ]
         for (model, priced) in cases {

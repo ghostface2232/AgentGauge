@@ -129,8 +129,13 @@ public sealed class ApiCostScannerTests : IDisposable
 
     [Theory]
     [InlineData("claude-opus-4-5-20251101", true)]
+    [InlineData("claude-opus-4-1-20250805", true)]
     [InlineData("CLAUDE-FABLE-5-1", true)]
     [InlineData(" gpt-5.5 ", true)]
+    [InlineData("gpt-5.5-pro", true)]
+    [InlineData("gpt-5.6-cyber", true)]
+    [InlineData("gpt-5.1-codex-max", true)]
+    [InlineData("gpt-5.1-codex-mini", true)]
     [InlineData("gpt-6-luna", true)]
     [InlineData("claude-mythos-5-1", true)]
     [InlineData("gpt-6.1-sol", true)]

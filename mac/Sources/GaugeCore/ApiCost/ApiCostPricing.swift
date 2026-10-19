@@ -6,7 +6,7 @@ import Foundation
 /// estimate anyway, and a stale row is visibly stale (the model shows as unpriced) rather
 /// than silently wrong. Reference: the providers' own pricing pages
 /// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing),
-/// checked 2026-10-15. Kept identical to the Windows table (Services/ApiCost/ApiCostPricing.cs).
+/// checked 2026-10-19. Kept identical to the Windows table (Services/ApiCost/ApiCostPricing.cs).
 public enum ApiCostPricing {
     /// One price tier. `cacheWrite` nil means the provider bills a cache write at the plain
     /// input rate (OpenAI).
@@ -57,12 +57,16 @@ public enum ApiCostPricing {
         "claude-opus-4-7": rates("5", "0.5", "6.25", "25"),
         "claude-opus-4-6": rates("5", "0.5", "6.25", "25"),
         "claude-opus-4-5": rates("5", "0.5", "6.25", "25"),
+        "claude-opus-4-1": rates("15", "1.5", "18.75", "75"),
+        "claude-opus-4": rates("15", "1.5", "18.75", "75"),
         "claude-sonnet-5": rates("2", "0.2", "2.5", "10"),
         "claude-sonnet-4-6": rates("3", "0.3", "3.75", "15"),
         // Sonnet 4.5's 1M-context beta billed the whole request at a premium once the
         // prompt (input + cache read + cache write) passed 200K; later models dropped it.
         "claude-sonnet-4-5": rates("3", "0.3", "3.75", "15", longAbove: 200_000, tier("6", "0.6", "7.5", "22.5")),
+        "claude-sonnet-4": rates("3", "0.3", "3.75", "15"),
         "claude-haiku-4-5": rates("1", "0.1", "1.25", "5"),
+        "claude-haiku-3-5": rates("0.8", "0.08", "1", "4"),
         // OpenAI (Codex): the 272K prompt tier doubles the rate. "codex-auto-review" is not
         // here: see `excluded`. gpt-6.1-sol keeps gpt-6-sol's rates but reads cache at 0.05x.
         "gpt-6.1-sol": rates("2", "0.1", "2.5", "10", longAbove: 272_000, tier("4", "0.2", "5", "15")),
@@ -73,19 +77,28 @@ public enum ApiCostPricing {
         "gpt-5.6-sol": rates("4", "0.4", "5", "20", longAbove: 272_000, tier("8", "0.8", "10", "30")),
         "gpt-5.6-terra": rates("2", "0.2", "2.5", "12", longAbove: 272_000, tier("4", "0.4", "5", "18")),
         "gpt-5.6-luna": rates("0.2", "0.02", "0.25", "1.2", longAbove: 272_000, tier("0.4", "0.04", "0.5", "1.8")),
+        "gpt-5.6-cyber": rates("12.5", "1.25", "15.625", "75"),
         "gpt-5.5": rates("5", "0.5", nil, "30", longAbove: 272_000, tier("10", "1", nil, "45")),
+        "gpt-5.5-pro": rates("30", "0", nil, "180", longAbove: 272_000, tier("60", "0", nil, "270")),
+        "gpt-5.5-cyber": rates("12.5", "1.25", nil, "75"),
         "gpt-5.4": rates("2.5", "0.25", nil, "15", longAbove: 272_000, tier("5", "0.5", nil, "22.5")),
+        "gpt-5.4-pro": rates("30", "0", nil, "180", longAbove: 272_000, tier("60", "0", nil, "270")),
         "gpt-5.4-mini": rates("0.75", "0.075", nil, "4.5"),
         "gpt-5.4-nano": rates("0.2", "0.02", nil, "1.25"),
         "gpt-5.3-codex": rates("1.75", "0.175", nil, "14"),
         "gpt-5.3-codex-spark": rates("1.75", "0.175", nil, "14"),
         "gpt-5.2": rates("1.75", "0.175", nil, "14"),
+        "gpt-5.2-pro": rates("21", "0", nil, "168"),
         "gpt-5.2-codex": rates("1.75", "0.175", nil, "14"),
         "gpt-5.1": rates("1.25", "0.125", nil, "10"),
         "gpt-5.1-codex": rates("1.25", "0.125", nil, "10"),
+        "gpt-5.1-codex-max": rates("1.25", "0.125", nil, "10"),
+        "gpt-5.1-codex-mini": rates("0.25", "0.025", nil, "2"),
         "gpt-5": rates("1.25", "0.125", nil, "10"),
+        "gpt-5-pro": rates("15", "0", nil, "120"),
         "gpt-5-codex": rates("1.25", "0.125", nil, "10"),
         "gpt-5-mini": rates("0.25", "0.025", nil, "2"),
+        "gpt-5-nano": rates("0.05", "0.005", nil, "0.4"),
     ]
 
     /// Models left out of the estimate altogether — neither priced nor counted as unpriced,
