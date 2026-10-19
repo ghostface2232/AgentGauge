@@ -5,6 +5,7 @@ import SwiftUI
 /// The standard macOS Settings window (⌘,), a grouped form like System Settings.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(UpdateModel.self) private var update
 
     var body: some View {
         @Bindable var model = model
@@ -23,10 +24,35 @@ struct SettingsView: View {
                             .controlSize(.small)
                     }
                 }
+            }
+
+            Section(L10n.get("Settings_Display")) {
                 Toggle(L10n.get("Settings_ShowPercent"), isOn: $model.showPercentInMenuBar)
                 Picker(L10n.get("Settings_DisplayBasis"), selection: $model.displayBasis) {
                     Text(L10n.get("Basis_Used")).tag(DisplayBasis.used)
                     Text(L10n.get("Basis_Remaining")).tag(DisplayBasis.remaining)
+                }
+                Picker(L10n.get("Settings_ViewMode"), selection: $model.viewMode) {
+                    Text(L10n.get("ViewMode_Bar")).tag(UsageViewMode.bar)
+                    Text(L10n.get("ViewMode_Gauge")).tag(UsageViewMode.gauge)
+                }
+                .pickerStyle(.segmented)
+                Toggle(isOn: $model.showSparkline) {
+                    Text(L10n.get("Settings_Sparkline"))
+                    Text(L10n.get("Settings_SparklineHelp"))
+                }
+                .disabled(model.viewMode == .gauge)
+                Picker(selection: $model.paceModel) {
+                    ForEach(WeeklyPaceModel.allCases, id: \.self) { paceModel in
+                        Text(paceModel.displayName).tag(paceModel)
+                    }
+                } label: {
+                    Text(L10n.get("Settings_PaceModel"))
+                    Text(L10n.get("Settings_PaceModelHelp"))
+                }
+                Toggle(isOn: $model.showApiCost) {
+                    Text(L10n.get("Settings_ApiCost"))
+                    Text(L10n.get("Settings_ApiCostHelp"))
                 }
             }
 
@@ -56,8 +82,24 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                LabeledContent(L10n.get("Settings_Version"), value: Self.version)
+            Section(L10n.get("Settings_About")) {
+                LabeledContent(L10n.get("Settings_Version")) {
+                    HStack(spacing: 10) {
+                        if update.isBusy {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(verbatim: update.currentVersion)
+                            .monospacedDigit()
+                        Button(update.actionTitle) { update.performAction() }
+                            .controlSize(.small)
+                            .disabled(update.isBusy)
+                    }
+                }
+                if let status = update.statusText {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if let error = model.settingsError {
                     Text(error)
                         .font(.caption)
@@ -66,14 +108,13 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // The form scrolls: with display, notification, account and update sections it is
+        // taller than a laptop screen, so it opens at a comfortable height and can grow.
         .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(minHeight: 420, idealHeight: 680)
         .onAppear { model.settingsAppeared() }
     }
 
-    private static var version: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-    }
 }
 
 private struct AccountRow: View {
@@ -116,9 +157,12 @@ private struct AccountRow: View {
     private var status: String? {
         guard let state, shown else { return nil }
         switch state.auth {
+        case .signedIn where tool == .antigravity && state.snapshot?.windows.isEmpty != false:
+            return L10n.get("Auth_Antigravity")
         case .signedIn:
             if let plan = state.snapshot?.plan { return L10n.format("Auth_SignedInWithPlan", plan) }
             return L10n.get("Auth_SignedIn")
+        case .signedOut where tool == .antigravity: return L10n.get("Auth_Antigravity")
         case .signedOut: return AuthText.missing(tool)
         case .rejected: return AuthText.expired(tool)
         case .keychainDenied: return L10n.get("Auth_KeychainDenied")

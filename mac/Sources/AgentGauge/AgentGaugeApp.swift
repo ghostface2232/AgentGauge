@@ -6,6 +6,7 @@ import SwiftUI
 @main
 struct AgentGaugeApp: App {
     @State private var model: AppModel
+    @State private var update: UpdateModel
 
     init() {
         // The language is fixed for the process lifetime. Bundle.preferredLocalizations
@@ -14,13 +15,26 @@ struct AgentGaugeApp: App {
         let bundleLanguages = Bundle.main.localizations.filter { $0 != "Base" }
         let preferred = bundleLanguages.count > 1 ? Bundle.main.preferredLocalizations : Locale.preferredLanguages
         L10n.configure(L10n.resolve(preferred: preferred))
-        _model = State(initialValue: AppModel())
+        let model = AppModel()
+        _model = State(initialValue: model)
+        let update = UpdateModel()
+        _update = State(initialValue: update)
+        update.checkInBackground()
+        // The updater relaunches with --updated; say that it landed, since a menu bar app has
+        // no window that would otherwise show the new version.
+        if CommandLine.arguments.contains("--updated") {
+            model.announceUpdate(to: update.currentVersion)
+        }
+        if let directory = PreviewRenderer.directoryArgument() {
+            PreviewRenderer.run(model: model, update: update, into: directory)
+        }
     }
 
     var body: some Scene {
         MenuBarExtra {
             PopoverView()
                 .environment(model)
+                .environment(update)
         } label: {
             MenuBarLabel(summary: model.menuBarSummary, basis: model.displayBasis, showPercent: model.showPercentInMenuBar)
         }
@@ -29,8 +43,9 @@ struct AgentGaugeApp: App {
         Settings {
             SettingsView()
                 .environment(model)
+                .environment(update)
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
     }
 }
 

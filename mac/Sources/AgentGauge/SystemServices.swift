@@ -40,6 +40,16 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// A plain informational banner (the post-update confirmation), quiet and threadless.
+    func postInformational(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)) { error in
+            if let error { Log.write("notify", "Notification not shown: \(type(of: error))") }
+        }
+    }
+
     // A menu bar app is often frontmost while its panel is open; show the banner anyway.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification

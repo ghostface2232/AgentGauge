@@ -6,6 +6,7 @@ import SwiftUI
 /// a quiet footer. It sizes to its cards and scrolls only past most of the screen height.
 struct PopoverView: View {
     @Environment(AppModel.self) private var model
+    @Environment(UpdateModel.self) private var update
     @Environment(\.openSettings) private var openSettings
     @State private var contentHeight: CGFloat = 0
 
@@ -90,8 +91,6 @@ struct PopoverView: View {
                 ForEach(model.states) { state in
                     ToolCard(
                         state: state,
-                        basis: model.displayBasis,
-                        now: model.now,
                         onSignIn: { model.signIn(state.tool) },
                         onRetry: { model.refreshNow() })
                 }
@@ -106,6 +105,26 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Spacer(minLength: 8)
+            if update.isAvailable || update.isBusy {
+                // Installing quits and relaunches the app, so it stays a deliberate click.
+                Button {
+                    update.performAction()
+                } label: {
+                    HStack(spacing: 4) {
+                        if update.isBusy {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "arrow.down.circle.fill")
+                        }
+                        Text(update.isBusy ? (update.statusText ?? "") : L10n.get("Update_Apply"))
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.accentColor)
+                .disabled(update.isBusy)
+                .help(update.statusText ?? "")
+            }
             Button(L10n.get("Action_Quit")) {
                 NSApp.terminate(nil)
             }
@@ -131,13 +150,15 @@ struct PopoverView: View {
 }
 
 struct ToolCard: View {
+    @Environment(AppModel.self) private var model
     let state: ToolState
-    let basis: DisplayBasis
-    let now: Date
     let onSignIn: () -> Void
     let onRetry: () -> Void
 
     private var windows: [UsageWindow] { state.snapshot?.windows ?? [] }
+    private var status: ProviderStatus? { model.serviceStatuses[state.tool].flatMap { $0.isVisible ? $0 : nil } }
+    private var apiCost: (text: String, detail: String)? { model.apiCostText(for: state.tool) }
+    private var credits: Int? { state.snapshot?.resetCredits.flatMap { $0 > 0 ? $0 : nil } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -150,35 +171,51 @@ struct ToolCard: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        // With the cost caption, a status chip and a reset chip all present the row cannot fit
+        // both chip labels, so both drop to their icons; help and accessibility keep the text.
+        let chipLabels = !(apiCost != nil && status != nil && credits != nil)
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(verbatim: state.tool.displayName)
                 .font(.headline)
+                .layoutPriority(1)
             if let plan = state.snapshot?.plan {
                 Text(verbatim: plan)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            Spacer(minLength: 8)
-            if state.isRefreshing {
+            if let apiCost {
+                Text(verbatim: apiCost.text)
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .help(apiCost.detail)
+                    .accessibilityLabel(apiCost.detail)
+            }
+            Spacer(minLength: 6)
+            if model.isShowingRefresh(state) {
                 ProgressView()
                     .controlSize(.mini)
                     .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                    .help(L10n.get("Status_Refreshing"))
             } else if state.lastRefreshFailed && !windows.isEmpty {
                 Image(systemName: "exclamationmark.arrow.circlepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .help(L10n.get("Card_RefreshFailed"))
-                    .accessibilityLabel(L10n.get("Card_RefreshFailed"))
+                    .help(L10n.get("Tooltip_RefreshIssue"))
+                    .accessibilityLabel(L10n.get("Tooltip_RefreshIssue"))
             }
-            if let credits = state.snapshot?.resetCredits, credits > 0 {
-                Text(L10n.format("ResetCredits", credits))
-                    .font(.caption2.weight(.medium))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .foregroundStyle(Color.accentColor)
-                    .background(Color.accentColor.opacity(0.14), in: Capsule())
-                    .help(L10n.format("Tooltip_ResetCredits", credits))
-                    .accessibilityLabel(L10n.format("Tooltip_ResetCredits", credits))
+            if let status {
+                StatusChip(status: status, showsLabel: chipLabels)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            }
+            if let credits {
+                HeaderChip(systemImage: "arrow.counterclockwise",
+                           label: L10n.format("ResetCredits", credits),
+                           detail: L10n.format("Tooltip_ResetCredits", credits),
+                           tint: .accentColor, showsLabel: chipLabels)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             }
         }
     }
@@ -189,16 +226,22 @@ struct ToolCard: View {
             placeholder
         } else {
             let groups = WindowGrouping.groups(windows)
-            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                if index > 0 { Divider() }
-                VStack(alignment: .leading, spacing: 12) {
-                    if let label = group.label {
-                        Text(verbatim: label)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(group.windows) { window in
-                        UsageRow(window: window, basis: basis, now: now)
+            switch model.viewMode {
+            case .gauge:
+                GaugeGroupsView(groups: groups, basis: model.displayBasis) { model.details(for: state.tool, window: $0) }
+            case .bar:
+                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                    if index > 0 { Divider() }
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let label = group.label {
+                            Text(verbatim: label)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(group.windows) { window in
+                            UsageRow(window: window, details: model.details(for: state.tool, window: window),
+                                     basis: model.displayBasis, showsSparkline: model.showSparkline)
+                        }
                     }
                 }
             }
@@ -243,33 +286,129 @@ struct ToolCard: View {
     }
 }
 
+/// A small tinted capsule in the card header: an account-level balance (reset credits) or a
+/// flagged condition (service status). Icon-only when the header is crowded.
+struct HeaderChip: View {
+    let systemImage: String
+    let label: String
+    let detail: String
+    let tint: Color
+    let showsLabel: Bool
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: systemImage)
+                .font(.system(size: 9, weight: .bold))
+            if showsLabel {
+                Text(label)
+                    .font(.caption2.weight(.medium))
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, showsLabel ? 7 : 5)
+        .padding(.vertical, 3)
+        .foregroundStyle(tint)
+        .background(tint.opacity(0.14), in: Capsule())
+        .fixedSize()
+        .help(detail)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(detail)
+    }
+}
+
+/// The public service-status chip; it opens the provider's status page. Its detail says the
+/// health is service-wide and may be unrelated to this account's error.
+struct StatusChip: View {
+    let status: ProviderStatus
+    let showsLabel: Bool
+
+    var body: some View {
+        if let url = status.tool.statusPageURL {
+            Link(destination: url) { chip }
+                .buttonStyle(.plain)
+                .linkPointer()
+                .accessibilityLabel("\(status.label). \(status.detail)")
+                .accessibilityAddTraits(.isLink)
+        } else {
+            chip
+        }
+    }
+
+    private var chip: some View {
+        HeaderChip(systemImage: "exclamationmark.triangle.fill", label: status.label,
+                   detail: status.detail, tint: .orange, showsLabel: showsLabel)
+    }
+}
+
+/// Everything a row shows besides the bar itself, derived once per window by `AppModel`.
+struct RowDetails {
+    var reset: String
+    var pace: String?
+    var eta: String?
+    var counts: String?
+    var burndown: UsageBurndown?
+
+    func accessibilityText(window: UsageWindow, basis: DisplayBasis) -> String {
+        let name = [window.groupLabel, WindowLabels.label(for: window)].compactMap { $0 }.joined(separator: " ")
+        let percent = basis.percent(for: window.usedRatio)
+        let base = L10n.format(basis == .used ? "Ax_Used" : "Ax_Remaining", name, percent, reset)
+        return [base, counts, pace, eta].compactMap { $0 }.joined(separator: ", ")
+    }
+}
+
 struct UsageRow: View {
     let window: UsageWindow
+    let details: RowDetails
     let basis: DisplayBasis
-    let now: Date
+    let showsSparkline: Bool
+    @State private var hoverText: String?
 
     var body: some View {
         let percent = basis.percent(for: window.usedRatio)
-        let reset = ResetTimeFormatter.row(window.resetTime, now: now)
-        let pace = PaceClassifier.caption(for: window, now: now)
 
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .center, spacing: 8) {
                 Text(WindowLabels.label(for: window))
                     .font(.callout)
+                    .lineLimit(1)
                 Spacer(minLength: 8)
+                if showsSparkline, let burndown = details.burndown {
+                    UsageSparkline(burndown: burndown, hoverText: $hoverText)
+                        .frame(width: 64, height: 16)
+                }
                 Text(verbatim: "\(percent)%")
                     .font(.callout.weight(.semibold))
                     .monospacedDigit()
                     .contentTransition(.numericText(value: Double(percent)))
+                    .frame(minWidth: 36, alignment: .trailing)
             }
             UsageBar(fraction: basis.fraction(for: window.usedRatio), level: UsageLevel(ratio: window.usedRatio))
-            if !reset.isEmpty || pace != nil {
+            // The counts share the caption row when there is no pace to show, and move to the
+            // ETA row otherwise, so a quota with counts never adds a near-empty line.
+            let caption = hoverText ?? details.reset
+            let trailing = details.pace ?? details.counts
+            let countsBelow = details.pace != nil ? details.counts : nil
+            if !caption.isEmpty || trailing != nil {
                 HStack(spacing: 8) {
-                    Text(reset)
+                    Text(caption)
+                        .contentTransition(.opacity)
                     Spacer(minLength: 8)
-                    if let pace {
+                    if let pace = details.pace {
                         Text(pace).help(L10n.get("Pace_Tooltip"))
+                    } else if let counts = details.counts {
+                        Text(verbatim: counts).monospacedDigit()
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            if details.eta != nil || countsBelow != nil {
+                HStack(spacing: 8) {
+                    if let eta = details.eta { Text(eta) }
+                    Spacer(minLength: 8)
+                    if let countsBelow {
+                        Text(verbatim: countsBelow).monospacedDigit()
                     }
                 }
                 .font(.caption)
@@ -279,13 +418,7 @@ struct UsageRow: View {
         }
         .animation(.smooth(duration: 0.35), value: percent)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText(percent: percent, reset: reset, pace: pace))
-    }
-
-    private func accessibilityText(percent: Int, reset: String, pace: String?) -> String {
-        let name = [window.groupLabel, WindowLabels.label(for: window)].compactMap { $0 }.joined(separator: " ")
-        let base = L10n.format(basis == .used ? "Ax_Used" : "Ax_Remaining", name, percent, reset)
-        return [base, pace].compactMap { $0 }.joined(separator: ", ")
+        .accessibilityLabel(details.accessibilityText(window: window, basis: basis))
     }
 }
 

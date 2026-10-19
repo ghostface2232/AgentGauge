@@ -31,6 +31,16 @@ extension View {
         #endif
     }
 
+    /// The pointing-hand cursor over a link, where the system offers it (macOS 15+).
+    @ViewBuilder
+    func linkPointer() -> some View {
+        if #available(macOS 15.0, *) {
+            pointerStyle(.link)
+        } else {
+            self
+        }
+    }
+
     /// A small text action inside a card.
     @ViewBuilder
     func cardActionStyle() -> some View {
