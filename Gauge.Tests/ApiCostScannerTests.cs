@@ -129,8 +129,15 @@ public sealed class ApiCostScannerTests : IDisposable
 
     [Theory]
     [InlineData("claude-opus-4-5-20251101", true)]
+    [InlineData("claude-opus-4-1-20250805", true)]
+    [InlineData("claude-3-5-haiku-20241022", true)]
+    [InlineData("claude-haiku-3-5-20241022", false)]
     [InlineData("CLAUDE-FABLE-5-1", true)]
     [InlineData(" gpt-5.5 ", true)]
+    [InlineData("gpt-5.5-pro", true)]
+    [InlineData("gpt-5.6-cyber", true)]
+    [InlineData("gpt-5.1-codex-max", true)]
+    [InlineData("gpt-5.1-codex-mini", true)]
     [InlineData("gpt-6-luna", true)]
     [InlineData("claude-mythos-5-1", true)]
     [InlineData("gpt-6.1-sol", true)]
@@ -141,6 +148,24 @@ public sealed class ApiCostScannerTests : IDisposable
     [InlineData("unknown", false)]
     public void NormalizesSnapshotsButNeverGuessesAnAlias(string model, bool priced)
         => Assert.Equal(priced, ApiCostPricing.For(model) is not null);
+
+    [Theory]
+    [InlineData("gpt-5.5-pro", 30, 60)]
+    [InlineData("gpt-5.4-pro", 30, 60)]
+    [InlineData("gpt-5.2-pro", 21, 21)]
+    [InlineData("gpt-5-pro", 15, 15)]
+    public void ProCachedInputsPayTheFullInputRate(string model, int standardRate, int longRate)
+    {
+        Assert.Equal(272_000m * standardRate / 1_000_000m,
+            ApiCostPricing.Cost(model, new TokenTotals(172_000, 100_000, 0, 0, 0)));
+        Assert.Equal(272_001m * longRate / 1_000_000m,
+            ApiCostPricing.Cost(model, new TokenTotals(172_000, 100_001, 0, 0, 0)));
+    }
+
+    [Fact]
+    public void HaikuThreeFiveSnapshotUsesItsPublishedRates()
+        => Assert.Equal(5.88m, ApiCostPricing.Cost("claude-3-5-haiku-20241022",
+            new TokenTotals(1_000_000, 1_000_000, 1_000_000, 0, 1_000_000)));
 
     // ── Scanning ────────────────────────────────────────────────────────────
 

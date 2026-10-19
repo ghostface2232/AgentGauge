@@ -182,6 +182,48 @@ public sealed class AntigravityQuotaParserTests
         Assert.Equal("Claude/GPT", window.GroupLabel);
     }
 
+    [Fact]
+    public void KeepsModelScopedGeminiGroupsDistinctFromUmbrellaGeminiGroup()
+    {
+        const string json = """
+        {
+          "response": {
+            "groups": [
+              {
+                "displayName": "Gemini Models",
+                "buckets": [
+                  { "bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 1 },
+                  { "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 1 }
+                ]
+              },
+              {
+                "displayName": "Gemini 4 Argon",
+                "buckets": [
+                  {
+                    "bucketId": "gemini-argon-wtu-weekly",
+                    "displayName": "Gemini 4 Argon Weekly Limit",
+                    "window": "weekly",
+                    "remainingFraction": 0.7665529,
+                    "resetTime": "2026-10-25T14:25:04Z"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """;
+
+        var windows = AntigravityQuotaParser.Parse(json);
+
+        Assert.Equal(
+            new[] { "Gemini", "Gemini", "Gemini 4 Argon" },
+            windows.Select(w => w.GroupLabel));
+        var argon = Assert.Single(windows, w => w.Id == "gemini-argon-wtu-weekly");
+        Assert.Equal("Gemini 4 Argon", argon.GroupLabel);
+        Assert.Equal(UsageWindowType.Weekly, argon.Type);
+        Assert.Equal(1 - 0.7665529, argon.UsedRatio, 6);
+    }
+
     [Theory]
     [InlineData("""{ "disabled": true }""")]
     [InlineData("""{ "isDisabled": true }""")]

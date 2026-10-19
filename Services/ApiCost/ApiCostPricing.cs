@@ -10,7 +10,7 @@ namespace Gauge.Services.ApiCost;
 /// estimate anyway, and a stale row is visibly stale (the model shows as unpriced) rather
 /// than silently wrong. Reference: the providers' own pricing pages
 /// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing),
-/// checked 2026-10-15.
+/// checked 2026-10-19.
 /// </summary>
 public static class ApiCostPricing
 {
@@ -44,12 +44,16 @@ public static class ApiCostPricing
         ["claude-opus-4-7"] = new(5, 0.5m, 6.25m, 25),
         ["claude-opus-4-6"] = new(5, 0.5m, 6.25m, 25),
         ["claude-opus-4-5"] = new(5, 0.5m, 6.25m, 25),
+        ["claude-opus-4-1"] = new(15, 1.5m, 18.75m, 75),
+        ["claude-opus-4"] = new(15, 1.5m, 18.75m, 75),
         ["claude-sonnet-5"] = new(2, 0.2m, 2.5m, 10),
         ["claude-sonnet-4-6"] = new(3, 0.3m, 3.75m, 15),
         // Sonnet 4.5's 1M-context beta billed the whole request at a premium once the
         // prompt (input + cache read + cache write) passed 200K; later models dropped it.
         ["claude-sonnet-4-5"] = new(3, 0.3m, 3.75m, 15, 200_000, new(6, 0.6m, 7.5m, 22.5m)),
+        ["claude-sonnet-4"] = new(3, 0.3m, 3.75m, 15),
         ["claude-haiku-4-5"] = new(1, 0.1m, 1.25m, 5),
+        ["claude-3-5-haiku"] = new(0.8m, 0.08m, 1, 4),
         // ── OpenAI (Codex) — the 272K prompt tier doubles the rate ───────
         // "codex-auto-review" is not here: see Excluded.
         // gpt-6.1-sol keeps gpt-6-sol's rates but reads cache at 0.05x input.
@@ -61,19 +65,28 @@ public static class ApiCostPricing
         ["gpt-5.6-sol"] = new(4, 0.4m, 5, 20, 272_000, new(8, 0.8m, 10, 30)),
         ["gpt-5.6-terra"] = new(2, 0.2m, 2.5m, 12, 272_000, new(4, 0.4m, 5, 18)),
         ["gpt-5.6-luna"] = new(0.2m, 0.02m, 0.25m, 1.2m, 272_000, new(0.4m, 0.04m, 0.5m, 1.8m)),
+        ["gpt-5.6-cyber"] = new(12.5m, 1.25m, 15.625m, 75),
         ["gpt-5.5"] = new(5, 0.5m, null, 30, 272_000, new(10, 1, null, 45)),
+        ["gpt-5.5-pro"] = new(30, 30, null, 180, 272_000, new(60, 60, null, 270)),
+        ["gpt-5.5-cyber"] = new(12.5m, 1.25m, null, 75),
         ["gpt-5.4"] = new(2.5m, 0.25m, null, 15, 272_000, new(5, 0.5m, null, 22.5m)),
+        ["gpt-5.4-pro"] = new(30, 30, null, 180, 272_000, new(60, 60, null, 270)),
         ["gpt-5.4-mini"] = new(0.75m, 0.075m, null, 4.5m),
         ["gpt-5.4-nano"] = new(0.2m, 0.02m, null, 1.25m),
         ["gpt-5.3-codex"] = new(1.75m, 0.175m, null, 14),
         ["gpt-5.3-codex-spark"] = new(1.75m, 0.175m, null, 14),
         ["gpt-5.2"] = new(1.75m, 0.175m, null, 14),
+        ["gpt-5.2-pro"] = new(21, 21, null, 168),
         ["gpt-5.2-codex"] = new(1.75m, 0.175m, null, 14),
         ["gpt-5.1"] = new(1.25m, 0.125m, null, 10),
         ["gpt-5.1-codex"] = new(1.25m, 0.125m, null, 10),
+        ["gpt-5.1-codex-max"] = new(1.25m, 0.125m, null, 10),
+        ["gpt-5.1-codex-mini"] = new(0.25m, 0.025m, null, 2),
         ["gpt-5"] = new(1.25m, 0.125m, null, 10),
+        ["gpt-5-pro"] = new(15, 15, null, 120),
         ["gpt-5-codex"] = new(1.25m, 0.125m, null, 10),
         ["gpt-5-mini"] = new(0.25m, 0.025m, null, 2),
+        ["gpt-5-nano"] = new(0.05m, 0.005m, null, 0.4m),
     };
 
     /// <summary>
