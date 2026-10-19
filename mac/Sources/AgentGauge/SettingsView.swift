@@ -1,3 +1,4 @@
+import AppKit
 import GaugeCore
 import ServiceManagement
 import SwiftUI
@@ -53,6 +54,7 @@ struct SettingsView: View {
             SettingsTabBarItem(selection: Binding(get: { tab }, set: select))
         }
         .resizeFromTop()
+        .background(TitlebarSeparatorRemover())
         .onAppear { model.settingsAppeared() }
     }
 
@@ -213,8 +215,24 @@ private extension View {
     func settingsPane() -> some View {
         formStyle(.grouped)
             .scrollDisabled(true)
+            .hideTopScrollEdge()
             .frame(width: 460)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The panes never scroll, but while the window eases to a new height the form briefly
+    /// sits under the toolbar, which would flash the scroll-edge effect on macOS 26.
+    @ViewBuilder
+    func hideTopScrollEdge() -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            scrollEdgeEffectHidden(true, for: .top)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
 
@@ -403,6 +421,21 @@ private struct AccountRow: View {
         case .keychainDenied: return L10n.get("Auth_KeychainDenied")
         case .unreadable: return AuthText.readFailed(tool)
         case .unknown: return L10n.get("Auth_Checking")
+        }
+    }
+}
+
+/// Removes the line under the toolbar. AppKit shows it whenever content passes beneath the
+/// toolbar, which the form briefly does while the window resizes between tabs, so it would
+/// blink on every switch; the panes never scroll, so it never marks anything useful here.
+private struct TitlebarSeparatorRemover: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { Probe() }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class Probe: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.titlebarSeparatorStyle = .none
         }
     }
 }
