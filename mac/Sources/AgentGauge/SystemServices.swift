@@ -21,7 +21,8 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         do {
             _ = try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
-            Log.write("notify", "Notification authorization failed: \(type(of: error))")
+            let nsError = error as NSError
+            Log.write("notify", "Notification authorization failed: \(nsError.domain) \(nsError.code)")
         }
         return await authorizationStatus()
     }

@@ -41,8 +41,13 @@ enum ProviderText {
 public enum Log {
     public static let subsystem = "io.github.ghostface2232.agentgauge"
 
+    /// Test runs exercise the failure paths on purpose; their lines go to a sibling
+    /// subsystem so they never read as real failures in the app's own log.
+    private static let activeSubsystem = Bundle.allBundles.contains { $0.bundlePath.hasSuffix(".xctest") }
+        ? subsystem + ".tests" : subsystem
+
     public static func write(_ area: String, _ message: String) {
-        Logger(subsystem: subsystem, category: area).notice("\(message, privacy: .public)")
+        Logger(subsystem: activeSubsystem, category: area).notice("\(message, privacy: .public)")
     }
 }
 

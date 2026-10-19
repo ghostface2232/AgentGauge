@@ -116,10 +116,23 @@ final class CredentialParsingTests: XCTestCase {
     }
 
     func testClaudeExpiredAndMalformed() {
-        let expired = #"{"claudeAiOauth":{"accessToken":"tok","expiresAt":1000}}"#
+        let expired = #"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"r","expiresAt":1000,"scopes":["user:profile","user:inference"]}}"#
         XCTAssertEqual(CredentialParsing.claude(from: Data(expired.utf8), now: now), .invalid(.expired))
         XCTAssertEqual(CredentialParsing.claude(from: Data("{".utf8), now: now), .invalid(.unreadable))
         XCTAssertEqual(CredentialParsing.claude(from: Data("{}".utf8), now: now), .invalid(.noToken))
+    }
+
+    func testClaudeExpiredRefreshabilityMirrorsTheCLI() {
+        func read(_ oauth: String) -> CredentialRead {
+            let json = #"{"claudeAiOauth":{"accessToken":"tok","expiresAt":1000,"# + oauth + "}}"
+            return CredentialParsing.claude(from: Data(json.utf8), now: now)
+        }
+        XCTAssertEqual(read(#""refreshToken":"r","subscriptionType":"max""#), .invalid(.expired))
+        // The stripped document observed in the keychain item: Claude Code refuses to refresh it.
+        XCTAssertEqual(read(#""refreshToken":"r""#), .invalid(.expiredUnrefreshable))
+        XCTAssertEqual(read(#""refreshToken":"r","scopes":["user:profile"]"#), .invalid(.expiredUnrefreshable))
+        XCTAssertEqual(read(#""subscriptionType":"max""#), .invalid(.expiredUnrefreshable))
+        XCTAssertEqual(read(#""refreshToken":"","subscriptionType":"max""#), .invalid(.expiredUnrefreshable))
     }
 
     func testCodexJWTExpiry() {

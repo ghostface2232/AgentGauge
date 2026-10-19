@@ -165,6 +165,18 @@ final class HTTPUsageProviderTests: XCTestCase {
         XCTAssertEqual(transport.lastAuthorization, "Bearer fresh")
     }
 
+    func testUnrefreshableTokenAsksForSignInWithoutSpawningTheCLI() async throws {
+        let credentials = FakeCredentials(.invalid(.expiredUnrefreshable))
+        let refresher = FakeRefresher()
+        let provider = makeProvider(policy: .claude, transport: FakeTransport(), credentials: credentials, refresher: refresher)
+        do {
+            _ = try await provider.fetch(.user)
+            XCTFail("expected a sign-in requirement")
+        } catch UsageFetchError.authenticationRequired {
+        }
+        XCTAssertEqual(refresher.calls, 0)
+    }
+
     func testAccountSwitchDropsCache() async throws {
         let transport = FakeTransport()
         let credentials = FakeCredentials(.available(ToolCredential(accessToken: "a")))
@@ -234,6 +246,29 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         XCTAssertEqual(credential.plan, "Pro")
     }
 
+    final class Clock: @unchecked Sendable {
+        let lock = NSLock()
+        var current: Date
+        init(_ current: Date) { self.current = current }
+        var now: Date { lock.withLock { current } }
+    }
+
+    func testCachedStrippedTokenExpiresAsUnrefreshable() async {
+        let keychain = FakeKeychain()
+        keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+        // Valid when first read, without the fields Claude Code needs to refresh it.
+        keychain.result = .data(Data(#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"r","expiresAt":2000000}}"#.utf8))
+        let clock = Clock(Date(timeIntervalSince1970: 1000))
+        let source = ClaudeCredentialSource(keychain: keychain, environment: [:],
+                                            homeDirectory: URL(fileURLWithPath: "/nonexistent"), now: { clock.now })
+
+        guard case .available = await source.read(interactive: false) else { return XCTFail("expected a credential") }
+        clock.lock.withLock { clock.current = Date(timeIntervalSince1970: 3000) }
+        let expired = await source.read(interactive: false)
+        XCTAssertEqual(expired, .invalid(.expiredUnrefreshable), "the item is unchanged, so the cache must keep its refreshability")
+        XCTAssertEqual(keychain.passwordReads, 1)
+    }
+
     func testDenialIsOnlyReaskedInteractively() async {
         let keychain = FakeKeychain()
         keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
@@ -248,6 +283,57 @@ final class ClaudeKeychainSourceTests: XCTestCase {
 
         _ = await source.read(interactive: true)
         XCTAssertEqual(keychain.passwordReads, 2)
+    }
+
+    final class ScriptedRunner: ProcessRunning, @unchecked Sendable {
+        let result: ProcessResult
+        private(set) var arguments: [String] = []
+        init(_ result: ProcessResult) { self.result = result }
+        func run(_ executable: URL, arguments: [String], environment: [String: String],
+                 timeout: TimeInterval, captureOutput: Bool) async -> ProcessResult {
+            self.arguments = arguments
+            return result
+        }
+    }
+
+    private func toolResult(exit: Int32?, output: String? = nil, timedOut: Bool = false, launched: Bool = true) -> ProcessResult {
+        ProcessResult(exitCode: exit, timedOut: timedOut, launched: launched, output: output.map { Data($0.utf8) })
+    }
+
+    func testSecurityToolReadsTheItemWithoutTheFramework() async {
+        let fallback = FakeKeychain()
+        let runner = ScriptedRunner(toolResult(exit: 0, output: #"{"claudeAiOauth":{}}"# + "\n"))
+        let keychain = SecurityToolKeychain(runner: runner, fallback: fallback)
+        let result = await keychain.password(service: "Claude Code-credentials", account: "me")
+        XCTAssertEqual(result, .data(Data(#"{"claudeAiOauth":{}}"#.utf8)))
+        XCTAssertEqual(runner.arguments, ["find-generic-password", "-s", "Claude Code-credentials", "-a", "me", "-w"])
+        XCTAssertEqual(fallback.passwordReads, 0)
+    }
+
+    func testSecurityToolHexOutputIsDecoded() {
+        let hex = Data(#"{"a":1}"#.utf8).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(SecurityToolKeychain.decodePassword(Data((hex + "\n").utf8)), Data(#"{"a":1}"#.utf8))
+        XCTAssertNil(SecurityToolKeychain.decodePassword(Data("not a document".utf8)))
+        XCTAssertNil(SecurityToolKeychain.decodePassword(Data("abcd".utf8)), "hex that is not a JSON document")
+    }
+
+    func testSecurityToolStatusesMapWithoutFallingBack() {
+        XCTAssertEqual(SecurityToolKeychain.interpret(toolResult(exit: 44)), .notFound)
+        XCTAssertEqual(SecurityToolKeychain.interpret(toolResult(exit: 128)), .denied)
+        XCTAssertEqual(SecurityToolKeychain.interpret(toolResult(exit: 51)), .denied)
+        // An unanswered prompt must not be followed by a second one from the fallback.
+        XCTAssertEqual(SecurityToolKeychain.interpret(toolResult(exit: nil, timedOut: true)), .denied)
+    }
+
+    func testSecurityToolFailuresFallBackToTheFramework() async {
+        for failure in [toolResult(exit: nil, launched: false), toolResult(exit: 1), toolResult(exit: 0, output: "garbage")] {
+            let fallback = FakeKeychain()
+            fallback.result = .data(document)
+            let keychain = SecurityToolKeychain(runner: ScriptedRunner(failure), fallback: fallback)
+            let result = await keychain.password(service: "Claude Code-credentials", account: nil)
+            XCTAssertEqual(result, .data(document))
+            XCTAssertEqual(fallback.passwordReads, 1)
+        }
     }
 
     func testNoKeychainItemAndNoFileIsMissing() async {

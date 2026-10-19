@@ -34,9 +34,15 @@ public struct SystemProcessRunner: ProcessRunning {
             let pipe: Pipe? = captureOutput ? Pipe() : nil
             process.standardOutput = pipe ?? FileHandle.nullDevice
             let state = RunState()
+            // Drained while the process runs: output larger than the pipe buffer (the keychain
+            // document grows with every MCP OAuth entry) would otherwise block the writer and
+            // only end at the timeout.
+            let drained = DispatchGroup()
+            let collected = OutputBox()
 
             process.terminationHandler = { finished in
-                let output = pipe?.fileHandleForReading.readDataToEndOfFile()
+                drained.wait()
+                let output = pipe == nil ? nil : collected.data
                 state.finishOnce {
                     continuation.resume(returning: ProcessResult(
                         exitCode: finished.terminationStatus, timedOut: state.timedOut, launched: true, output: output))
@@ -48,6 +54,13 @@ public struct SystemProcessRunner: ProcessRunning {
                 state.finishOnce { continuation.resume(returning: .launchFailed) }
                 return
             }
+            if let pipe {
+                drained.enter()
+                DispatchQueue.global().async {
+                    collected.data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    drained.leave()
+                }
+            }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
                 guard process.isRunning else { return }
                 state.markTimedOut()
@@ -56,6 +69,15 @@ public struct SystemProcessRunner: ProcessRunning {
                     if process.isRunning { kill(process.processIdentifier, SIGKILL) }
                 }
             }
+        }
+    }
+
+    private final class OutputBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored = Data()
+        var data: Data {
+            get { lock.withLock { stored } }
+            set { lock.withLock { stored = newValue } }
         }
     }
 
