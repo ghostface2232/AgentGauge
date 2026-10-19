@@ -99,7 +99,12 @@ public actor CLILocator: CLILocating {
     }
 
     public func locate(_ name: String) async -> URL? {
-        for directory in wellKnownDirectories() + (await shellPath()) {
+        if let found = Self.firstExecutable(name, in: wellKnownDirectories()) { return found }
+        return Self.firstExecutable(name, in: await shellPath())
+    }
+
+    private static func firstExecutable(_ name: String, in directories: [String]) -> URL? {
+        for directory in directories {
             let candidate = URL(fileURLWithPath: directory, isDirectory: true).appending(path: name)
             if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
         }
