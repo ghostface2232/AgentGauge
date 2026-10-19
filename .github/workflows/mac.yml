@@ -36,5 +36,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: AgentGauge-macOS
-          path: mac/build/AgentGauge-macOS.zip
+          path: |
+            mac/build/AgentGauge-macOS.zip
+            mac/build/AgentGauge-macOS.dmg
           if-no-files-found: error

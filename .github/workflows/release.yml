@@ -99,11 +99,13 @@ jobs:
         run: |
           tag='${{ github.ref_name }}'
           is_draft="$(gh release view "$tag" --json isDraft --jq '.isDraft')"
-          has_asset="$(gh release view "$tag" --json assets --jq '[.assets[].name] | index("AgentGauge-macOS.zip") != null')"
-          if [ "$is_draft" = "true" ]; then
-            gh release upload "$tag" mac/build/AgentGauge-macOS.zip --clobber
-          elif [ "$has_asset" = "true" ]; then
-            echo "Release $tag is already published with a macOS asset; leaving it unchanged."
-          else
-            gh release upload "$tag" mac/build/AgentGauge-macOS.zip
-          fi
+          for asset in AgentGauge-macOS.zip AgentGauge-macOS.dmg; do
+            has_asset="$(gh release view "$tag" --json assets --jq "[.assets[].name] | index(\"$asset\") != null")"
+            if [ "$is_draft" = "true" ]; then
+              gh release upload "$tag" "mac/build/$asset" --clobber
+            elif [ "$has_asset" = "true" ]; then
+              echo "Release $tag already has $asset; leaving it unchanged."
+            else
+              gh release upload "$tag" "mac/build/$asset"
+            fi
+          done

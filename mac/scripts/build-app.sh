@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds AgentGauge.app (and a zip of it) from the Swift package.
+# Builds AgentGauge.app, an updater ZIP and an installation DMG from the Swift package.
 #
 #   ./scripts/build-app.sh                 universal release build, ad-hoc signed
 #   ARCHS=native ./scripts/build-app.sh    faster single-architecture build
@@ -83,4 +83,5 @@ codesign --force --options runtime --timestamp=none --sign "${SIGN_IDENTITY:--}"
 codesign --verify --strict "$APP"
 
 (cd "$BUILD_DIR" && rm -f AgentGauge-macOS.zip && ditto -c -k --keepParent AgentGauge.app AgentGauge-macOS.zip)
+bash "$ROOT/scripts/build-dmg.sh" "$APP" "$BUILD_DIR/AgentGauge-macOS.dmg"
 echo "Built $APP ($VERSION, build $BUILD_NUMBER)"

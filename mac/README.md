@@ -17,6 +17,12 @@ A native menu bar app that shows the real usage limits of **Claude** and **Codex
 - macOS 14 Sonoma or later (Apple silicon or Intel).
 - The Claude Code CLI and/or the Codex CLI, signed in. For Cursor, the Cursor app signed in; for GitHub Copilot, the GitHub CLI (`gh`) signed in, or a `github-copilot` token file.
 
+## Install
+
+Download **AgentGauge-macOS.dmg** from [the latest release](https://github.com/ghostface2232/AgentGauge/releases/latest), open it, and drag **AgentGauge.app** to **Applications**. Eject the disk image and launch the app from Applications.
+
+The DMG supports both Apple silicon and Intel Macs. **AgentGauge-macOS.zip** remains available for manual installation and is the format used by in-app updates.
+
 ## Sign-in and data
 
 AgentGauge never issues or refreshes credentials itself; it reads what each official CLI already stores, read-only.
@@ -53,5 +59,7 @@ open build/AgentGauge.app
 ```
 
 Xcode 26 (macOS 26 SDK) is needed for the Liquid Glass styling; older Xcode versions build the fallback look. `ARCHS=native` skips the universal build for faster iteration. Set `SIGN_IDENTITY` to a Developer ID identity to sign with it; ad-hoc builds make macOS ask for keychain access again after every rebuild.
+
+The build produces both the updater ZIP and a DMG with an Applications shortcut. The DMG is mounted and checked against the original signed app before upload. To add a missing DMG to an existing release, run the `mac-dmg` workflow with its tag; it verifies and packages the published ZIP without rebuilding or replacing any existing asset.
 
 Release builds are ad-hoc signed, so Gatekeeper blocks the first launch of a downloaded copy. Open it once, then go to System Settings › Privacy & Security and choose **Open Anyway** (on macOS 14, right-clicking the app and choosing **Open** also works), or build locally. Updates installed from inside the app are not quarantined and open normally.
