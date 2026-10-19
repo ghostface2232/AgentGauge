@@ -8,8 +8,9 @@ import SwiftUI
 /// Older systems fall back to the standard borderless/bordered controls.
 enum Metrics {
     static let panelWidth: CGFloat = 340
+    /// The fixed radius before macOS 26; from 26 the minimum of the concentric card shape.
     static let cardCornerRadius: CGFloat = {
-        if #available(macOS 26.0, *) { return 18 }
+        if #available(macOS 26.0, *) { return 14 }
         return 12
     }()
     static let cardPadding: CGFloat = 14
@@ -44,8 +45,20 @@ extension View {
         #endif
     }
 
+    /// On macOS 26 the card shape is concentric with the panel window, as system panels nest
+    /// their modules; a fixed radius reads rounder than the window around it.
+    @ViewBuilder
     func cardBackground() -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            background(.quaternary, in: ConcentricRectangle(
+                corners: .concentric(minimum: .fixed(Metrics.cardCornerRadius)), isUniform: true))
+        } else {
+            background(.quaternary, in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius, style: .continuous))
+        }
+        #else
         background(.quaternary, in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius, style: .continuous))
+        #endif
     }
 }
 

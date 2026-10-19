@@ -30,6 +30,15 @@ BIN_DIR="$(swift build -c release "${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}" --show-b
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/AgentGauge" "$APP/Contents/MacOS/AgentGauge"
+
+# SwiftPM records the deployment target as the linked SDK version (LC_BUILD_VERSION sdk
+# 14.0). AppKit decides the window design from that number, so a binary claiming the
+# macOS 14 SDK runs in compatibility mode on macOS 26+: no Liquid Glass panel, small
+# window corners. Stamp the SDK the binary was actually built against.
+MIN_OS="$(plutil -extract LSMinimumSystemVersion raw "$ROOT/Resources/Info.plist")"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+vtool -set-build-version macos "$MIN_OS" "$SDK_VERSION" -replace \
+    -output "$APP/Contents/MacOS/AgentGauge" "$APP/Contents/MacOS/AgentGauge"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" \
     "$ROOT/Resources/Info.plist" > "$APP/Contents/Info.plist"
 
