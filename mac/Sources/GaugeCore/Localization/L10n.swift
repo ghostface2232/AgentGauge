@@ -83,6 +83,7 @@ public enum AuthText {
     public static func missing(_ tool: ToolKind) -> String {
         switch tool {
         case .cursor: L10n.get("Auth_Missing_Cursor")
+        case .antigravity: L10n.get("Auth_Missing_Antigravity")
         case .githubCopilot: L10n.get("Auth_Missing_Copilot")
         case .claude, .codex: L10n.get("Auth_Missing")
         }

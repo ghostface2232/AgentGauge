@@ -58,9 +58,19 @@ public enum GitHubCopilotUsageParser {
             guard let quota = snapshots.object(id),
                   quota.bool("has_quota") != false, quota.bool("unlimited") != true,
                   let used = usedRatio(quota) else { return nil }
+            // Absolute request counts ("128 / 300") when both halves are present; remaining
+            // alone cannot produce a denominator.
+            var usedCount: Int64?
+            var limitCount: Int64?
+            if let entitlement = quota.double("entitlement"), entitlement > 0, entitlement < 9e15,
+               let remaining = quota.double("remaining") {
+                limitCount = Int64(entitlement.rounded())
+                usedCount = Int64(min(max(entitlement - remaining, 0), entitlement).rounded())
+            }
             // Every quota shares the billingCycle type, so the type-derived label would read
             // "Usage" for all of them; the per-quota key keeps rows and alert titles distinct.
-            return UsageWindow(type: .billingCycle, providerID: id, usedRatio: used, labelKey: labelKey(id), resetTime: reset)
+            return UsageWindow(type: .billingCycle, providerID: id, usedRatio: used, labelKey: labelKey(id),
+                               resetTime: reset, usedCount: usedCount, limitCount: limitCount)
         }
     }
 

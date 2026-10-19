@@ -1,5 +1,6 @@
 # Builds the per-user installer and creates a DRAFT GitHub Release whenever a version
-# tag (e.g. v0.1.0) is pushed. The draft carries the installer asset and auto-generated
+# tag (e.g. v0.1.0) is pushed; a second job adds the macOS app (AgentGauge-macOS.zip, the
+# asset the Mac updater looks for). The draft carries the assets and auto-generated
 # notes as a starting point; writing the final release notes and publishing the release
 # are done manually. The in-app updater reads the same <Version>, so the tag must match
 # Gauge.csproj's <Version> prefixed with "v" (and the updater only sees it once published).
@@ -68,3 +69,41 @@ jobs:
             Write-Host "Release $tag is already published; leaving its asset unchanged."
           }
           $global:LASTEXITCODE = 0
+
+  mac:
+    # After the Windows job, so the draft release already exists to upload into.
+    needs: release
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Test
+        working-directory: mac
+        run: swift test
+
+      - name: Build app
+        working-directory: mac
+        run: |
+          chmod +x scripts/build-app.sh
+          ./scripts/build-app.sh
+
+      # The app's version comes from Gauge.csproj (checked against the tag above). A
+      # draft's asset may be replaced; a published release only ever GAINS a missing Mac
+      # asset (release.ps1 publishes before this runs) — an existing one is never swapped,
+      # since clients may already have read its digest.
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='${{ github.ref_name }}'
+          is_draft="$(gh release view "$tag" --json isDraft --jq '.isDraft')"
+          has_asset="$(gh release view "$tag" --json assets --jq '[.assets[].name] | index("AgentGauge-macOS.zip") != null')"
+          if [ "$is_draft" = "true" ]; then
+            gh release upload "$tag" mac/build/AgentGauge-macOS.zip --clobber
+          elif [ "$has_asset" = "true" ]; then
+            echo "Release $tag is already published with a macOS asset; leaving it unchanged."
+          else
+            gh release upload "$tag" mac/build/AgentGauge-macOS.zip
+          fi

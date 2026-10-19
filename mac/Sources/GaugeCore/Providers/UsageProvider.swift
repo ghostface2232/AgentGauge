@@ -276,6 +276,8 @@ public enum ProviderFactory {
                 endpoint: CursorEndpoint(),
                 policy: FetchPolicy(),
                 transport: transport),
+            // No endpoint or credential: reads the app's own language server, or launches one.
+            AntigravityProvider(),
             HTTPUsageProvider(
                 tool: .githubCopilot,
                 credentials: GitHubCopilotCredentialSource(

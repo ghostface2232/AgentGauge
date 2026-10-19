@@ -44,7 +44,7 @@ public enum ResetTimeFormatter {
     }
 }
 
-/// Compares a window's utilization with an even spend across its own cycle.
+/// Compares a window's utilization with the expected consumption curve in its own cycle.
 public enum PaceClassifier {
     public static let minimumElapsedRatio = 0.03
 
@@ -52,19 +52,59 @@ public enum PaceClassifier {
     /// duration/reset, an expired or future cycle, the first 3% of a cycle (too early to
     /// mean anything), or an exhausted window ("burning fast" beside 100% only restates
     /// the bar). Deliberately not coloured — the bar's level tint is the single severity signal.
-    public static func caption(for window: UsageWindow, now: Date = Date()) -> String? {
+    ///
+    /// `model` decides how the cycle's quota is expected to spread across its days; only
+    /// windows of 2–366 days honour it, shorter and longer ones always use the uniform
+    /// spread. `profile` is this window's recorded per-weekday consumption, consulted only
+    /// by `.automatic`; an absent or insufficient one reads as uniform. `calendar` supplies
+    /// the zone whose local days the weekday models count.
+    public static func caption(
+        for window: UsageWindow,
+        now: Date = Date(),
+        model: WeeklyPaceModel = .uniform,
+        profile: UsageWeekdayProfile? = nil,
+        calendar: Calendar = .current
+    ) -> String? {
         guard let duration = window.duration, duration > 0,
               let reset = window.resetTime, window.usedRatio.isFinite else { return nil }
         let remaining = reset.timeIntervalSince(now)
         guard remaining > 0, remaining <= duration else { return nil }
         let elapsedRatio = (duration - remaining) / duration
+        // The early-silence gate is wall-clock: it keeps the first hours of any cycle quiet,
+        // and a weekday model that expects nothing over a weekend must not reopen it.
         guard elapsedRatio >= minimumElapsedRatio, window.usedRatio < 1 else { return nil }
 
+        let expectedRatio = expectedRatio(
+            now: now, reset: reset, duration: duration, model: model, profile: profile, calendar: calendar)
+            ?? elapsedRatio
+
         // Positive is reserve, negative deficit, in percentage points of the whole quota.
-        let ahead = min(max(window.usedRatio, 0), 1) - elapsedRatio
+        let ahead = min(max(window.usedRatio, 0), 1) - expectedRatio
         let difference = Int((-ahead * 100).rounded(.toNearestOrAwayFromZero))
         if difference == 0 { return L10n.get("Pace_OnPace") }
         return L10n.format(difference > 0 ? "Pace_Reserve" : "Pace_Deficit", abs(difference))
+    }
+
+    // The share of the cycle's quota expected to be spent by now under the chosen model, or
+    // nil where the model does not apply and the uniform spread stands.
+    private static func expectedRatio(
+        now: Date, reset: Date, duration: TimeInterval,
+        model: WeeklyPaceModel, profile: UsageWeekdayProfile?, calendar: Calendar
+    ) -> Double? {
+        guard duration >= WeeklyPaceTimeline.minimumDuration,
+              duration <= WeeklyPaceTimeline.maximumDuration else { return nil }
+        let weights: [Double]
+        switch model {
+        case .uniform:
+            return nil
+        case .workDays:
+            weights = WeeklyPaceTimeline.workDayWeights
+        case .automatic:
+            guard let profile, profile.isSufficient else { return nil }
+            weights = profile.weights
+        }
+        return WeeklyPaceTimeline.elapsedRatio(
+            start: reset.addingTimeInterval(-duration), now: now, end: reset, weights: weights, calendar: calendar)
     }
 }
 
