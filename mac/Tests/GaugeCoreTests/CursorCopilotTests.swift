@@ -259,9 +259,9 @@ final class GitHubCopilotProviderTests: XCTestCase {
     }
 
     func testEachQuotaCarriesItsOwnLabelKey() throws {
-        let windows = try windows(liveFreeCopilotJSON)
-        XCTAssertEqual(windows.map(\.labelKey), ["Label_Copilot_Chat", "Label_Copilot_Completions"])
-        let labels = windows.map(WindowLabels.label(for:))
+        let result = try windows(liveFreeCopilotJSON)
+        XCTAssertEqual(result.map(\.labelKey), ["Label_Copilot_Chat", "Label_Copilot_Completions"])
+        let labels = result.map(WindowLabels.label(for:))
         XCTAssertEqual(Set(labels).count, 2)
         XCTAssertFalse(labels.contains { $0.hasPrefix("Label_") })
     }
