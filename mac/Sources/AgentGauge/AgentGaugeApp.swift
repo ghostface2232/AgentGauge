@@ -1,3 +1,5 @@
+import AppKit
+import CoreText
 import GaugeCore
 import SwiftUI
 
@@ -32,22 +34,90 @@ struct AgentGaugeApp: App {
     }
 }
 
-/// The menu bar item: a template gauge symbol whose needle follows the highest usage level,
-/// optionally followed by that window's percentage.
+/// The menu bar item: the Windows tray gauge, whose needle follows the highest usage level,
+/// optionally followed by that window's percentage. It is drawn as a template (monochrome,
+/// tinted by the menu bar) rather than in the Windows tray's level colours.
+///
+/// The two are drawn into one template image rather than handed to the status item as an
+/// Image + Text pair: the status button lays a title out on its own line box, which leaves
+/// the digits about a point above the icon's center. Drawing them ourselves puts the
+/// digits' cap-height center on the icon's center, and the menu bar still tints the
+/// template like its own text.
 struct MenuBarLabel: View {
     let summary: MenuBarSummary
     let basis: DisplayBasis
     let showPercent: Bool
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: summary.symbolName)
-            if showPercent, let percent = summary.percentText(basis: basis) {
-                Text(percent).monospacedDigit()
-            }
+        let percent = showPercent ? summary.percentText(basis: basis) : nil
+        Image(nsImage: Self.render(icon: Self.icon(for: summary), text: percent))
+            .accessibilityLabel("AgentGauge")
+            .accessibilityValue(summary.percentText(basis: basis) ?? "")
+    }
+
+    private static let spacing: CGFloat = 5
+
+    /// Optical nudge, tuned by eye on a Retina menu bar: the gauge opens at the bottom, so its
+    /// bounding-box center sits above where it reads; one device pixel down settles it
+    /// against the digits.
+    private static let iconDrop: CGFloat = 0.5
+
+    /// Point size of the tray gauge; its artwork fills the width and ~85% of the height,
+    /// which reads about as large as the SF Symbol it replaces.
+    private static let iconSize = NSSize(width: 16, height: 16)
+
+    private static let trayIcons: [String: NSImage] = Dictionary(uniqueKeysWithValues:
+        ["gauge_icon", "gauge_icon_70", "gauge_icon_90"].compactMap { name in
+            Bundle.main.url(forResource: name, withExtension: "ico")
+                .flatMap(NSImage.init(contentsOf:))
+                .map { (name, $0) }
+        })
+
+    /// Same asset choice as the Windows tray (`TrayIconService`): plain, `_70`, `_90`.
+    /// An unbundled `swift run` has no resources, so it falls back to the SF Symbol.
+    private static func icon(for summary: MenuBarSummary) -> (image: NSImage, size: NSSize) {
+        let name = switch summary.level {
+        case .danger: "gauge_icon_90"
+        case .caution: "gauge_icon_70"
+        case .ok, nil: "gauge_icon"
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("AgentGauge")
-        .accessibilityValue(summary.percentText(basis: basis) ?? "")
+        if let icon = trayIcons[name] { return (icon, iconSize) }
+        let symbol = NSImage(systemSymbolName: summary.symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)) ?? NSImage()
+        return (symbol, symbol.size)
+    }
+
+    private static func render(icon: (image: NSImage, size: NSSize), text: String?) -> NSImage {
+        let font = NSFont.menuBarFont(ofSize: 0)
+        let iconSize = icon.size
+        let line = text.map {
+            CTLineCreateWithAttributedString(NSAttributedString(string: $0, attributes: [.font: monospacedDigits(font)]))
+        }
+        let textWidth = line.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil)) } ?? 0
+        let gap = line == nil ? 0 : spacing
+        let size = NSSize(width: ceil(iconSize.width + gap + textWidth), height: iconSize.height)
+        let image = NSImage(size: size, flipped: false) { _ in
+            icon.image.draw(in: NSRect(origin: CGPoint(x: 0, y: -iconDrop), size: iconSize))
+            if let line, let context = NSGraphicsContext.current?.cgContext {
+                // Lining digits and "%" span baseline to cap height, so centering that span
+                // on the image (the gauge's own center) aligns them optically.
+                context.textPosition = CGPoint(x: iconSize.width + gap, y: (size.height - font.capHeight) / 2)
+                CTLineDraw(line, context)
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    /// Tabular figures keep the item from shifting width as the percentage changes.
+    private static func monospacedDigits(_ font: NSFont) -> NSFont {
+        let descriptor = font.fontDescriptor.addingAttributes([
+            .featureSettings: [[
+                NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
+                NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector,
+            ]],
+        ])
+        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
     }
 }

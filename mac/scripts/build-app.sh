@@ -49,6 +49,14 @@ for language in en ko ja; do
     printf '/* AgentGauge */\n' > "$APP/Contents/Resources/$language.lproj/InfoPlist.strings"
 done
 
+# Menu bar icons: the Windows tray gauges (needle per usage level). NSImage reads the ICO's
+# size frames directly; the app falls back to an SF Symbol if they are missing.
+for icon in gauge_icon gauge_icon_70 gauge_icon_90; do
+    if [[ -f "$ROOT/../Assets/$icon.ico" ]]; then
+        cp "$ROOT/../Assets/$icon.ico" "$APP/Contents/Resources/$icon.ico"
+    fi
+done
+
 # App icon from the Windows icon, best effort: a missing icon must not fail the build.
 ICON_SOURCE="$ROOT/../Assets/gauge_appicon.ico"
 if [[ -f "$ICON_SOURCE" ]] && command -v iconutil >/dev/null; then
