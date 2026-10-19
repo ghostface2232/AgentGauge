@@ -70,3 +70,54 @@ final class MenuBarSummaryTests: XCTestCase {
         XCTAssertNil(MenuBarSummary(states: []).level)
     }
 }
+
+final class HiddenToolResumeTests: XCTestCase {
+    private func state(_ ratio: Double, reset: Date, at captured: Date) -> ToolState {
+        var state = ToolState(tool: .claude, snapshot: UsageSnapshot(tool: .claude, plan: nil, windows: [
+            UsageWindow(type: .weekly, usedRatio: ratio, resetTime: reset, duration: 7 * 86_400),
+        ], capturedAt: captured))
+        state.auth = .signedIn
+        return state
+    }
+
+    /// Hidden at 80%, reset while hidden: the stale cache shown first must not become the
+    /// baseline the first live read is compared with, or a reset toast would replay.
+    func testShowingAToolAgainNeverReplaysWhatHappenedWhileHidden() {
+        var evaluator = UsageNotificationEvaluator()
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let oldReset = start.addingTimeInterval(3600)
+        XCTAssertTrue(evaluator.evaluate([state(0.80, reset: oldReset, at: start)], now: start).isEmpty)
+
+        // Hidden: not emitted at all.
+        XCTAssertTrue(evaluator.evaluate([], now: start.addingTimeInterval(60)).isEmpty)
+
+        evaluator.toolShown(.claude)
+        let later = start.addingTimeInterval(8 * 86_400)
+        // The coordinator re-emits its pre-hide cache first…
+        XCTAssertTrue(evaluator.evaluate([state(0.80, reset: oldReset, at: start)], now: later).isEmpty)
+        // …then the live read lands in a fresh cycle.
+        let fresh = state(0.05, reset: later.addingTimeInterval(7 * 86_400), at: later)
+        XCTAssertTrue(evaluator.evaluate([fresh], now: later).isEmpty, "no reset toast for a reset that happened while hidden")
+
+        // From then on, transitions are real again.
+        let crossing = state(0.75, reset: later.addingTimeInterval(7 * 86_400), at: later.addingTimeInterval(3600))
+        XCTAssertEqual(evaluator.evaluate([crossing], now: later.addingTimeInterval(3600)).map(\.kind), [.threshold])
+    }
+}
+
+final class StringsTableTests: XCTestCase {
+    /// The merge keeps the first table's row, so a key in two tables makes the second dead.
+    func testEveryKeyLivesInOneTable() {
+        let tables = [Strings.core, Strings.features, Strings.antigravity, Strings.apiCost, Strings.history]
+        var seen = Set<String>()
+        for table in tables {
+            for key in table.keys {
+                XCTAssertTrue(seen.insert(key).inserted, "duplicate string key \(key)")
+            }
+        }
+        for (key, row) in Strings.table {
+            XCTAssertEqual(row.count, 3, key)
+            XCTAssertFalse(row.contains(where: \.isEmpty), key)
+        }
+    }
+}

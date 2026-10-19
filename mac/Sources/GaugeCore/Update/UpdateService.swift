@@ -192,7 +192,12 @@ public struct UpdateService: Sendable {
         }
 
         let helper = work.appending(path: "swap.sh")
-        try Self.helperScript.write(to: helper, atomically: true, encoding: .utf8)
+        do {
+            try Self.helperScript.write(to: helper, atomically: true, encoding: .utf8)
+        } catch {
+            try? FileManager.default.removeItem(at: staged)
+            throw UpdateInstallError.launchFailed
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         // Paths travel as arguments, never interpolated into the script text.
@@ -218,12 +223,18 @@ public struct UpdateService: Sendable {
     }
 
     /// $1 pid to wait for, $2 installed bundle, $3 staged bundle, $4 work directory (removed).
-    /// The old copy is kept until the new one is in place, and put back if the move fails.
+    /// The old copy is kept until the new one is in place, and put back if the move fails. If
+    /// the app has not quit within a minute (termination cancelled), nothing is swapped: the
+    /// running copy must never be moved or deleted out from under itself.
     static let helperScript = """
     #!/bin/sh
     pid="$1"; target="$2"; staged="$3"; work="$4"
     i=0
     while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 300 ]; do sleep 0.2; i=$((i + 1)); done
+    if kill -0 "$pid" 2>/dev/null; then
+        rm -rf "$staged" "$work"
+        exit 1
+    fi
     backup="$target.previous"
     rm -rf "$backup"
     if mv "$target" "$backup"; then

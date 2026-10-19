@@ -350,9 +350,11 @@ private extension KeyedDecodingContainer {
         try? decodeIfPresent(String.self, forKey: key)
     }
 
-    /// A non-negative whole count; absent, null, fractional or non-numeric reads as 0.
+    /// A non-negative whole count; absent, null, fractional or non-numeric reads as 0. Capped
+    /// far above any real response (a trillion tokens), so a corrupt line cannot overflow
+    /// the sums it feeds.
     func lenientCount(_ key: Key) -> Int64 {
-        max(0, (try? decodeIfPresent(Int64.self, forKey: key)) ?? 0)
+        min(max(0, (try? decodeIfPresent(Int64.self, forKey: key)) ?? 0), TokenTotals.maximumCount)
     }
 
     /// The nested object, or nil when the value is absent or not an object.

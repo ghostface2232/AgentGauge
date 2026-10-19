@@ -1,5 +1,7 @@
-// Feature rows, merged into `Strings.table`. Columns: [Korean, English, Japanese] — shared
-// keys keep the Windows wording (Localization/Strings.cs).
+// Feature rows, merged into `Strings.table`. Columns: [Korean, English, Japanese]. Shared keys
+// follow the Windows meaning (Localization/Strings.cs) in Mac phrasing: title-case English
+// control labels and the system's own アップデート for software updates. Every key lives in
+// exactly one feature table; the merge keeps the first, so a duplicate would be dead.
 extension Strings {
     static let features: [String: [String]] = [
         // Card header

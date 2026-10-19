@@ -23,21 +23,41 @@ public struct TokenTotals: Sendable, Equatable, Codable {
 
     public static let zero = TokenTotals()
 
-    public var total: Int64 { input + cacheRead + cacheWrite + cacheWrite1h + output }
+    /// The largest count one parsed field may carry (a trillion tokens).
+    static let maximumCount: Int64 = 1 << 40
+
+    public var total: Int64 { Self.sum(input, cacheRead, cacheWrite, cacheWrite1h, output) }
 
     /// The whole prompt as the provider saw it — what a long-context price tier keys on.
-    public var promptTotal: Int64 { input + cacheRead + cacheWrite + cacheWrite1h }
+    public var promptTotal: Int64 { Self.sum(input, cacheRead, cacheWrite, cacheWrite1h) }
 
     public var isZero: Bool { total == 0 }
 
+    // Saturating, not trapping: these sums come from logs and a ledger file on disk, and a
+    // corrupt value must clamp a total rather than crash the app at the same line on every
+    // launch (the C# original wraps silently instead).
     public static func + (a: TokenTotals, b: TokenTotals) -> TokenTotals {
-        TokenTotals(input: a.input + b.input, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite,
-                    cacheWrite1h: a.cacheWrite1h + b.cacheWrite1h, output: a.output + b.output)
+        TokenTotals(input: sum(a.input, b.input), cacheRead: sum(a.cacheRead, b.cacheRead),
+                    cacheWrite: sum(a.cacheWrite, b.cacheWrite), cacheWrite1h: sum(a.cacheWrite1h, b.cacheWrite1h),
+                    output: sum(a.output, b.output))
     }
 
     public static func - (a: TokenTotals, b: TokenTotals) -> TokenTotals {
-        TokenTotals(input: a.input - b.input, cacheRead: a.cacheRead - b.cacheRead, cacheWrite: a.cacheWrite - b.cacheWrite,
-                    cacheWrite1h: a.cacheWrite1h - b.cacheWrite1h, output: a.output - b.output)
+        TokenTotals(input: difference(a.input, b.input), cacheRead: difference(a.cacheRead, b.cacheRead),
+                    cacheWrite: difference(a.cacheWrite, b.cacheWrite),
+                    cacheWrite1h: difference(a.cacheWrite1h, b.cacheWrite1h), output: difference(a.output, b.output))
+    }
+
+    private static func sum(_ values: Int64...) -> Int64 {
+        values.reduce(0) { total, value in
+            let (result, overflow) = total.addingReportingOverflow(value)
+            return overflow ? (value > 0 ? .max : .min) : result
+        }
+    }
+
+    private static func difference(_ a: Int64, _ b: Int64) -> Int64 {
+        let (result, overflow) = a.subtractingReportingOverflow(b)
+        return overflow ? (b < 0 ? .max : .min) : result
     }
 }
 

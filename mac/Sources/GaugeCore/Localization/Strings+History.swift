@@ -1,11 +1,9 @@
 // History rows, merged into `Strings.table`. Columns: [Korean, English, Japanese].
 extension Strings {
     static let history: [String: [String]] = [
-        // Settings: the sparkline toggle and the weekly pace model picker. Uniform is the
-        // original even spread; work days flattens weekends; automatic shapes the curve from
-        // the recorded history once two weeks exist.
-        "Settings_Sparkline": ["소진 추이 그래프", "Trend sparkline", "消費推移グラフ"],
-        "Settings_PaceModel": ["주간 페이스 기준", "Weekly pace basis", "週間ペース基準"],
+        // The weekly pace model picker's options. Uniform is the original even spread; work
+        // days flattens weekends; automatic shapes the curve from the recorded history once
+        // two weeks exist.
         "PaceModel_Uniform": ["매일 균등 (7일)", "Every day (7 days)", "毎日均等（7日）"],
         "PaceModel_WorkDays": ["근무일 (월–금)", "Workdays (Mon–Fri)", "平日（月〜金）"],
         "PaceModel_Automatic": ["자동 (사용 추이)", "Automatic (from history)", "自動（使用傾向）"],

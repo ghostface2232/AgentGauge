@@ -3,9 +3,11 @@ import GaugeCore
 import SwiftUI
 
 /// Developer visual QA, the Mac counterpart of the Windows `--popover-demo` switch:
-/// `AgentGauge --render-preview <dir>` waits for the first reads, draws the panel's cards
-/// offscreen in each view mode and appearance to PNGs in `<dir>`, and quits. Nothing appears
-/// on screen and nothing is sent anywhere; the images hold the same usage the panel shows.
+/// `AgentGauge --render-preview <dir>` runs the app normally for ~15 s (its menu bar item
+/// shows, and every shown provider is read, so a second instance spends one more of Claude's
+/// few reads), then draws the panel's cards offscreen in each view mode and appearance to PNGs
+/// in `<dir>` and quits. That instance records no history, posts no alerts, skips the update
+/// check and never persists the modes it draws; the images hold the usage the panel shows.
 @MainActor
 enum PreviewRenderer {
     static func directoryArgument() -> URL? {
@@ -20,9 +22,8 @@ enum PreviewRenderer {
             // engine takes several seconds).
             try? await Task.sleep(for: .seconds(15))
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let originalMode = model.viewMode
             for mode in UsageViewMode.allCases {
-                model.viewMode = mode
+                model.viewModeOverride = mode
                 for scheme in [ColorScheme.light, .dark] {
                     let content = PreviewPanel()
                         .environment(model)
@@ -36,7 +37,7 @@ enum PreviewRenderer {
                     try? png.write(to: directory.appending(path: name))
                 }
             }
-            model.viewMode = originalMode
+            model.viewModeOverride = nil
             NSApp.terminate(nil)
         }
     }

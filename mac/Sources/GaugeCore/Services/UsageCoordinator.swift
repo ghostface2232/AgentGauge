@@ -17,9 +17,10 @@ public struct ToolState: Sendable, Equatable, Identifiable {
     public var lastRefreshFailed = false
     public var auth: AuthState = .unknown
     public var isRefreshing = false
-    /// When the current read started, so the UI can cap how long its indicator spins. Set
-    /// only when a read starts: cache re-emits and repeated requests never extend it.
-    public var refreshStartedAt: Date?
+    /// When the current read started, in `SystemMonotonicClock` seconds, so the UI can cap how
+    /// long its indicator spins without a wall-clock change stretching or cutting it. Set only
+    /// when a read starts: cache re-emits and repeated requests never extend it.
+    public var refreshStartedAt: TimeInterval?
 
     public var id: ToolKind { tool }
 
@@ -150,7 +151,7 @@ public actor UsageCoordinator {
             inFlight.insert(tool)
             lastAttempt[tool] = now
             states[tool, default: ToolState(tool: tool)].isRefreshing = true
-            states[tool, default: ToolState(tool: tool)].refreshStartedAt = wallClock()
+            states[tool, default: ToolState(tool: tool)].refreshStartedAt = now
         }
         emit()
 

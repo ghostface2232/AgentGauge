@@ -4,7 +4,6 @@
 // marks a floor because some model had no known rate.
 extension Strings {
     static let apiCost: [String: [String]] = [
-        "Settings_ApiCost": ["API 환산 비용 표시", "Show API-equivalent cost", "API換算コストを表示"],
         "ApiCost_Value": ["≈ ${0}", "≈ ${0}", "≈ ${0}"],
         "ApiCost_ValueFloor": ["≈ ${0}+", "≈ ${0}+", "≈ ${0}+"],
         "Tooltip_ApiCost": [

@@ -77,6 +77,15 @@ final class AppModel {
     private let coordinator: UsageCoordinator
     private let statusService = ProviderStatusService()
     private let history = UsageHistoryStore()
+    private let monotonic = SystemMonotonicClock()
+    /// False until the 28-day warm-up has run, so no main-thread read waits on it.
+    private var historyReady = false
+    /// Bumped when recorded readings land, so rows re-derive their trends.
+    private var historyRevision = 0
+    /// Set by `PreviewRenderer`: draws a mode without persisting it.
+    var viewModeOverride: UsageViewMode?
+    /// The `--render-preview` instance records no history and posts no alerts.
+    let isPreview = PreviewRenderer.directoryArgument() != nil
     private let apiCost = ApiCostService()
     /// Bumped whenever the cost option turns off, so a result already on its way to the main
     /// actor from an older run can never bring the chips back.
@@ -110,7 +119,10 @@ final class AppModel {
         // The 28-day weekday fold is paid here, off the main thread, not by the first card
         // that reads history.
         let history = history
-        Task.detached(priority: .utility) { history.warm() }
+        Task { [weak self] in
+            await Task.detached(priority: .utility) { history.warm() }.value
+            self?.historyReady = true
+        }
         Task { await start() }
     }
 
@@ -151,7 +163,12 @@ final class AppModel {
     }
 
     func setShown(_ tool: ToolKind, _ shown: Bool) {
-        if shown { hiddenTools.remove(tool) } else { hiddenTools.insert(tool) }
+        if shown {
+            hiddenTools.remove(tool)
+            evaluator.toolShown(tool)
+        } else {
+            hiddenTools.insert(tool)
+        }
         defaults.set(hiddenTools.map(\.rawValue).sorted(), forKey: Keys.hiddenTools)
         let visible = visibleTools
         Task {
@@ -231,20 +248,29 @@ final class AppModel {
 
     // MARK: State
 
-    /// Whether the card's spinner shows: a read is out and started under the ceiling ago.
+    /// Whether the card's spinner shows: a read is out and started under the ceiling ago,
+    /// measured on the monotonic clock so a wall-clock change cannot stretch or cut it.
     func isShowingRefresh(_ state: ToolState) -> Bool {
+        _ = now // re-evaluated whenever `now` ticks, including the ceiling tick
         guard state.isRefreshing, let started = state.refreshStartedAt else { return false }
-        return now.timeIntervalSince(started) < Self.refreshIndicatorCeiling
+        return monotonic.now() - started < Self.refreshIndicatorCeiling
     }
+
+    /// The mode the cards draw in: the user's choice, unless the preview renderer is
+    /// drawing each mode in turn without persisting it.
+    var effectiveViewMode: UsageViewMode { viewModeOverride ?? viewMode }
 
     /// Everything a row shows beside its bar, derived from the window and its recorded history.
     func details(for tool: ToolKind, window: UsageWindow) -> RowDetails {
         var details = RowDetails(reset: ResetTimeFormatter.row(window.resetTime, now: now))
-        let samples = history.recent(tool: tool, windowID: window.id)
-        let profile = paceModel == .automatic ? history.weekdayProfile(tool: tool, windowID: window.id) : nil
+        // Until the background warm-up finishes, reading would wait on its lock on the main
+        // thread; the rows simply show no trend for that moment instead.
+        _ = historyRevision
+        let samples = historyReady ? history.recent(tool: tool, windowID: window.id) : []
+        let profile = historyReady && paceModel == .automatic ? history.weekdayProfile(tool: tool, windowID: window.id) : nil
         details.pace = PaceClassifier.caption(for: window, now: now, model: paceModel, profile: profile)
         details.eta = UsageEtaClassifier.caption(samples: samples, window: window, now: now)
-        if showSparkline && viewMode == .bar {
+        if showSparkline && effectiveViewMode == .bar {
             details.burndown = UsageBurndown.build(window: window, samples: samples, now: now)
         }
         if let used = window.usedCount, let limit = window.limitCount {
@@ -253,9 +279,12 @@ final class AppModel {
         return details
     }
 
-    func apiCostText(for tool: ToolKind) -> (text: String, detail: String)? {
+    /// The chip text, its tooltip, and the spoken label (the amount first: a label replaces
+    /// the visible text for VoiceOver, so the explanation alone would never say the number).
+    func apiCostText(for tool: ToolKind) -> (text: String, detail: String, accessibility: String)? {
         guard showApiCost, let estimate = apiCostEstimates[tool], let chip = ApiCostText.chip(estimate) else { return nil }
-        return (chip, ApiCostText.tooltip(estimate))
+        let detail = ApiCostText.tooltip(estimate)
+        return (chip, detail, ApiCostText.accessibilityLabel(estimate) ?? detail)
     }
 
     // MARK: API-equivalent cost
@@ -307,14 +336,12 @@ final class AppModel {
     }
 
     private func receive(_ newStates: [ToolState]) {
-        // Only genuinely new readings reach the history: the store ignores a window whose
-        // capture time has not advanced, so cache re-serves and re-emits add nothing.
-        for state in newStates where !state.lastRefreshFailed && state.auth != .signedOut {
-            if let snapshot = state.snapshot { history.record(snapshot) }
-        }
         states = newStates
         now = Date()
         scheduleRefreshCeilingTick(newStates)
+        recordHistory(newStates)
+        // The preview renderer's instance only draws; it must not alert for what it reads.
+        guard !isPreview else { return }
         // Detection stops entirely while every kind is off; re-enabling resets the baseline.
         guard notifyThresholds || notifyResets else { return }
         let alerts = evaluator.evaluate(newStates, now: now)
@@ -335,15 +362,32 @@ final class AppModel {
         }
     }
 
+    /// Only genuinely new readings reach the history: the store ignores a window whose
+    /// capture time has not advanced, so cache re-serves and re-emits add nothing. The SQLite
+    /// write (and the daily prune) runs off the main thread; the rows re-read once it lands.
+    private func recordHistory(_ states: [ToolState]) {
+        guard !isPreview else { return }
+        let snapshots = states.compactMap { state in
+            state.lastRefreshFailed || state.auth == .signedOut ? nil : state.snapshot
+        }
+        guard !snapshots.isEmpty else { return }
+        let history = history
+        Task { [weak self] in
+            await Task.detached(priority: .utility) { snapshots.forEach(history.record) }.value
+            self?.historyRevision &+= 1
+        }
+    }
+
     /// Re-renders once a running read crosses the indicator ceiling, so the spinner stops
     /// on time rather than at the next 30-second tick.
     private func scheduleRefreshCeilingTick(_ states: [ToolState]) {
-        let deadlines = states.compactMap { $0.isRefreshing ? $0.refreshStartedAt : nil }
-            .map { $0.addingTimeInterval(Self.refreshIndicatorCeiling) }
-            .filter { $0 > Date() }
-        guard let next = deadlines.min() else { return }
+        let current = monotonic.now()
+        let delays = states.compactMap { $0.isRefreshing ? $0.refreshStartedAt : nil }
+            .map { $0 + Self.refreshIndicatorCeiling - current }
+            .filter { $0 > 0 }
+        guard let delay = delays.min() else { return }
         Task {
-            try? await Task.sleep(for: .seconds(next.timeIntervalSinceNow + 0.1))
+            try? await Task.sleep(for: .seconds(delay + 0.1))
             now = Date()
         }
     }

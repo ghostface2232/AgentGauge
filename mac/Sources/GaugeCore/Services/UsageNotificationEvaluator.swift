@@ -25,6 +25,13 @@ public struct UsageNotificationEvaluator: Sendable {
     private static let resetDropMinimum = 0.10
 
     private var observations: [Key: Observation] = [:]
+    /// Tools just shown again, whose next snapshot is the coordinator's cache from before
+    /// they were hidden.
+    private var resumingTools = Set<ToolKind>()
+    /// Windows whose baseline came from such a snapshot: the next newer observation replaces
+    /// it rather than being compared with it, so a reset or crossing that happened while the
+    /// tool was hidden is never replayed when it comes back.
+    private var resumeBaseline = Set<Key>()
 
     public init() {}
 
@@ -32,6 +39,15 @@ public struct UsageNotificationEvaluator: Sendable {
     /// re-enabled, so crossings from the silent period are never replayed).
     public mutating func resetBaseline() {
         observations.removeAll()
+        resumeBaseline.removeAll()
+        resumingTools.removeAll()
+    }
+
+    /// A hidden tool was shown again. Hidden tools are not emitted, so their history is
+    /// already gone; this makes sure the stale cache that arrives first cannot become the
+    /// baseline the first live read is compared against.
+    public mutating func toolShown(_ tool: ToolKind) {
+        resumingTools.insert(tool)
     }
 
     public mutating func evaluate(_ states: [ToolState], now: Date) -> [UsageNotification] {
@@ -49,15 +65,21 @@ public struct UsageNotificationEvaluator: Sendable {
                 continue
             }
 
+            let resuming = resumingTools.remove(snapshot.tool) != nil
             for window in windows {
                 let key = Key(tool: snapshot.tool, window: window.id)
                 present.insert(key)
-                guard let previous = observations[key] else {
+                guard let previous = observations[key], !resuming else {
                     observations[key] = .baseline(window, capturedAt: snapshot.capturedAt)
+                    if resuming { resumeBaseline.insert(key) }
                     continue
                 }
                 // Re-emitted (cached/debounced) snapshots cannot be a new transition.
                 guard snapshot.capturedAt > previous.capturedAt else { continue }
+                if resumeBaseline.remove(key) != nil {
+                    observations[key] = .baseline(window, capturedAt: snapshot.capturedAt)
+                    continue
+                }
 
                 let reset = Self.isReset(previous, window)
                 if reset, Self.supportsResetNotification(window.type),
@@ -86,6 +108,7 @@ public struct UsageNotificationEvaluator: Sendable {
 
         // A tool that is hidden or removed drops its history; showing it again is a fresh baseline.
         observations = observations.filter { present.contains($0.key) }
+        resumeBaseline.formIntersection(present)
         return notifications
     }
 

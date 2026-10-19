@@ -42,6 +42,13 @@ final class UpdateModel {
 
     var isBusy: Bool { [.checking, .downloading, .installing].contains(phase) }
 
+    /// A failed install started from the panel says why there, too, rather than the prompt
+    /// simply vanishing; clicking it checks again.
+    var hasFailedInstall: Bool {
+        if case .installFailed = phase { return true }
+        return false
+    }
+
     var actionTitle: String { L10n.get(isAvailable ? "Update_Apply" : "Update_Check") }
 
     var statusText: String? {
@@ -59,7 +66,7 @@ final class UpdateModel {
 
     /// The quiet launch check: says nothing unless an update is found.
     func checkInBackground() {
-        guard let service, phase == .idle else { return }
+        guard let service, phase == .idle, PreviewRenderer.directoryArgument() == nil else { return }
         Task {
             if case .available(let release) = await service.check() { phase = .available(release) }
         }

@@ -105,7 +105,7 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Spacer(minLength: 8)
-            if update.isAvailable || update.isBusy {
+            if update.isAvailable || update.isBusy || update.hasFailedInstall {
                 // Installing quits and relaunches the app, so it stays a deliberate click.
                 Button {
                     update.performAction()
@@ -114,9 +114,10 @@ struct PopoverView: View {
                         if update.isBusy {
                             ProgressView().controlSize(.mini)
                         } else {
-                            Image(systemName: "arrow.down.circle.fill")
+                            Image(systemName: update.hasFailedInstall ? "exclamationmark.circle.fill" : "arrow.down.circle.fill")
                         }
-                        Text(update.isBusy ? (update.statusText ?? "") : L10n.get("Update_Apply"))
+                        Text(update.isAvailable ? L10n.get("Update_Apply") : (update.statusText ?? ""))
+                            .lineLimit(1)
                     }
                 }
                 .buttonStyle(.borderless)
@@ -157,7 +158,7 @@ struct ToolCard: View {
 
     private var windows: [UsageWindow] { state.snapshot?.windows ?? [] }
     private var status: ProviderStatus? { model.serviceStatuses[state.tool].flatMap { $0.isVisible ? $0 : nil } }
-    private var apiCost: (text: String, detail: String)? { model.apiCostText(for: state.tool) }
+    private var apiCost: (text: String, detail: String, accessibility: String)? { model.apiCostText(for: state.tool) }
     private var credits: Int? { state.snapshot?.resetCredits.flatMap { $0 > 0 ? $0 : nil } }
 
     var body: some View {
@@ -191,20 +192,22 @@ struct ToolCard: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .help(apiCost.detail)
-                    .accessibilityLabel(apiCost.detail)
+                    .accessibilityLabel(apiCost.accessibility)
             }
             Spacer(minLength: 6)
-            if model.isShowingRefresh(state) {
-                ProgressView()
-                    .controlSize(.mini)
-                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
-                    .help(L10n.get("Status_Refreshing"))
-            } else if state.lastRefreshFailed && !windows.isEmpty {
+            // Both can show at once: stale, but a retry is running.
+            if state.lastRefreshFailed && !windows.isEmpty {
                 Image(systemName: "exclamationmark.arrow.circlepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .help(L10n.get("Tooltip_RefreshIssue"))
                     .accessibilityLabel(L10n.get("Tooltip_RefreshIssue"))
+            }
+            if model.isShowingRefresh(state) {
+                ProgressView()
+                    .controlSize(.mini)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                    .help(L10n.get("Status_Refreshing"))
             }
             if let status {
                 StatusChip(status: status, showsLabel: chipLabels)
@@ -226,7 +229,7 @@ struct ToolCard: View {
             placeholder
         } else {
             let groups = WindowGrouping.groups(windows)
-            switch model.viewMode {
+            switch model.effectiveViewMode {
             case .gauge:
                 GaugeGroupsView(groups: groups, basis: model.displayBasis) { model.details(for: state.tool, window: $0) }
             case .bar:

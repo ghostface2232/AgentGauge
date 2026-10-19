@@ -41,7 +41,7 @@ Other local data, all under `~/Library/Application Support/AgentGauge` and never
 - `usage-history.db` — 90 days of readings for the sparkline, run-out estimate and automatic pace.
 - `api-cost-ledger.json` — only when **Show API-Equivalent Cost** is on: token counts per day and model from Claude Code's `~/.claude/projects` and Codex's `~/.codex/sessions` logs. Nothing is read while the option is off.
 
-Service status comes from each provider's public status page, without credentials. Update checks read `api.github.com`'s latest release; a download is verified against GitHub's SHA-256 digest and the bundle's code signature before it replaces the app.
+Service status comes from each provider's public status page, without credentials. Update checks read `api.github.com`'s latest release; a download must match GitHub's SHA-256 digest and pass `codesign --verify` (an integrity check — release builds are ad-hoc signed, so it does not prove who built them) before it replaces the app.
 
 ## Building
 
@@ -54,4 +54,4 @@ open build/AgentGauge.app
 
 Xcode 26 (macOS 26 SDK) is needed for the Liquid Glass styling; older Xcode versions build the fallback look. `ARCHS=native` skips the universal build for faster iteration. Set `SIGN_IDENTITY` to a Developer ID identity to sign with it; ad-hoc builds make macOS ask for keychain access again after every rebuild.
 
-Unsigned builds downloaded from the internet are blocked by Gatekeeper; right-click the app and choose **Open** the first time, or build locally.
+Release builds are ad-hoc signed, so Gatekeeper blocks the first launch of a downloaded copy. Open it once, then go to System Settings › Privacy & Security and choose **Open Anyway** (on macOS 14, right-clicking the app and choosing **Open** also works), or build locally. Updates installed from inside the app are not quarantined and open normally.
