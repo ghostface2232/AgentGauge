@@ -1,9 +1,8 @@
-# Runs the xUnit test suite on every push and pull request. The project targets
+# Runs the xUnit test suite on every pull request. The project targets
 # net10.0-windows (WinUI), so the suite can only build and run on a Windows runner.
 name: tests
 
 on:
-  push:
   pull_request:
 
 jobs:

@@ -4,10 +4,6 @@
 name: mac
 
 on:
-  push:
-    paths:
-      - 'mac/**'
-      - '.github/workflows/mac.yml'
   pull_request:
     paths:
       - 'mac/**'
