@@ -2,15 +2,232 @@ import GaugeCore
 import ServiceManagement
 import SwiftUI
 
-/// The standard macOS Settings window (⌘,), a grouped form like System Settings.
+enum SettingsTab: Int, CaseIterable, Identifiable {
+    case general
+    case display
+    case accounts
+    case about
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: L10n.get("Settings_General")
+        case .display: L10n.get("Settings_Display")
+        case .accounts: L10n.get("Settings_Accounts")
+        case .about: L10n.get("Settings_About")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .display: "gauge.with.dots.needle.50percent"
+        case .accounts: "person.crop.circle"
+        case .about: "info.circle"
+        }
+    }
+}
+
+/// The macOS Settings window (⌘,): toolbar tabs of short grouped forms, each sizing the window
+/// to its own content so nothing scrolls or is cut off. A system TabView swaps panes and snaps
+/// the window in one frame; this one moves the selection, the pane and the window together in
+/// a single spring — the pane blurs and slides toward the side it came from while the window
+/// eases to the new height from its top edge, and on macOS 26 the selection is a Liquid Glass
+/// bubble that flows between the tabs.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
-    @Environment(UpdateModel.self) private var update
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var tab: SettingsTab = .general
+    /// Which way the last switch went, so the outgoing pane leaves toward where it sits.
+    @State private var forward = true
+
+    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.86)
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            pane(tab)
+                .id(tab)
+                .transition(paneTransition)
+        }
+        .navigationTitle(tab.title)
+        .toolbar {
+            SettingsTabBarItem(selection: Binding(get: { tab }, set: select))
+        }
+        .resizeFromTop()
+        .onAppear { model.settingsAppeared() }
+    }
+
+    @ViewBuilder
+    private func pane(_ tab: SettingsTab) -> some View {
+        switch tab {
+        case .general: GeneralSettings()
+        case .display: DisplaySettings()
+        case .accounts: AccountSettings()
+        case .about: AboutSettings()
+        }
+    }
+
+    private var paneTransition: AnyTransition {
+        if reduceMotion { return .opacity }
+        let distance: CGFloat = 28
+        return .asymmetric(
+            insertion: .modifier(
+                active: PaneMotion(offset: forward ? distance : -distance, blur: 10, opacity: 0, scale: 0.98),
+                identity: PaneMotion(offset: 0, blur: 0, opacity: 1, scale: 1)),
+            removal: .modifier(
+                active: PaneMotion(offset: forward ? -distance : distance, blur: 10, opacity: 0, scale: 0.98),
+                identity: PaneMotion(offset: 0, blur: 0, opacity: 1, scale: 1)))
+    }
+
+    private func select(_ next: SettingsTab) {
+        guard next != tab else { return }
+        forward = next.rawValue > tab.rawValue
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Self.spring) { tab = next }
+    }
+}
+
+/// The pane's travel: a short slide with a blur and a slight scale, like content settling
+/// behind glass rather than a page being pushed.
+private struct PaneMotion: ViewModifier {
+    let offset: CGFloat
+    let blur: CGFloat
+    let opacity: Double
+    let scale: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale, anchor: .top)
+            .offset(x: offset)
+            .blur(radius: blur)
+            .opacity(opacity)
+    }
+}
+
+/// The tab bar, centred in the toolbar. On macOS 26 it brings its own glass (the toolbar's
+/// shared capsule is hidden, so glass is not stacked on glass) and the selected tab is a
+/// tinted glass bubble that morphs from one tab to the next; earlier systems get a quiet
+/// capsule highlight that slides.
+private struct SettingsTabBarItem: ToolbarContent {
+    @Binding var selection: SettingsTab
+
+    var body: some ToolbarContent {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .principal) { SettingsTabBar(selection: $selection) }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .principal) { SettingsTabBar(selection: $selection) }
+        }
+        #else
+        ToolbarItem(placement: .principal) { SettingsTabBar(selection: $selection) }
+        #endif
+    }
+}
+
+private struct SettingsTabBar: View {
+    @Binding var selection: SettingsTab
+    @Namespace private var namespace
+
+    var body: some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: 6) {
+                HStack(spacing: 2) {
+                    ForEach(SettingsTab.allCases) { tab in
+                        button(tab)
+                            .background {
+                                if tab == selection {
+                                    Color.clear
+                                        .glassEffect(.regular.tint(.accentColor.opacity(0.22)).interactive(), in: .capsule)
+                                        .glassEffectID("selection", in: namespace)
+                                }
+                            }
+                    }
+                }
+                .padding(3)
+                .glassEffect(.regular, in: .capsule)
+            }
+        } else {
+            fallback
+        }
+        #else
+        fallback
+        #endif
+    }
+
+    private var fallback: some View {
+        HStack(spacing: 2) {
+            ForEach(SettingsTab.allCases) { tab in
+                button(tab)
+                    .background {
+                        if tab == selection {
+                            Capsule()
+                                .fill(Color.accentColor.opacity(0.16))
+                                .matchedGeometryEffect(id: "selection", in: namespace)
+                        }
+                    }
+            }
+        }
+        .padding(3)
+        .background(.quaternary.opacity(0.6), in: Capsule())
+    }
+
+    private func button(_ tab: SettingsTab) -> some View {
+        Button {
+            selection = tab
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: tab.symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .symbolVariant(tab == selection ? .fill : .none)
+                Text(tab.title)
+                    .font(.system(size: 12, weight: tab == selection ? .semibold : .regular))
+            }
+            .foregroundStyle(tab == selection ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(tab == selection ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+private extension View {
+    /// The window grows and shrinks from its top edge, under the toolbar, rather than
+    /// re-centring — so switching tabs reads as the sheet of settings extending downward.
+    @ViewBuilder
+    func resizeFromTop() -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            windowResizeAnchor(.top)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
+}
+
+private extension View {
+    /// One tab's form: grouped like System Settings, fixed width, as tall as its content.
+    func settingsPane() -> some View {
+        formStyle(.grouped)
+            .scrollDisabled(true)
+            .frame(width: 460)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct GeneralSettings: View {
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var model = model
         Form {
-            Section(L10n.get("Settings_General")) {
+            Section {
                 Toggle(L10n.get("Settings_LaunchAtLogin"), isOn: Binding(
                     get: { model.launchAtLogin },
                     set: { model.setLaunchAtLogin($0) }))
@@ -24,9 +241,38 @@ struct SettingsView: View {
                             .controlSize(.small)
                     }
                 }
+                if let error = model.settingsError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
             }
+            Section(L10n.get("Settings_Notifications")) {
+                Toggle(L10n.get("Settings_NotifyThresholds"), isOn: $model.notifyThresholds)
+                Toggle(L10n.get("Settings_NotifyResets"), isOn: $model.notifyResets)
+                if model.notificationStatus == .denied && (model.notifyThresholds || model.notifyResets) {
+                    HStack {
+                        Text(L10n.get("Settings_NotificationsDenied"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button(L10n.get("Action_OpenSystemSettings")) { model.openNotificationSettings() }
+                            .controlSize(.small)
+                    }
+                }
+            }
+        }
+        .settingsPane()
+    }
+}
 
-            Section(L10n.get("Settings_Display")) {
+private struct DisplaySettings: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section {
                 Toggle(L10n.get("Settings_ShowPercent"), isOn: $model.showPercentInMenuBar)
                 Picker(L10n.get("Settings_DisplayBasis"), selection: $model.displayBasis) {
                     Text(L10n.get("Basis_Used")).tag(DisplayBasis.used)
@@ -55,23 +301,17 @@ struct SettingsView: View {
                     Text(L10n.get("Settings_ApiCostHelp"))
                 }
             }
+        }
+        .settingsPane()
+    }
+}
 
-            Section(L10n.get("Settings_Notifications")) {
-                Toggle(L10n.get("Settings_NotifyThresholds"), isOn: $model.notifyThresholds)
-                Toggle(L10n.get("Settings_NotifyResets"), isOn: $model.notifyResets)
-                if model.notificationStatus == .denied && (model.notifyThresholds || model.notifyResets) {
-                    HStack {
-                        Text(L10n.get("Settings_NotificationsDenied"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button(L10n.get("Action_OpenSystemSettings")) { model.openNotificationSettings() }
-                            .controlSize(.small)
-                    }
-                }
-            }
+private struct AccountSettings: View {
+    @Environment(AppModel.self) private var model
 
-            Section(L10n.get("Settings_Accounts")) {
+    var body: some View {
+        Form {
+            Section {
                 ForEach(ToolKind.allCases) { tool in
                     AccountRow(
                         tool: tool,
@@ -81,8 +321,17 @@ struct SettingsView: View {
                         onSignIn: { model.signIn(tool) })
                 }
             }
+        }
+        .settingsPane()
+    }
+}
 
-            Section(L10n.get("Settings_About")) {
+private struct AboutSettings: View {
+    @Environment(UpdateModel.self) private var update
+
+    var body: some View {
+        Form {
+            Section {
                 LabeledContent(L10n.get("Settings_Version")) {
                     HStack(spacing: 10) {
                         if update.isBusy {
@@ -100,21 +349,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                if let error = model.settingsError {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
             }
         }
-        .formStyle(.grouped)
-        // The form scrolls: with display, notification, account and update sections it is
-        // taller than a laptop screen, so it opens at a comfortable height and can grow.
-        .frame(width: 460)
-        .frame(minHeight: 420, idealHeight: 680)
-        .onAppear { model.settingsAppeared() }
+        .settingsPane()
     }
-
 }
 
 private struct AccountRow: View {

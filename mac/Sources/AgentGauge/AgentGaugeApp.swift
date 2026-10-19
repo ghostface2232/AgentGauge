@@ -45,7 +45,7 @@ struct AgentGaugeApp: App {
                 .environment(model)
                 .environment(update)
         }
-        .windowResizability(.contentMinSize)
+        .windowResizability(.contentSize)
     }
 }
 
