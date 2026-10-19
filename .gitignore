@@ -23,3 +23,8 @@ Ref/
 
 ## Distribution output
 dist/
+
+## macOS app (mac/)
+mac/.build/
+mac/build/
+mac/.swiftpm/

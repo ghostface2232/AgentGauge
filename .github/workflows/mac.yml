@@ -1,0 +1,44 @@
+# Builds and tests the macOS menu bar app (mac/) on a macOS runner, and uploads the
+# ad-hoc signed AgentGauge.app as an artifact. Liquid Glass styling needs the macOS 26
+# SDK (Xcode 26); older SDKs compile the fallback path.
+name: mac
+
+on:
+  push:
+    paths:
+      - 'mac/**'
+      - '.github/workflows/mac.yml'
+  pull_request:
+    paths:
+      - 'mac/**'
+      - '.github/workflows/mac.yml'
+
+jobs:
+  build:
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: mac
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Test
+        run: swift test
+
+      - name: Build app
+        run: |
+          chmod +x scripts/build-app.sh
+          ./scripts/build-app.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgentGauge-macOS
+          path: mac/build/AgentGauge-macOS.zip
+          if-no-files-found: error
