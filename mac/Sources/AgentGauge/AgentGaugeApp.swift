@@ -37,6 +37,7 @@ struct AgentGaugeApp: App {
                 .environment(update)
         } label: {
             MenuBarLabel(summary: model.menuBarSummary, basis: model.displayBasis, showPercent: model.showPercentInMenuBar)
+                .background { if SettingsDemo.isRequested { SettingsDemoDriver() } }
         }
         .menuBarExtraStyle(.window)
 

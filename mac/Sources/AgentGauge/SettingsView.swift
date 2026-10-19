@@ -54,8 +54,11 @@ struct SettingsView: View {
             SettingsTabBarItem(selection: Binding(get: { tab }, set: select))
         }
         .resizeFromTop()
-        .background(TitlebarSeparatorRemover())
+        .floatingToolbar()
         .onAppear { model.settingsAppeared() }
+        .onReceive(NotificationCenter.default.publisher(for: SettingsDemo.selectTab)) { note in
+            if let next = note.object as? SettingsTab { select(next) }
+        }
     }
 
     @ViewBuilder
@@ -215,18 +218,21 @@ private extension View {
     func settingsPane() -> some View {
         formStyle(.grouped)
             .scrollDisabled(true)
-            .hideTopScrollEdge()
+            .softTopScrollEdge()
             .frame(width: 460)
             .fixedSize(horizontal: false, vertical: true)
+            // With no bar or line under the tabs, the grouped form's top inset reads as a gap;
+            // pulled up so the first group sits closer below the tab bar.
+            .padding(.top, -14)
     }
 
-    /// The panes never scroll, but while the window eases to a new height the form briefly
-    /// sits under the toolbar, which would flash the scroll-edge effect on macOS 26.
+    /// Content passing under the toolbar (the pane mid-transition) blurs away like system
+    /// panes on macOS 26, rather than meeting a hard edge.
     @ViewBuilder
-    func hideTopScrollEdge() -> some View {
+    func softTopScrollEdge() -> some View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
-            scrollEdgeEffectHidden(true, for: .top)
+            scrollEdgeEffectStyle(.soft, for: .top)
         } else {
             self
         }
@@ -425,9 +431,28 @@ private struct AccountRow: View {
     }
 }
 
-/// Removes the line under the toolbar. AppKit shows it whenever content passes beneath the
-/// toolbar, which the form briefly does while the window resizes between tabs, so it would
-/// blink on every switch; the panes never scroll, so it never marks anything useful here.
+private extension View {
+    /// The tab bar floats on the window with no bar behind it. On macOS 26 and later the
+    /// window toolbar otherwise draws its hard scroll-edge line under the tabs (an
+    /// `NSScrollPocket` of the form's scroll view — `scrollEdgeEffectHidden` and the title bar
+    /// separator style do not reach it), and it blinks as the window resizes between tabs.
+    /// Hiding the toolbar background is what removes it; verified on macOS 27. Earlier systems
+    /// only need the classic title bar separator turned off.
+    @ViewBuilder
+    func floatingToolbar() -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else {
+            background(TitlebarSeparatorRemover())
+        }
+        #else
+        background(TitlebarSeparatorRemover())
+        #endif
+    }
+}
+
+/// Turns off the classic line under the title bar (macOS 14–15).
 private struct TitlebarSeparatorRemover: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { Probe() }
     func updateNSView(_ view: NSView, context: Context) {}
@@ -437,5 +462,35 @@ private struct TitlebarSeparatorRemover: NSViewRepresentable {
             super.viewDidMoveToWindow()
             window?.titlebarSeparatorStyle = .none
         }
+    }
+}
+
+/// Developer visual QA: `--settings-demo` opens Settings and steps through the tabs, so the
+/// transition can be watched or recorded without clicking. The menu bar label, alive for the
+/// whole run, opens the window through SwiftUI (AppKit's `showSettingsWindow:` no longer
+/// reaches a SwiftUI Settings scene).
+@MainActor
+enum SettingsDemo {
+    static let selectTab = Notification.Name("AgentGaugeSettingsDemoSelectTab")
+    static let isRequested = CommandLine.arguments.contains("--settings-demo")
+}
+
+struct SettingsDemoDriver: View {
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .task {
+                guard SettingsDemo.isRequested else { return }
+                try? await Task.sleep(for: .seconds(2))
+                NSApp.activate()
+                openSettings()
+                let order: [SettingsTab] = [.display, .general, .accounts, .about, .display, .general]
+                for tab in order {
+                    try? await Task.sleep(for: .seconds(2.5))
+                    NotificationCenter.default.post(name: SettingsDemo.selectTab, object: tab)
+                }
+            }
     }
 }
