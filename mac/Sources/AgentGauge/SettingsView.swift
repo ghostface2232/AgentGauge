@@ -32,15 +32,13 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
 /// The macOS Settings window (⌘,): toolbar tabs of short grouped forms, each sizing the window
 /// to its own content so nothing scrolls or is cut off. A system TabView swaps panes and snaps
 /// the window in one frame; this one moves the selection, the pane and the window together in
-/// a single spring — the pane blurs and slides toward the side it came from while the window
-/// eases to the new height from its top edge, and on macOS 26 the selection is a Liquid Glass
-/// bubble that flows between the tabs.
+/// a single spring — the new pane unfolds from the top as the window eases to its height from
+/// its top edge, and on macOS 26 the selection is a Liquid Glass bubble that flows between the
+/// tabs. The title stays the app's name whichever tab is open.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab: SettingsTab = .general
-    /// Which way the last switch went, so the outgoing pane leaves toward where it sits.
-    @State private var forward = true
 
     static let spring = Animation.spring(response: 0.42, dampingFraction: 0.86)
 
@@ -50,7 +48,7 @@ struct SettingsView: View {
                 .id(tab)
                 .transition(paneTransition)
         }
-        .navigationTitle(tab.title)
+        .navigationTitle(Text(verbatim: "AgentGauge"))
         .toolbar {
             SettingsTabBarItem(selection: Binding(get: { tab }, set: select))
         }
@@ -68,45 +66,44 @@ struct SettingsView: View {
         }
     }
 
+    /// The incoming pane unfolds downward with the window; the outgoing one only fades, so
+    /// the two never travel past each other.
     private var paneTransition: AnyTransition {
         if reduceMotion { return .opacity }
-        let distance: CGFloat = 28
         return .asymmetric(
-            insertion: .modifier(
-                active: PaneMotion(offset: forward ? distance : -distance, blur: 10, opacity: 0, scale: 0.98),
-                identity: PaneMotion(offset: 0, blur: 0, opacity: 1, scale: 1)),
-            removal: .modifier(
-                active: PaneMotion(offset: forward ? -distance : distance, blur: 10, opacity: 0, scale: 0.98),
-                identity: PaneMotion(offset: 0, blur: 0, opacity: 1, scale: 1)))
+            insertion: .modifier(active: PaneUnfold(revealed: 0), identity: PaneUnfold(revealed: 1)),
+            removal: .opacity.animation(.easeOut(duration: 0.12)))
     }
 
     private func select(_ next: SettingsTab) {
         guard next != tab else { return }
-        forward = next.rawValue > tab.rawValue
         withAnimation(reduceMotion ? .easeInOut(duration: 0.2) : Self.spring) { tab = next }
     }
 }
 
-/// The pane's travel: a short slide with a blur and a slight scale, like content settling
-/// behind glass rather than a page being pushed.
-private struct PaneMotion: ViewModifier {
-    let offset: CGFloat
-    let blur: CGFloat
-    let opacity: Double
-    let scale: CGFloat
+/// The pane revealed from its top edge down, fading in as it opens.
+private struct PaneUnfold: ViewModifier, Animatable {
+    var revealed: Double
+
+    var animatableData: Double {
+        get { revealed }
+        set { revealed = newValue }
+    }
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(scale, anchor: .top)
-            .offset(x: offset)
-            .blur(radius: blur)
-            .opacity(opacity)
+            .mask(alignment: .top) {
+                GeometryReader { proxy in
+                    Rectangle().frame(height: proxy.size.height * max(revealed, 0))
+                }
+            }
+            .opacity(min(1, revealed * 1.5))
     }
 }
 
 /// The tab bar, centred in the toolbar. On macOS 26 it brings its own glass (the toolbar's
 /// shared capsule is hidden, so glass is not stacked on glass) and the selected tab is a
-/// tinted glass bubble that morphs from one tab to the next; earlier systems get a quiet
+/// clear glass bubble that morphs from one tab to the next; earlier systems get a quiet
 /// capsule highlight that slides.
 private struct SettingsTabBarItem: ToolbarContent {
     @Binding var selection: SettingsTab
@@ -139,7 +136,7 @@ private struct SettingsTabBar: View {
                             .background {
                                 if tab == selection {
                                     Color.clear
-                                        .glassEffect(.regular.tint(.accentColor.opacity(0.22)).interactive(), in: .capsule)
+                                        .glassEffect(.regular.interactive(), in: .capsule)
                                         .glassEffectID("selection", in: namespace)
                                 }
                             }
@@ -163,7 +160,7 @@ private struct SettingsTabBar: View {
                     .background {
                         if tab == selection {
                             Capsule()
-                                .fill(Color.accentColor.opacity(0.16))
+                                .fill(.quaternary)
                                 .matchedGeometryEffect(id: "selection", in: namespace)
                         }
                     }
@@ -184,7 +181,7 @@ private struct SettingsTabBar: View {
                 Text(tab.title)
                     .font(.system(size: 12, weight: tab == selection ? .semibold : .regular))
             }
-            .foregroundStyle(tab == selection ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            .foregroundStyle(tab == selection ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .padding(.horizontal, 11)
             .padding(.vertical, 5)
             .contentShape(Capsule())
