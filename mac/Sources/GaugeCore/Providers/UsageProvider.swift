@@ -266,6 +266,23 @@ public enum ProviderFactory {
                 refresher: DelegatedTokenRefresher(
                     command: CLICommand(executable: "codex", arguments: ["doctor"]),
                     timeout: 30, locator: locator, runner: runner)),
+            // Cursor and Copilot need no delegated refresh: Cursor rotates its session while
+            // the app runs, and gh keeps its own long-lived token. Both read once per call
+            // with no throttling, like their Windows providers; failures propagate so the
+            // coordinator keeps the last good snapshot.
+            HTTPUsageProvider(
+                tool: .cursor,
+                credentials: CursorCredentialSource(),
+                endpoint: CursorEndpoint(),
+                policy: FetchPolicy(),
+                transport: transport),
+            HTTPUsageProvider(
+                tool: .githubCopilot,
+                credentials: GitHubCopilotCredentialSource(
+                    tokenReader: GitHubCLITokenReader(locator: locator, runner: runner)),
+                endpoint: GitHubCopilotEndpoint(),
+                policy: FetchPolicy(),
+                transport: transport),
         ]
     }
 }

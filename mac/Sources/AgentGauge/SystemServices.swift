@@ -49,6 +49,22 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
 /// Sign-in is delegated to the official CLI, run where the user can see and answer it:
 /// a `.command` file opened in Terminal. AgentGauge never handles the login itself.
+/// Opens an app that owns its own sign-in (Cursor), by bundle id with the usual install
+/// location as a fallback.
+@MainActor
+enum AppLauncher {
+    static func open(bundleIdentifier: String, name: String) {
+        let workspace = NSWorkspace.shared
+        let fallback = URL(fileURLWithPath: "/Applications/\(name).app", isDirectory: true)
+        guard let url = workspace.urlForApplication(withBundleIdentifier: bundleIdentifier)
+            ?? (FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil) else {
+            Log.write("auth", "\(name) is not installed; cannot open it for sign-in")
+            return
+        }
+        workspace.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+}
+
 enum TerminalLauncher {
     static func run(_ command: CLICommand) async throws {
         let locator = CLILocator()

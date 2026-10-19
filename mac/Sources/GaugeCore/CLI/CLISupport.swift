@@ -16,8 +16,9 @@ public protocol ProcessRunning: Sendable {
 }
 
 /// Runs a process headlessly: stdin is /dev/null (so a CLI never waits on a TTY) and stderr
-/// is discarded. Output is captured only when asked (the login-shell PATH probe); a CLI's
-/// own output carries account information and is never kept or logged.
+/// is discarded. Output is captured only when asked (the login-shell PATH probe, and
+/// `gh auth token`, whose output is the token and stays in memory); a CLI's own output
+/// carries account information and is never logged.
 public struct SystemProcessRunner: ProcessRunning {
     public init() {}
 

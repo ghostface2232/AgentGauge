@@ -1,6 +1,6 @@
 # AgentGauge for macOS
 
-A native menu bar app that shows the real usage limits of **Claude** and **Codex** at a glance — the same figures each tool's own `/usage` reports.
+A native menu bar app that shows the real usage limits of **Claude** and **Codex** — and, if you switch them on in Settings, **Cursor** and **GitHub Copilot** — at a glance: the same figures each tool reports itself.
 
 - Click the gauge in the menu bar to see each tool's 5-hour and weekly windows (and model-scoped limits such as Fable), when they reset, and whether you are ahead of or behind an even pace.
 - The menu bar symbol's needle follows the busiest window; the percentage beside it can be turned off.
@@ -12,7 +12,7 @@ A native menu bar app that shows the real usage limits of **Claude** and **Codex
 ## Requirements
 
 - macOS 14 Sonoma or later (Apple silicon or Intel).
-- The Claude Code CLI and/or the Codex CLI, signed in.
+- The Claude Code CLI and/or the Codex CLI, signed in. For Cursor, the Cursor app signed in; for GitHub Copilot, the GitHub CLI (`gh`) signed in, or a `github-copilot` token file.
 
 ## Sign-in and data
 
@@ -22,10 +22,12 @@ AgentGauge never issues or refreshes credentials itself; it reads what each offi
 | --- | --- | --- |
 | Claude | Login keychain item `Claude Code-credentials` (or `~/.claude/.credentials.json`) | `claude /login` |
 | Codex | `$CODEX_HOME/auth.json` or `~/.codex/auth.json` | `codex login` |
+| Cursor | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` (opened read-only) | the Cursor app |
+| GitHub Copilot | `gh auth token`, else `~/.config/github-copilot/apps.json` / `hosts.json` | `gh auth login` |
 
 The first time AgentGauge reads Claude's keychain item, macOS asks whether to allow it. Choose **Always Allow** so it is not asked again; AgentGauge only re-reads the item when Claude Code rotates its token. If you choose Deny, use **Try Again** on the card to be asked once more.
 
-When a sign-in is needed, **Sign In…** opens the CLI's own login in Terminal.
+When a sign-in is needed, **Sign In…** opens the CLI's own login in Terminal (for Cursor, **Open Cursor** opens the app).
 
 If a token has expired (after a long idle), AgentGauge runs the CLI's own non-interactive command (`claude mcp list`, `codex doctor`) in the background so the CLI refreshes its token, then reads it again.
 

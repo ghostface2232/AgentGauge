@@ -96,7 +96,7 @@ private struct AccountRow: View {
             }
             Spacer(minLength: 12)
             if needsSignIn {
-                Button(L10n.get("Action_SignIn"), action: onSignIn)
+                Button(AuthText.signInAction(tool), action: onSignIn)
                     .controlSize(.small)
             }
             Toggle(L10n.get("Settings_ShowTool"), isOn: Binding(get: { shown }, set: onShownChange))
@@ -119,10 +119,10 @@ private struct AccountRow: View {
         case .signedIn:
             if let plan = state.snapshot?.plan { return L10n.format("Auth_SignedInWithPlan", plan) }
             return L10n.get("Auth_SignedIn")
-        case .signedOut: return L10n.get("Auth_Missing")
-        case .rejected: return L10n.get("Auth_Expired")
+        case .signedOut: return AuthText.missing(tool)
+        case .rejected: return AuthText.expired(tool)
         case .keychainDenied: return L10n.get("Auth_KeychainDenied")
-        case .unreadable: return L10n.get("Auth_ReadFailed")
+        case .unreadable: return AuthText.readFailed(tool)
         case .unknown: return L10n.get("Auth_Checking")
         }
     }

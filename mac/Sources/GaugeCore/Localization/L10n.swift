@@ -76,3 +76,30 @@ public enum WindowLabels {
         }
     }
 }
+
+/// Sign-in wording that depends on who owns the session: Cursor's lives in the Cursor app,
+/// not a CLI, so its cards point there instead of at a CLI login.
+public enum AuthText {
+    public static func missing(_ tool: ToolKind) -> String {
+        switch tool {
+        case .cursor: L10n.get("Auth_Missing_Cursor")
+        case .githubCopilot: L10n.get("Auth_Missing_Copilot")
+        case .claude, .codex: L10n.get("Auth_Missing")
+        }
+    }
+
+    public static func expired(_ tool: ToolKind) -> String {
+        tool == .cursor ? L10n.get("Auth_Expired_Cursor") : L10n.get("Auth_Expired")
+    }
+
+    public static func readFailed(_ tool: ToolKind) -> String {
+        tool == .cursor ? L10n.get("Auth_ReadFailed_Cursor") : L10n.get("Auth_ReadFailed")
+    }
+
+    public static func signInAction(_ tool: ToolKind) -> String {
+        switch tool.signIn {
+        case .cli: L10n.get("Action_SignIn")
+        case .app(_, let name): L10n.format("Action_OpenApp", name)
+        }
+    }
+}

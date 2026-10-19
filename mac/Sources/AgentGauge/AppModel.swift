@@ -59,7 +59,7 @@ final class AppModel {
         displayBasis = DisplayBasis(rawValue: defaults.string(forKey: Keys.displayBasis) ?? "") ?? .used
         notifyThresholds = defaults.bool(forKey: Keys.notifyThresholds)
         notifyResets = defaults.bool(forKey: Keys.notifyResets)
-        hiddenTools = Set((defaults.stringArray(forKey: Keys.hiddenTools) ?? []).compactMap(ToolKind.init(rawValue:)))
+        hiddenTools = Self.loadHiddenTools(defaults)
         coordinator = UsageCoordinator(
             providers: ProviderFactory.makeDefault(),
             cache: UsageCacheStore(directory: UsageCacheStore.defaultDirectory()))
@@ -106,13 +106,32 @@ final class AppModel {
     }
 
     func signIn(_ tool: ToolKind) {
-        Task {
-            do {
-                try await TerminalLauncher.run(tool.loginCommand)
-            } catch {
-                Log.write("auth", "Could not open Terminal for sign-in: \(type(of: error))")
+        switch tool.signIn {
+        case .cli(let command):
+            Task {
+                do {
+                    try await TerminalLauncher.run(command)
+                } catch {
+                    Log.write("auth", "Could not open Terminal for sign-in: \(type(of: error))")
+                }
             }
+        case .app(let bundleIdentifier, let name):
+            AppLauncher.open(bundleIdentifier: bundleIdentifier, name: name)
         }
+    }
+
+    /// A tool that is not shown by default starts hidden the first time this build sees it,
+    /// so adding a tool to a later release never pops an unwanted card onto an existing
+    /// install; after that, only the user's own choice in the hidden list counts.
+    private static func loadHiddenTools(_ defaults: UserDefaults) -> Set<ToolKind> {
+        var hidden = Set((defaults.stringArray(forKey: Keys.hiddenTools) ?? []).compactMap(ToolKind.init(rawValue:)))
+        let known = Set(defaults.stringArray(forKey: Keys.knownTools) ?? [])
+        for tool in ToolKind.allCases where !tool.isShownByDefault && !known.contains(tool.rawValue) {
+            hidden.insert(tool)
+        }
+        defaults.set(hidden.map(\.rawValue).sorted(), forKey: Keys.hiddenTools)
+        defaults.set(Array(known.union(ToolKind.allCases.map(\.rawValue))).sorted(), forKey: Keys.knownTools)
+        return hidden
     }
 
     /// Re-reads state that can change behind the app's back while settings were closed.
@@ -203,5 +222,6 @@ final class AppModel {
         static let notifyThresholds = "notifyThresholds"
         static let notifyResets = "notifyResets"
         static let hiddenTools = "hiddenTools"
+        static let knownTools = "knownTools"
     }
 }
