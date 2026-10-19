@@ -209,11 +209,11 @@ struct ToolCard: View {
     private var placeholder: some View {
         switch state.auth {
         case .signedOut:
-            message(L10n.get("Auth_Missing"), action: L10n.get("Action_SignIn"), perform: onSignIn)
+            message(AuthText.missing(state.tool), action: AuthText.signInAction(state.tool), perform: onSignIn)
         case .rejected:
-            message(L10n.get("Auth_Expired"), action: L10n.get("Action_SignIn"), perform: onSignIn)
+            message(AuthText.expired(state.tool), action: AuthText.signInAction(state.tool), perform: onSignIn)
         case .unreadable:
-            message(L10n.get("Auth_ReadFailed"), action: L10n.get("Action_SignIn"), perform: onSignIn)
+            message(AuthText.readFailed(state.tool), action: AuthText.signInAction(state.tool), perform: onSignIn)
         case .keychainDenied:
             message(L10n.get("Auth_KeychainDenied"), action: L10n.get("Action_TryAgain"), perform: onRetry)
         case .unknown, .signedIn:

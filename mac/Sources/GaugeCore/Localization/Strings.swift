@@ -7,6 +7,10 @@ enum Strings {
         "Label_Weekly": ["주간", "Weekly", "週間"],
         "Label_BillingCycle": ["사용량", "Usage", "使用量"],
         "Label_ModelQuota": ["모델", "Model", "モデル"],
+        // GitHub Copilot's per-quota labels (its monthly chat / completions / premium).
+        "Label_Copilot_Chat": ["채팅", "Chat", "チャット"],
+        "Label_Copilot_Completions": ["코드 자동 완성", "Completions", "コード補完"],
+        "Label_Copilot_Premium": ["프리미엄 요청", "Premium requests", "プレミアム要求"],
 
         // Reset phrasing ({0}=n, {1}=date)
         "Reset_Done": ["초기화됨", "Reset", "リセット済み"],
@@ -65,6 +69,17 @@ enum Strings {
                             "Couldn't read the sign-in. Sign in again from the CLI.",
                             "ログイン情報を読み取れません。CLIで再度ログインしてください。"],
         "Auth_Checking": ["확인 중…", "Checking…", "確認中…"],
+        "Auth_Missing_Cursor": ["Cursor 앱에서 로그인하세요.", "Sign in from the Cursor app.", "Cursorアプリでログインしてください。"],
+        "Auth_Expired_Cursor": ["Cursor 로그인이 만료되었습니다. Cursor 앱에서 다시 로그인하세요.",
+                                "Your Cursor sign-in expired. Sign in again in the Cursor app.",
+                                "Cursorのログイン有効期限が切れました。Cursorアプリで再度ログインしてください。"],
+        "Auth_ReadFailed_Cursor": ["Cursor 로그인 정보를 읽을 수 없습니다. Cursor 앱에서 다시 로그인하세요.",
+                                   "Couldn't read the Cursor sign-in. Sign in again in the Cursor app.",
+                                   "Cursorのログイン情報を読み取れません。Cursorアプリで再度ログインしてください。"],
+        "Auth_Missing_Copilot": ["GitHub CLI(gh)로 로그인하면 사용량을 확인할 수 있습니다.",
+                                 "Sign in with the GitHub CLI (gh) to see usage.",
+                                 "GitHub CLI（gh）でログインすると使用量を表示できます。"],
+        "Action_OpenApp": ["{0} 열기", "Open {0}", "{0}を開く"],
 
         // Settings
         "Settings_General": ["일반", "General", "一般"],

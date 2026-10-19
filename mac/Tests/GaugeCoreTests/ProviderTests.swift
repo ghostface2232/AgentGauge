@@ -21,6 +21,7 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
     private var replies: [Reply] = []
     private(set) var requestCount = 0
     private(set) var lastAuthorization: String?
+    private(set) var lastRequest: URLRequest?
 
     func enqueue(_ reply: Reply) { lock.withLock { replies.append(reply) } }
 
@@ -28,6 +29,7 @@ final class FakeTransport: HTTPTransport, @unchecked Sendable {
         let reply: Reply = lock.withLock {
             requestCount += 1
             lastAuthorization = request.value(forHTTPHeaderField: "Authorization")
+            lastRequest = request
             return replies.isEmpty ? .failure(URLError(.notConnectedToInternet)) : replies.removeFirst()
         }
         switch reply {

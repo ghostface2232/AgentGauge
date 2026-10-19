@@ -5,6 +5,8 @@ import Foundation
 public enum ToolKind: String, Codable, CaseIterable, Sendable, Identifiable {
     case claude
     case codex
+    case cursor
+    case githubCopilot
 
     public var id: String { rawValue }
 
@@ -13,25 +15,48 @@ public enum ToolKind: String, Codable, CaseIterable, Sendable, Identifiable {
         switch self {
         case .claude: "Claude"
         case .codex: "Codex"
+        case .cursor: "Cursor"
+        case .githubCopilot: "GitHub Copilot"
         }
     }
 
-    /// The official CLI's interactive sign-in, run in Terminal from settings.
-    public var loginCommand: CLICommand {
+    /// How the user signs in from settings or a signed-out card. Cursor has no CLI login; its
+    /// session belongs to the Cursor app, so signing in means opening that app.
+    public var signIn: SignInMethod {
         switch self {
-        case .claude: CLICommand(executable: "claude", arguments: ["/login"])
-        case .codex: CLICommand(executable: "codex", arguments: ["login"])
+        case .claude: .cli(CLICommand(executable: "claude", arguments: ["/login"]))
+        case .codex: .cli(CLICommand(executable: "codex", arguments: ["login"]))
+        case .cursor: .app(bundleIdentifier: "com.todesktop.230313mzl4w4u92", name: "Cursor")
+        case .githubCopilot: .cli(CLICommand(executable: "gh", arguments: ["auth", "login"]))
+        }
+    }
+
+    /// Claude and Codex are shown on a fresh install; the others are opt-in from settings.
+    public var isShownByDefault: Bool {
+        switch self {
+        case .claude, .codex: true
+        case .cursor, .githubCopilot: false
         }
     }
 
     /// Periodic refresh cadence. Codex's endpoint is the one its own CLI polls, so it can
-    /// stay responsive; Claude's is throttled hard and its provider caches for 5 minutes anyway.
+    /// stay responsive; Claude's is throttled hard and its provider caches for 5 minutes
+    /// anyway. Copilot's quotas are monthly, so a slow cadence loses nothing.
     public var refreshInterval: TimeInterval {
         switch self {
         case .claude: 300
         case .codex: 180
+        case .cursor: 300
+        case .githubCopilot: 900
         }
     }
+}
+
+public enum SignInMethod: Sendable, Hashable {
+    /// The official CLI's interactive sign-in, run in Terminal.
+    case cli(CLICommand)
+    /// An app that owns its own session; signing in happens inside it.
+    case app(bundleIdentifier: String, name: String)
 }
 
 public struct CLICommand: Sendable, Hashable {

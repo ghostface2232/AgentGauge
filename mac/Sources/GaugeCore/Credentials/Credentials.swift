@@ -77,14 +77,34 @@ public enum CredentialParsing {
     /// The `exp` claim of a JWT payload, read without validating the signature — only the
     /// expiry is needed, not trust in the token. Nil when the value is not a decodable JWT.
     public static func jwtExpiry(_ jwt: String) -> Date? {
+        guard let seconds = jwtClaims(jwt)?.int64("exp") else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(seconds))
+    }
+
+    /// The decoded (unverified) payload of a JWT, or nil when it is not one.
+    static func jwtClaims(_ jwt: String) -> JSONObject? {
         let parts = jwt.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count >= 2 else { return nil }
         var base64 = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
-        guard let payload = Data(base64Encoded: base64),
-              let claims = try? JSONObject.parse(payload),
-              let seconds = claims.int64("exp") else { return nil }
-        return Date(timeIntervalSince1970: TimeInterval(seconds))
+        guard let payload = Data(base64Encoded: base64) else { return nil }
+        return try? JSONObject.parse(payload)
+    }
+
+    /// Cursor's session JWT (`cursorAuth/accessToken`). The `sub` claim's last `|`-segment is
+    /// the user id that completes the web-session cookie (`auth0|user_x` → `user_x`), so a
+    /// token without a usable one cannot authenticate and reads as unreadable. Cursor
+    /// refreshes this token itself while it runs; an expired one needs the Cursor app.
+    public static func cursor(accessToken: String?, now: Date) -> CredentialRead {
+        guard let token = ProviderText.normalize(accessToken) else { return .missing }
+        guard let claims = jwtClaims(token), let subject = claims.string("sub") else { return .invalid(.unreadable) }
+        let userID = subject.split(separator: "|").last.map(String.init) ?? subject
+        guard !userID.isEmpty, userID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) }) else {
+            return .invalid(.unreadable)
+        }
+        let expiresAt = claims.int64("exp").map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        if let expiresAt, expiresAt <= now { return .invalid(.expired) }
+        return .available(ToolCredential(accessToken: token, accountID: userID, expiresAt: expiresAt))
     }
 
     public static func claudePlan(subscriptionType: String?, rateLimitTier: String?) -> String? {
