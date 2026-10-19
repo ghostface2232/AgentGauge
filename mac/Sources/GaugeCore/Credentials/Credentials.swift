@@ -18,6 +18,9 @@ public struct ToolCredential: Sendable, Equatable {
 
 public enum CredentialProblem: Sendable, Equatable {
     case expired
+    /// Expired, and the CLI would refuse to refresh it (see `CredentialParsing.claude`), so
+    /// only a new sign-in helps.
+    case expiredUnrefreshable
     case noToken
     case unreadable
     case keychainDenied
@@ -25,6 +28,9 @@ public enum CredentialProblem: Sendable, Equatable {
     /// Whether running the CLI's own bootstrap could fix it. A denied keychain prompt or an
     /// unreadable file is not something a token refresh repairs.
     var isRefreshable: Bool { self == .expired || self == .noToken }
+
+    /// Whether the card should ask the user to sign in again.
+    var requiresSignIn: Bool { isRefreshable || self == .expiredUnrefreshable }
 }
 
 public enum CredentialRead: Sendable, Equatable {
@@ -50,11 +56,25 @@ public enum CredentialParsing {
         guard let oauth = root.object("claudeAiOauth"),
               let token = oauth.string("accessToken"), !token.isEmpty else { return .invalid(.noToken) }
         let expiresAt = oauth.int64("expiresAt").map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
-        if let expiresAt, expiresAt <= now { return .invalid(.expired) }
+        if let expiresAt, expiresAt <= now {
+            return .invalid(isClaudeRefreshable(oauth) ? .expired : .expiredUnrefreshable)
+        }
         return .available(ToolCredential(
             accessToken: token,
             expiresAt: expiresAt,
             plan: claudePlan(subscriptionType: oauth.string("subscriptionType"), rateLimitTier: oauth.string("rateLimitTier"))))
+    }
+
+    /// Mirrors Claude Code's own refresh precondition (2.1.288, `checkAndRefreshOAuthTokenIfNeeded`):
+    /// it returns "not_refreshable" unless the document has a refresh token and either a
+    /// `scopes` array containing `user:inference` or a `subscriptionType`. A stripped
+    /// three-field document (`accessToken`/`refreshToken`/`expiresAt`) has been observed in the
+    /// keychain item; for it every CLI command, even the forced 401 path, declines to refresh,
+    /// so delegating to the CLI would only spawn it to no effect.
+    static func isClaudeRefreshable(_ oauth: JSONObject) -> Bool {
+        guard let refreshToken = oauth.string("refreshToken"), !refreshToken.isEmpty else { return false }
+        let scopes = (oauth.storage["scopes"] as? [Any])?.compactMap { $0 as? String } ?? []
+        return scopes.contains("user:inference") || ProviderText.normalize(oauth.string("subscriptionType")) != nil
     }
 
     /// Codex's `auth.json`: `{ "tokens": { "access_token", "account_id" } }`. There is no

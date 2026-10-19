@@ -136,7 +136,7 @@ public actor HTTPUsageProvider: UsageProvider {
         if cachesSnapshots { trackFingerprint(credential) }
 
         switch read {
-        case .invalid(let problem) where problem.isRefreshable:
+        case .invalid(let problem) where problem.requiresSignIn:
             throw UsageFetchError.authenticationRequired
         case .invalid(let problem):
             throw UsageFetchError.credentialUnreadable(problem)
