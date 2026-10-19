@@ -17,6 +17,9 @@ public struct ToolState: Sendable, Equatable, Identifiable {
     public var lastRefreshFailed = false
     public var auth: AuthState = .unknown
     public var isRefreshing = false
+    /// When the current read started, so the UI can cap how long its indicator spins. Set
+    /// only when a read starts: cache re-emits and repeated requests never extend it.
+    public var refreshStartedAt: Date?
 
     public var id: ToolKind { tool }
 
@@ -46,9 +49,10 @@ public enum RefreshReason: Sendable {
 }
 
 /// Schedules and isolates provider reads. A one-minute tick refreshes only providers whose
-/// own cadence is due; opening the popover forces a read of every shown provider, debounced
-/// to one per 10 seconds; a failure keeps the last good snapshot and never blocks another
-/// provider.
+/// own cadence is due, stretched by `AdaptiveRefreshPolicy` while nobody looks; opening the
+/// popover forces a read of every shown provider, debounced to one per 10 seconds and held
+/// back by each tool's cost floor (`ToolKind.forcedRefreshFloor`); a failure keeps the last
+/// good snapshot and never blocks another provider.
 public actor UsageCoordinator {
     public typealias Listener = @Sendable ([ToolState]) -> Void
 
@@ -64,9 +68,15 @@ public actor UsageCoordinator {
     private var lastAttempt: [ToolKind: TimeInterval] = [:]
     private var inFlight = Set<ToolKind>()
     private var lastDebouncedRefresh: TimeInterval?
+    private var lastPanelOpened: TimeInterval?
+    private var signals = AdaptiveRefreshSignals()
+    private var lastDecision: AdaptiveRefreshDecision?
     private var scheduler: Task<Void, Never>?
+    private let wallClock: @Sendable () -> Date
 
-    public init(providers: [any UsageProvider], cache: UsageCacheStore?, clock: any MonotonicClock = SystemMonotonicClock()) {
+    public init(providers: [any UsageProvider], cache: UsageCacheStore?, clock: any MonotonicClock = SystemMonotonicClock(),
+                wallClock: @escaping @Sendable () -> Date = { Date() }) {
+        self.wallClock = wallClock
         var byTool: [ToolKind: any UsageProvider] = [:]
         for provider in providers { byTool[provider.tool] = provider }
         self.providers = byTool
@@ -89,6 +99,11 @@ public actor UsageCoordinator {
         emit()
     }
 
+    /// Low Power Mode or a locked session stretch the periodic cadence.
+    public func setSignals(_ signals: AdaptiveRefreshSignals) {
+        self.signals = signals
+    }
+
     public func start() {
         guard scheduler == nil else { return }
         scheduler = Task {
@@ -103,6 +118,8 @@ public actor UsageCoordinator {
 
     public func refresh(_ reason: RefreshReason) async {
         let now = clock.now()
+        // Even a debounced open counts as interaction: someone is looking.
+        if reason == .popoverOpened { lastPanelOpened = now }
         if reason.isDebounced {
             if let last = lastDebouncedRefresh, now - last < Self.debounce {
                 emit()
@@ -111,10 +128,18 @@ public actor UsageCoordinator {
             lastDebouncedRefresh = now
         }
 
+        let decision = reason == .scheduled ? adaptiveDecision(now: now) : nil
         let due = enabled.filter { tool in
             guard !inFlight.contains(tool) else { return false }
-            guard reason == .scheduled, let last = lastAttempt[tool] else { return true }
-            return now - last >= tool.refreshInterval
+            guard let last = lastAttempt[tool] else { return true }
+            switch reason {
+            case .scheduled:
+                return now - last >= (decision?.interval(for: tool.refreshInterval) ?? tool.refreshInterval)
+            case .popoverOpened:
+                return now - last >= tool.forcedRefreshFloor
+            default:
+                return true
+            }
         }
         guard !due.isEmpty else {
             emit()
@@ -125,6 +150,7 @@ public actor UsageCoordinator {
             inFlight.insert(tool)
             lastAttempt[tool] = now
             states[tool, default: ToolState(tool: tool)].isRefreshing = true
+            states[tool, default: ToolState(tool: tool)].refreshStartedAt = wallClock()
         }
         emit()
 
@@ -151,6 +177,7 @@ public actor UsageCoordinator {
     private func apply(_ result: Result<ProviderOutcome, any Error>, to tool: ToolKind) {
         var state = states[tool] ?? ToolState(tool: tool)
         state.isRefreshing = false
+        state.refreshStartedAt = nil
         switch result {
         case .success(let outcome):
             state.lastRefreshFailed = false
@@ -184,6 +211,16 @@ public actor UsageCoordinator {
             }
             states[tool] = state
         }
+    }
+
+    private func adaptiveDecision(now: TimeInterval) -> AdaptiveRefreshDecision {
+        let decision = AdaptiveRefreshPolicy.evaluate(sincePanelOpened: lastPanelOpened.map { now - $0 }, signals: signals)
+        if decision != lastDecision {
+            // Only policy transitions are logged, never account or activity detail.
+            Log.write("refresh", "reason=\(decision.reason.rawValue) multiplier=\(decision.multiplier) cap=30m")
+            lastDecision = decision
+        }
+        return decision
     }
 
     private func persistCache() {
