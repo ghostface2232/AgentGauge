@@ -1,7 +1,17 @@
 // Columns: [Korean, English, Japanese] — the order of `AppLanguage`. Shared keys keep the
 // Windows app's wording (Localization/Strings.cs) so both platforms read the same.
 enum Strings {
-    static let table: [String: [String]] = [
+    /// Every feature's rows merged into one lookup. Features keep their rows in their own
+    /// `Strings+<Feature>.swift` table so they read side by side with the code that uses them.
+    static let table: [String: [String]] = {
+        var merged = core
+        for part in [features, antigravity, apiCost, history] {
+            merged.merge(part) { current, _ in current }
+        }
+        return merged
+    }()
+
+    static let core: [String: [String]] = [
         // Usage windows
         "Label_FiveHour": ["5시간", "5-hour", "5時間"],
         "Label_Weekly": ["주간", "Weekly", "週間"],

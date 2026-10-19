@@ -6,6 +6,7 @@ public enum ToolKind: String, Codable, CaseIterable, Sendable, Identifiable {
     case claude
     case codex
     case cursor
+    case antigravity
     case githubCopilot
 
     public var id: String { rawValue }
@@ -16,17 +17,19 @@ public enum ToolKind: String, Codable, CaseIterable, Sendable, Identifiable {
         case .claude: "Claude"
         case .codex: "Codex"
         case .cursor: "Cursor"
+        case .antigravity: "Antigravity"
         case .githubCopilot: "GitHub Copilot"
         }
     }
 
-    /// How the user signs in from settings or a signed-out card. Cursor has no CLI login; its
-    /// session belongs to the Cursor app, so signing in means opening that app.
+    /// How the user signs in from settings or a signed-out card. Cursor and Antigravity have no
+    /// CLI login; their sessions belong to their apps, so signing in means opening that app.
     public var signIn: SignInMethod {
         switch self {
         case .claude: .cli(CLICommand(executable: "claude", arguments: ["/login"]))
         case .codex: .cli(CLICommand(executable: "codex", arguments: ["login"]))
         case .cursor: .app(bundleIdentifier: "com.todesktop.230313mzl4w4u92", name: "Cursor")
+        case .antigravity: .app(bundleIdentifier: "com.google.antigravity", name: "Antigravity")
         case .githubCopilot: .cli(CLICommand(executable: "gh", arguments: ["auth", "login"]))
         }
     }
@@ -35,21 +38,45 @@ public enum ToolKind: String, Codable, CaseIterable, Sendable, Identifiable {
     public var isShownByDefault: Bool {
         switch self {
         case .claude, .codex: true
-        case .cursor, .githubCopilot: false
+        case .cursor, .antigravity, .githubCopilot: false
         }
     }
 
     /// Periodic refresh cadence. Codex's endpoint is the one its own CLI polls, so it can
     /// stay responsive; Claude's is throttled hard and its provider caches for 5 minutes
-    /// anyway. Copilot's quotas are monthly, so a slow cadence loses nothing.
+    /// anyway. Antigravity's read can launch a language server, and Copilot's quotas are
+    /// monthly, so slow cadences lose nothing there.
     public var refreshInterval: TimeInterval {
         switch self {
         case .claude: 300
         case .codex: 180
         case .cursor: 300
+        case .antigravity: 600
         case .githubCopilot: 900
         }
     }
+
+    /// The minimum gap between popover-open reads. Zero for every tool whose read is one HTTP
+    /// GET; Antigravity's read launches (and tears down) a language server when the app is
+    /// closed, so without a floor every click on the menu bar item would spawn one. Explicit
+    /// user actions and a wake bypass it.
+    public var forcedRefreshFloor: TimeInterval {
+        self == .antigravity ? 120 : 0
+    }
+
+    /// Public Statuspage-compatible service health page; nil means none is polled.
+    public var statusPageURL: URL? {
+        switch self {
+        case .claude: URL(string: "https://status.anthropic.com/")
+        case .codex: URL(string: "https://status.openai.com/")
+        case .cursor: URL(string: "https://status.cursor.com/")
+        case .githubCopilot: URL(string: "https://www.githubstatus.com/")
+        case .antigravity: nil
+        }
+    }
+
+    /// Whether the tool's CLI writes local session logs the API-equivalent cost reads.
+    public var hasLocalCostLogs: Bool { self == .claude || self == .codex }
 }
 
 public enum SignInMethod: Sendable, Hashable {
@@ -107,6 +134,10 @@ public struct UsageWindow: Codable, Sendable, Hashable, Identifiable {
     public var resetTime: Date?
     /// Provider-reported window length in seconds, when known.
     public var duration: TimeInterval?
+    /// Absolute counts behind `usedRatio` ("128 / 300"), when the provider reports both
+    /// (Copilot's request entitlement). Never fabricated from a percent.
+    public var usedCount: Int64?
+    public var limitCount: Int64?
 
     public init(
         type: UsageWindowType,
@@ -115,7 +146,9 @@ public struct UsageWindow: Codable, Sendable, Hashable, Identifiable {
         usedRatio: Double,
         labelKey: String? = nil,
         resetTime: Date? = nil,
-        duration: TimeInterval? = nil
+        duration: TimeInterval? = nil,
+        usedCount: Int64? = nil,
+        limitCount: Int64? = nil
     ) {
         self.type = type
         self.providerID = providerID
@@ -124,6 +157,8 @@ public struct UsageWindow: Codable, Sendable, Hashable, Identifiable {
         self.labelKey = labelKey
         self.resetTime = resetTime
         self.duration = duration
+        self.usedCount = usedCount
+        self.limitCount = limitCount
     }
 
     /// Identity across refreshes, notification history and the cache: the provider id when
@@ -188,4 +223,12 @@ public enum DisplayBasis: String, Sendable, CaseIterable, Identifiable {
     public func percent(for usedRatio: Double) -> Int {
         Int((fraction(for: usedRatio) * 100).rounded())
     }
+}
+
+/// One app-wide way to draw every card's windows: horizontal bars (default) or circular gauges.
+public enum UsageViewMode: String, Sendable, CaseIterable, Identifiable {
+    case bar
+    case gauge
+
+    public var id: String { rawValue }
 }
