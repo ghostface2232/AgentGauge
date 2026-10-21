@@ -6,18 +6,27 @@ import UserNotifications
 /// Do Not Disturb. Alerts carry no actions; a click simply dismisses.
 @MainActor
 final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
-    private let center = UNUserNotificationCenter.current()
+    private let center: UNUserNotificationCenter?
 
     override init() {
-        super.init()
-        center.delegate = self
+        if Bundle.main.bundleIdentifier != nil {
+            let center = UNUserNotificationCenter.current()
+            self.center = center
+            super.init()
+            center.delegate = self
+        } else {
+            self.center = nil
+            super.init()
+        }
     }
 
     func authorizationStatus() async -> UNAuthorizationStatus {
-        await center.notificationSettings().authorizationStatus
+        guard let center else { return .notDetermined }
+        return await center.notificationSettings().authorizationStatus
     }
 
     func requestAuthorization() async -> UNAuthorizationStatus {
+        guard let center else { return .notDetermined }
         do {
             _ = try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
@@ -28,6 +37,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func post(_ notification: UsageNotification) {
+        guard let center else { return }
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.message
@@ -42,6 +52,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
 
     /// A plain informational banner (the post-update confirmation), quiet and threadless.
     func postInformational(title: String, body: String) {
+        guard let center else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

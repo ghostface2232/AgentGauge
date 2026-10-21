@@ -253,7 +253,7 @@
                 </StackPanel>
                 <ScrollViewer
                     x:Name="BodyScroll"
-                    Padding="16,0,16,0"
+                    Padding="16,0,16,16"
                     VerticalScrollBarVisibility="Auto"
                     HorizontalScrollMode="Disabled"
                     Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
@@ -866,6 +866,21 @@
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
                                           ItemsSource="{Binding Global.DisplayBasisOptions}"
                                           SelectedIndex="{Binding Global.DisplayBasisIndex, Mode=TwoWay}" />
+                            </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <!-- Status bar / tray icon target: which quota drives the tray icon and level. -->
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                           Text="{loc:Localize Key=Settings_StatusTarget}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
+                                          ItemsSource="{Binding Global.StatusTargetOptions}"
+                                          SelectedIndex="{Binding Global.StatusTargetIndex, Mode=TwoWay}" />
                             </Grid>
                             <Border Height="1" Margin="0,2"
                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

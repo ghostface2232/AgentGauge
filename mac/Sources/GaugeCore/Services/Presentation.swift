@@ -40,7 +40,26 @@ public enum WindowGrouping {
 public struct MenuBarSummary: Sendable, Equatable {
     public let highestUsedRatio: Double?
 
-    public init(states: [ToolState]) {
+    public init(states: [ToolState], targetKey: String? = nil) {
+        if let targetKey, !targetKey.isEmpty, targetKey != "all" {
+            let parts = targetKey.split(separator: ":", maxSplits: 1)
+            if parts.count == 2 {
+                let toolRaw = String(parts[0])
+                let windowKey = String(parts[1])
+                let match = states
+                    .first {
+                        $0.tool.rawValue.caseInsensitiveCompare(toolRaw) == .orderedSame ||
+                        $0.tool.displayName.caseInsensitiveCompare(toolRaw) == .orderedSame
+                    }?
+                    .snapshot?.windows
+                    .first { $0.key.caseInsensitiveCompare(windowKey) == .orderedSame }?
+                    .usedRatio
+                if let match, match.isFinite {
+                    highestUsedRatio = match
+                    return
+                }
+            }
+        }
         highestUsedRatio = states
             .flatMap { $0.snapshot?.windows ?? [] }
             .map(\.usedRatio)

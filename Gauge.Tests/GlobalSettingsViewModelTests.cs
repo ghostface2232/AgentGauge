@@ -320,4 +320,60 @@ public sealed class GlobalSettingsViewModelTests
         Assert.True(vm.NotifyResets);
         Assert.Equal(0, kinds);
     }
+
+    [Fact]
+    public void StatusTargetDefaultsToZeroAndRaisesRequestWhenChanged()
+    {
+        var vm = Create();
+        Assert.Equal(0, vm.StatusTargetIndex);
+
+        var requested = new List<string>();
+        vm.StatusTargetChangeRequested += (_, target) => requested.Add(target);
+
+        var tools = new List<CachedUsage>
+        {
+            new()
+            {
+                ToolName = "Claude Code",
+                Snapshot = new UsageSnapshot
+                {
+                    ToolName = "Claude Code",
+                    Windows = [new UsageWindow { Type = UsageWindowType.FiveHour, UsedRatio = 0.5, Label = "5시간" }]
+                }
+            }
+        };
+
+        vm.UpdateStatusTargetOptions(tools);
+        Assert.Equal(2, vm.StatusTargetOptions.Count); // "Overall", "Claude Code · 5시간"
+
+        vm.StatusTargetIndex = 1;
+        Assert.Equal(["Claude Code:FiveHour"], requested);
+    }
+
+    [Theory]
+    [InlineData("Claude Code:FiveHour", 1)]
+    [InlineData("ClaudeCode:fiveHour", 1)]
+    [InlineData("claude:fivehour", 1)]
+    [InlineData("", 0)]
+    [InlineData("all", 0)]
+    [InlineData("Codex:weekly", 0)] // Not in tools list
+    public void StatusTargetMatchesAliases(string target, int expectedIndex)
+    {
+        var vm = Create();
+        var tools = new List<CachedUsage>
+        {
+            new()
+            {
+                ToolName = "Claude Code",
+                Snapshot = new UsageSnapshot
+                {
+                    ToolName = "Claude Code",
+                    Windows = [new UsageWindow { Type = UsageWindowType.FiveHour, UsedRatio = 0.5, Label = "5시간" }]
+                }
+            }
+        };
+
+        vm.UpdateStatusTargetOptions(tools, target);
+        Assert.Equal(expectedIndex, vm.StatusTargetIndex);
+    }
 }

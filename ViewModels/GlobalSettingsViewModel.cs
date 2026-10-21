@@ -18,6 +18,7 @@ namespace Gauge.ViewModels;
 public sealed partial class GlobalSettingsViewModel : ObservableObject
 {
     private bool _suspendSideEffects;
+    private string _statusTarget = string.Empty;
 
     public GlobalSettingsViewModel(
         NotificationPreferences notifications,
@@ -26,10 +27,12 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         UsageDisplayBasis displayBasis = UsageDisplayBasis.Used,
         bool showSparkline = true,
         WeeklyPaceModel paceModel = WeeklyPaceModel.Uniform,
-        bool showApiCost = false)
+        bool showApiCost = false,
+        string statusTarget = "")
     {
         SyncFromSystem(notifications, startOnBoot);
         _suspendSideEffects = true;
+        _statusTarget = statusTarget ?? string.Empty;
         ViewModeIndex = (int)viewMode;
         DisplayBasisIndex = (int)displayBasis;
         ShowSparkline = showSparkline;
@@ -50,6 +53,9 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 
     /// <summary>Raised when the user picks a different percent basis (not on a programmatic sync).</summary>
     public event EventHandler<UsageDisplayBasis>? DisplayBasisChangeRequested;
+
+    /// <summary>Raised when the user picks a different status bar / tray icon target.</summary>
+    public event EventHandler<string>? StatusTargetChangeRequested;
 
     /// <summary>Raised when the user flips the sparkline toggle (not on a programmatic sync).</summary>
     public event EventHandler<bool>? SparklineToggleRequested;
@@ -92,6 +98,17 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     /// <summary>Localized labels for the basis dropdown, in <see cref="UsageDisplayBasis"/> order.</summary>
     public IReadOnlyList<string> DisplayBasisOptions { get; } =
         [Loc.Get("DisplayBasis_Used"), Loc.Get("DisplayBasis_Remaining")];
+
+    /// <summary>
+    /// Selected status bar / tray icon target as a ComboBox index.
+    /// </summary>
+    [ObservableProperty] public partial int StatusTargetIndex { get; set; }
+
+    /// <summary>Localized labels for the status target dropdown.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<string> StatusTargetOptions { get; } =
+        [Loc.Get("StatusTarget_All")];
+
+    private readonly List<string> _statusTargetKeys = [string.Empty];
 
     /// <summary>
     /// Whether bar rows show the burndown sparkline. It has no live service behind it, but
@@ -158,6 +175,56 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         if (_suspendSideEffects) return;
         DisplayBasisChangeRequested?.Invoke(this,
             value == (int)UsageDisplayBasis.Remaining ? UsageDisplayBasis.Remaining : UsageDisplayBasis.Used);
+    }
+
+    partial void OnStatusTargetIndexChanged(int value)
+    {
+        if (_suspendSideEffects) return;
+        var key = value >= 0 && value < _statusTargetKeys.Count ? _statusTargetKeys[value] : string.Empty;
+        _statusTarget = key;
+        StatusTargetChangeRequested?.Invoke(this, key);
+    }
+
+    public void UpdateStatusTargetOptions(IReadOnlyList<CachedUsage> tools, string? currentTarget = null)
+    {
+        if (currentTarget is not null)
+        {
+            _statusTarget = currentTarget;
+        }
+
+        _suspendSideEffects = true;
+        StatusTargetOptions.Clear();
+        _statusTargetKeys.Clear();
+
+        StatusTargetOptions.Add(Loc.Get("StatusTarget_All"));
+        _statusTargetKeys.Add(string.Empty);
+
+        foreach (var tool in tools)
+        {
+            if (tool.Snapshot is not { Windows.Count: > 0 } snapshot) continue;
+            foreach (var window in snapshot.Windows)
+            {
+                var label = !string.IsNullOrEmpty(window.GroupLabel)
+                    ? $"{tool.ToolName} · {window.GroupLabel} · {window.Label}"
+                    : $"{tool.ToolName} · {window.Label}";
+                var key = $"{tool.ToolName}:{window.Key}";
+                StatusTargetOptions.Add(label);
+                _statusTargetKeys.Add(key);
+            }
+        }
+
+        var selectedIndex = _statusTargetKeys.FindIndex(k => StatusTargetMatcher.Matches(k, _statusTarget));
+        StatusTargetIndex = selectedIndex >= 0 ? selectedIndex : 0;
+        _suspendSideEffects = false;
+    }
+
+    public void SetStatusTarget(string target)
+    {
+        _statusTarget = target ?? string.Empty;
+        var index = _statusTargetKeys.FindIndex(k => StatusTargetMatcher.Matches(k, _statusTarget));
+        _suspendSideEffects = true;
+        StatusTargetIndex = index >= 0 ? index : 0;
+        _suspendSideEffects = false;
     }
 
     partial void OnShowSparklineChanged(bool value)

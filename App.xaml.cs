@@ -35,6 +35,8 @@ public partial class App : Application
     private NotificationSettingsStore? _notificationSettingsStore;
     private ViewModeSettingsStore? _viewModeSettingsStore;
     private DisplayBasisSettingsStore? _displayBasisSettingsStore;
+    private StatusTargetSettingsStore? _statusTargetSettingsStore;
+    private string _statusTarget = string.Empty;
     private SparklineSettingsStore? _sparklineSettingsStore;
     private WeeklyPaceModelSettingsStore? _paceModelSettingsStore;
     private ApiCostSettingsStore? _apiCostSettingsStore;
@@ -180,6 +182,8 @@ public partial class App : Application
         _viewMode = _viewModeSettingsStore.Load();
         _displayBasisSettingsStore = new DisplayBasisSettingsStore();
         _displayBasis = _displayBasisSettingsStore.Load();
+        _statusTargetSettingsStore = new StatusTargetSettingsStore();
+        _statusTarget = _statusTargetSettingsStore.Load();
         _sparklineSettingsStore = new SparklineSettingsStore();
         _showSparkline = _sparklineSettingsStore.Load();
         _paceModelSettingsStore = new WeeklyPaceModelSettingsStore();
@@ -187,11 +191,12 @@ public partial class App : Application
         _apiCostSettingsStore = new ApiCostSettingsStore();
         _showApiCost = _apiCostSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(
-            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline, _paceModel, _showApiCost);
+            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline, _paceModel, _showApiCost, _statusTarget);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
         globalSettings.DisplayBasisChangeRequested += OnGlobalDisplayBasisChanged;
+        globalSettings.StatusTargetChangeRequested += OnGlobalStatusTargetChanged;
         globalSettings.SparklineToggleRequested += OnGlobalSparklineToggled;
         globalSettings.PaceModelChangeRequested += OnGlobalPaceModelChanged;
         globalSettings.ApiCostToggleRequested += OnGlobalApiCostToggled;
@@ -216,6 +221,7 @@ public partial class App : Application
         _viewModel =new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
         _viewModel.SetViewMode(_viewMode);
         _viewModel.SetDisplayBasis(_displayBasis);
+        _viewModel.SetStatusTarget(_statusTarget);
         _viewModel.SetShowSparkline(_showSparkline);
         _viewModel.SetPaceModel(_paceModel);
         _viewModel.RefreshRequested += OnManualRefreshRequested;
@@ -350,9 +356,13 @@ public partial class App : Application
         if (_viewModel is not null)
         {
             UpdateTrayTooltip();
-            // Recolor the tray icon by the highest usage ratio (≥70% caution, ≥90% danger).
-            _trayIcon?.UpdateUsageLevel(_viewModel.HighestUsageRatio);
+            // Recolor the tray icon by the selected status target or highest usage ratio.
+            _trayIcon?.UpdateUsageLevel(_viewModel.StatusUsageRatio);
         }
+        var visibleTools = state.Tools
+            .Where(t => t.HasData && (_toolRegistry is null || ToolCatalog.All.Any(d => d.DisplayName == t.ToolName && _toolRegistry.IsActive(d.Kind))))
+            .ToList();
+        _settingsViewModel?.Global.UpdateStatusTargetOptions(visibleTools, _statusTarget);
     }
 
     private async void OnPopoverOpened(object? sender, EventArgs e)
@@ -568,6 +578,22 @@ public partial class App : Application
         // Rows re-derive their percent in place; the card height is unchanged, so no
         // re-measure is needed.
         _viewModel?.SetDisplayBasis(basis);
+    }
+
+    private void OnGlobalStatusTargetChanged(object? sender, string target)
+    {
+        if (!ReportSettingsWrite(_statusTargetSettingsStore?.TrySave(target) == true))
+        {
+            _settingsViewModel?.Global.SetStatusTarget(_statusTarget);
+            return;
+        }
+        _statusTarget = target ?? string.Empty;
+        _viewModel?.SetStatusTarget(_statusTarget);
+        if (_viewModel is not null)
+        {
+            UpdateTrayTooltip();
+            _trayIcon?.UpdateUsageLevel(_viewModel.StatusUsageRatio);
+        }
     }
 
     private void OnGlobalSparklineToggled(object? sender, bool show)

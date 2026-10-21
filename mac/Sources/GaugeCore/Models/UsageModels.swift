@@ -164,6 +164,8 @@ public struct UsageWindow: Codable, Sendable, Hashable, Identifiable {
     /// Identity across refreshes, notification history and the cache: the provider id when
     /// set, else the type. Two windows in one snapshot must have distinct keys.
     public var id: String { providerID ?? type.rawValue }
+    public var key: String { id }
+    public var label: String { WindowLabels.label(for: self) }
 }
 
 /// One tool's usage at one point in time — the single model the UI depends on, so a data

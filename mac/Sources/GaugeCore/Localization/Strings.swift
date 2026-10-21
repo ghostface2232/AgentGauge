@@ -98,6 +98,8 @@ enum Strings {
                                            "Allow it in System Settings › General › Login Items.",
                                            "システム設定 › 一般 › ログイン項目で許可してください。"],
         "Settings_ShowPercent": ["메뉴 막대에 사용률 표시", "Show Percentage in Menu Bar", "メニューバーに使用率を表示"],
+        "Settings_StatusTarget": ["메뉴 막대 표시 기준", "Menu Bar Target", "メニューバー表示対象"],
+        "StatusTarget_All": ["전체", "Overall", "全体"],
         "Settings_DisplayBasis": ["표시 기준", "Show As", "表示基準"],
         "Basis_Used": ["사용량", "Used", "使用量"],
         "Basis_Remaining": ["남은 양", "Remaining", "残量"],

@@ -295,6 +295,21 @@ private struct DisplaySettings: View {
         Form {
             Section {
                 Toggle(L10n.get("Settings_ShowPercent"), isOn: $model.showPercentInMenuBar)
+                Picker(L10n.get("Settings_StatusTarget"), selection: $model.statusTarget) {
+                    Text(L10n.get("StatusTarget_All")).tag("")
+                    ForEach(model.states.filter { !model.hiddenTools.contains($0.tool) }) { state in
+                        if let windows = state.snapshot?.windows, !windows.isEmpty {
+                            ForEach(windows, id: \.key) { window in
+                                let label = if let group = window.groupLabel, !group.isEmpty {
+                                    "\(state.tool.displayName) · \(group) · \(window.label)"
+                                } else {
+                                    "\(state.tool.displayName) · \(window.label)"
+                                }
+                                Text(label).tag("\(state.tool.rawValue):\(window.key)")
+                            }
+                        }
+                    }
+                }
                 Picker(L10n.get("Settings_DisplayBasis"), selection: $model.displayBasis) {
                     Text(L10n.get("Basis_Used")).tag(DisplayBasis.used)
                     Text(L10n.get("Basis_Remaining")).tag(DisplayBasis.remaining)

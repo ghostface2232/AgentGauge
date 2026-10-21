@@ -9,17 +9,27 @@ struct PopoverView: View {
     @Environment(UpdateModel.self) private var update
     @Environment(\.openSettings) private var openSettings
     @State private var contentHeight: CGFloat = 0
+    @State private var canScrollUp = false
+    @State private var canScrollDown = false
+
+    private let headerHeight: CGFloat = 46
+    private let footerHeight: CGFloat = 44
+
+    private var totalHeight: CGFloat {
+        min(max(contentHeight, 130), maximumScrollHeight)
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
-
+        ZStack(alignment: .top) {
             ScrollView(.vertical) {
                 cards
                     .padding(.horizontal, 12)
+                    .padding(.top, headerHeight)
+                    .padding(.bottom, footerHeight)
+                    .background(ScrollViewBridge { up, down in
+                        if canScrollUp != up { canScrollUp = up }
+                        if canScrollDown != down { canScrollDown = down }
+                    })
                     .onGeometryChange(for: CGFloat.self) { proxy in
                         proxy.size.height
                     } action: { height in
@@ -27,15 +37,52 @@ struct PopoverView: View {
                     }
             }
             .scrollBounceBehavior(.basedOnSize)
-            .frame(height: min(max(contentHeight, 44), maximumScrollHeight))
+            .frame(height: totalHeight)
+            .mask(scrollMask)
 
-            footer
+            header
                 .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity)
+
+            VStack(spacing: 0) {
+                Spacer()
+                footer
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(height: totalHeight)
         }
-        .frame(width: Metrics.panelWidth)
+        .frame(width: Metrics.panelWidth, height: totalHeight)
         .background(WindowKeyObserver { model.popoverOpened() })
+    }
+
+    private var scrollMask: some View {
+        GeometryReader { proxy in
+            let height = proxy.size.height
+            let topStart = 42.0 / max(height, 1)
+            let topEnd = 60.0 / max(height, 1)
+            let bottomStart = (height - 60.0) / max(height, 1)
+            let bottomEnd = (height - 40.0) / max(height, 1)
+
+            LinearGradient(
+                stops: [
+                    .init(color: canScrollUp ? .clear : .black, location: 0.0),
+                    .init(color: canScrollUp ? .clear : .black, location: topStart),
+                    .init(color: .black, location: topEnd),
+                    .init(color: .black, location: bottomStart),
+                    .init(color: canScrollDown ? .clear : .black, location: bottomEnd),
+                    .init(color: canScrollDown ? .clear : .black, location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .animation(.easeInOut(duration: 0.2), value: canScrollUp)
+            .animation(.easeInOut(duration: 0.2), value: canScrollDown)
+        }
     }
 
     private var maximumScrollHeight: CGFloat {
@@ -129,9 +176,20 @@ struct PopoverView: View {
             Button(L10n.get("Action_Quit")) {
                 NSApp.terminate(nil)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .font(.caption)
             .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .keyboardShortcut("q")
         }
     }
@@ -444,5 +502,90 @@ struct UsageBar: View {
         .frame(height: 6)
         .animation(.smooth(duration: 0.4), value: fraction)
         .accessibilityHidden(true)
+    }
+}
+
+/// Bridges NSScrollView to SwiftUI: enforces modern overlay scrollers (eliminating thick legacy bars)
+/// and observes scroll bounds changes to detect when content is scrolled past top and bottom edges.
+private struct ScrollViewBridge: NSViewRepresentable {
+    var onScrollChanged: (_ canScrollUp: Bool, _ canScrollDown: Bool) -> Void
+
+    func makeNSView(context: Context) -> ObserverView {
+        let view = ObserverView()
+        view.onScrollChanged = onScrollChanged
+        return view
+    }
+
+    func updateNSView(_ nsView: ObserverView, context: Context) {
+        nsView.onScrollChanged = onScrollChanged
+        nsView.updateState()
+    }
+
+    final class ObserverView: NSView {
+        var onScrollChanged: ((Bool, Bool) -> Void)?
+        private weak var observedScrollView: NSScrollView?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            attach()
+        }
+
+        private func attach() {
+            guard let scrollView = enclosingScrollView else { return }
+            if observedScrollView === scrollView { return }
+            detach()
+            observedScrollView = scrollView
+
+            // Enforce modern overlay scroller: never the legacy thick 16px grey track
+            scrollView.scrollerStyle = .overlay
+            scrollView.verticalScroller?.scrollerStyle = .overlay
+            scrollView.horizontalScroller?.scrollerStyle = .overlay
+            scrollView.postsBoundsChangedNotifications = true
+
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleScroll),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView)
+
+            updateState()
+        }
+
+        private func detach() {
+            if let scrollView = observedScrollView {
+                NotificationCenter.default.removeObserver(
+                    self,
+                    name: NSView.boundsDidChangeNotification,
+                    object: scrollView.contentView)
+                observedScrollView = nil
+            }
+        }
+
+        deinit {
+            detach()
+        }
+
+        @objc private func handleScroll() {
+            updateState()
+        }
+
+        func updateState() {
+            guard let scrollView = observedScrollView ?? enclosingScrollView,
+                  let docView = scrollView.documentView else { return }
+            scrollView.scrollerStyle = .overlay
+            scrollView.verticalScroller?.scrollerStyle = .overlay
+
+            let offsetY = scrollView.contentView.bounds.origin.y
+            let viewportHeight = scrollView.contentView.bounds.height
+            let docHeight = docView.bounds.height
+
+            let canScroll = docHeight > viewportHeight + 1
+            let canScrollUp = canScroll && offsetY > 1
+            let canScrollDown = canScroll && (offsetY + viewportHeight < docHeight - 1)
+
+            DispatchQueue.main.async { [weak self] in
+                self?.onScrollChanged?(canScrollUp, canScrollDown)
+            }
+        }
     }
 }

@@ -265,6 +265,26 @@ public sealed partial class UsageViewModel : ObservableObject
     /// </summary>
     public double HighestUsageRatio { get; private set; }
 
+    /// <summary>Target tool:window key for the status bar / tray icon, or empty for overall.</summary>
+    public string StatusTarget { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// Usage ratio (0–1) used to drive the tray icon variant. Follows <see cref="StatusTarget"/>
+    /// if set and found, otherwise falls back to <see cref="HighestUsageRatio"/>.
+    /// </summary>
+    public double StatusUsageRatio { get; private set; }
+
+    private IReadOnlyList<CachedUsage> _lastRecorded = [];
+
+    /// <summary>
+    /// Sets the status bar / tray icon target and recalculates <see cref="StatusUsageRatio"/>.
+    /// </summary>
+    public void SetStatusTarget(string? target)
+    {
+        StatusTarget = target ?? string.Empty;
+        StatusUsageRatio = CalculateStatusUsageRatio(_lastRecorded, StatusTarget, HighestUsageRatio);
+    }
+
     /// <summary>
     /// Marks the named tools' cards as having a refresh in flight (coordinator
     /// RefreshStarted). Cleared only by <see cref="ClearRefreshing"/> from the matching
@@ -316,12 +336,15 @@ public sealed partial class UsageViewModel : ObservableObject
         // (and reflect a drag-to-reorder done on either surface). OrderBy is stable, so tools
         // without a registry slot keep the coordinator's relative order at the end.
         var recorded = state.Tools.Where(t => t.HasData && IsVisible(t.ToolName)).OrderBy(t => OrderOf(t.ToolName)).ToList();
+        _lastRecorded = recorded;
 
         HighestUsageRatio = recorded
             .SelectMany(t => t.Snapshot!.Windows)
             .Select(w => w.UsedRatio)
             .DefaultIfEmpty(0)
             .Max();
+
+        StatusUsageRatio = CalculateStatusUsageRatio(recorded, StatusTarget, HighestUsageRatio);
 
         LastUpdatedAt = recorded.Select(t => t.LastUpdatedAt).Max();
         LastUpdatedText = LastUpdatedAt is { } updated
@@ -451,5 +474,29 @@ public sealed partial class UsageViewModel : ObservableObject
         }
 
         return string.Join(" · ", parts);
+    }
+
+    private static double CalculateStatusUsageRatio(IReadOnlyList<CachedUsage> recorded, string target, double fallback)
+    {
+        if (string.IsNullOrEmpty(target) || string.Equals(target, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            return fallback;
+        }
+
+        var parts = target.Split(':', 2);
+        if (parts.Length != 2)
+        {
+            return fallback;
+        }
+
+        var toolPart = parts[0];
+        var windowPart = parts[1];
+
+        var tool = recorded.FirstOrDefault(t => StatusTargetMatcher.ToolsMatch(t.ToolName, toolPart));
+
+        var window = tool?.Snapshot?.Windows.FirstOrDefault(w =>
+            string.Equals(w.Key, windowPart, StringComparison.OrdinalIgnoreCase));
+
+        return window is not null && double.IsFinite(window.UsedRatio) ? window.UsedRatio : fallback;
     }
 }

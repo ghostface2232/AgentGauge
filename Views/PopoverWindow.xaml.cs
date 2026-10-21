@@ -36,14 +36,6 @@ public sealed partial class PopoverWindow : Window
     // DesiredSize can land on a fractional physical pixel at 125/150% DPI. Keep a
     // small client-area inset so the final footer row never touches the window edge.
     private const double ContentHeightSafetyDip = 4;
-    // Reserve for the title header + footer + paddings when capping the scrollable
-    // body so the whole popover stays within the work area on very tall content.
-    private const double FooterChromeAllowanceDip = 148;
-    // Bottom inset added below the last card when the body does NOT scroll, so the gap
-    // above the footer matches the header's 8dip bottom padding (Padding="16,16,16,8").
-    // When the body overflows and scrolls, no inset is added: content stays flush to the
-    // footer divider and scrolls out of sight beneath it.
-    private const double BodyBottomBreathingRoomDip = 8;
 
     // --- Slide-in animation (tunable) ---
     private const double SlideOffsetY = 24;       // start offset below final position
@@ -275,16 +267,12 @@ public sealed partial class PopoverWindow : Window
     }
 
     // Cap the scrollable body so the window fits the work area AND never exceeds
-    // MaxPopoverHeightDip. The footer bar (FooterChromeAllowanceDip) stays pinned
-    // below; taller content scrolls within BodyScroll.
+    // MaxPopoverHeightDip. The window itself is capped by PopoverPlacement, while
+    // BodyScroll and SettingsScroll stretch to fill Row 1 completely flush to the footer.
     private void ApplyScrollCaps()
     {
-        var maxWindowDip = Math.Min((_workArea.Height / _scale) - (EdgeMarginDip * 2), MaxPopoverHeightDip);
-        var maxBodyDip = maxWindowDip - FooterChromeAllowanceDip;
-        BodyScroll.MaxHeight = Math.Max(120, maxBodyDip);
-        // The settings body is capped the same way: its header and bottom bar match the
-        // usage view's, so the same chrome allowance keeps it inside the work area.
-        SettingsScroll.MaxHeight = BodyScroll.MaxHeight;
+        BodyScroll.ClearValue(FrameworkElement.MaxHeightProperty);
+        SettingsScroll.ClearValue(FrameworkElement.MaxHeightProperty);
     }
 
     /// <summary>Binds the popover content to a view model for data display.</summary>
@@ -824,25 +812,12 @@ public sealed partial class PopoverWindow : Window
     private void MeasureAndStoreUsageHeight()
     {
         RootBorder.Measure(new Size(PopoverWidthDip, double.PositiveInfinity));
-        var height = RootBorder.DesiredSize.Height;
-
-        // BodyScroll's DesiredSize is clamped to its MaxHeight, so reaching the cap means
-        // the cards overflow and scroll — keep them flush to the footer divider. Otherwise
-        // the cards fit, so add a bottom inset matching the header's bottom padding so the
-        // gap below the last card mirrors the gap above the first.
-        var bodyScrolls = BodyScroll.DesiredSize.Height >= BodyScroll.MaxHeight - 0.5;
-        if (!bodyScrolls)
-        {
-            height += BodyBottomBreathingRoomDip;
-        }
-
-        _usageViewHeightDip = height;
+        _usageViewHeightDip = RootBorder.DesiredSize.Height;
     }
 
     // The settings view's natural height. Its scroll's inner panel already carries the
-    // 12dip bottom margin above the update bar, so unlike the usage view no breathing-room
-    // inset is added here; SettingsScroll's MaxHeight clamps the measure once the options
-    // and service cards overflow, at which point the body scrolls.
+    // 12dip bottom margin above the update bar; the window itself is capped by PopoverPlacement,
+    // at which point the body scrolls within SettingsScroll.
     private void MeasureAndStoreSettingsHeight()
     {
         SettingsBorder.Measure(new Size(PopoverWidthDip, double.PositiveInfinity));
