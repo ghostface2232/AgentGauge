@@ -512,10 +512,10 @@ struct UsageBar: View {
 }
 
 /// An overlay scroller that stays a slim, neutral capsule, does not expand on hover,
-/// and constrains its knob to the safe content zone between the header (64pt) and footer (64pt).
+/// and constrains its knob to the cards content zone between the header (46pt) and footer (44pt).
 private final class ThinScroller: NSScroller {
-    static let topInset: CGFloat = 64
-    static let bottomInset: CGFloat = 64
+    static let topInset: CGFloat = 46
+    static let bottomInset: CGFloat = 44
     static let knobWidth: CGFloat = 3.5
 
     override class var isCompatibleWithOverlayScrollers: Bool { true }
