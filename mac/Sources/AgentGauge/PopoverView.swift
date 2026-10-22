@@ -70,27 +70,22 @@ struct PopoverView: View {
             let bottomMid = (height - 50.0) / max(height, 1)
             let bottomCutoff = (height - 40.0) / max(height, 1)
 
-            HStack(spacing: 0) {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0.0),
-                        .init(color: .clear, location: topCutoff),
-                        .init(color: canScrollUp ? .clear : .black, location: topCutoff),
-                        .init(color: canScrollUp ? .black.opacity(0.4) : .black, location: topMid),
-                        .init(color: .black, location: topEnd),
-                        .init(color: .black, location: bottomEnd),
-                        .init(color: canScrollDown ? .black.opacity(0.4) : .black, location: bottomMid),
-                        .init(color: canScrollDown ? .clear : .black, location: bottomCutoff),
-                        .init(color: .clear, location: bottomCutoff),
-                        .init(color: .clear, location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-
-                Color.black
-                    .frame(width: 14)
-            }
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .clear, location: topCutoff),
+                    .init(color: canScrollUp ? .clear : .black, location: topCutoff),
+                    .init(color: canScrollUp ? .black.opacity(0.4) : .black, location: topMid),
+                    .init(color: .black, location: topEnd),
+                    .init(color: .black, location: bottomEnd),
+                    .init(color: canScrollDown ? .black.opacity(0.4) : .black, location: bottomMid),
+                    .init(color: canScrollDown ? .clear : .black, location: bottomCutoff),
+                    .init(color: .clear, location: bottomCutoff),
+                    .init(color: .clear, location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
             .animation(.easeOut(duration: 0.24), value: canScrollUp)
             .animation(.easeOut(duration: 0.24), value: canScrollDown)
         }
@@ -516,25 +511,66 @@ struct UsageBar: View {
     }
 }
 
-/// An overlay scroller that stays a slim, neutral capsule and does not expand on hover.
+/// An overlay scroller that stays a slim, neutral capsule, does not expand on hover,
+/// and constrains its knob to the safe content zone between the header (64pt) and footer (64pt).
 private final class ThinScroller: NSScroller {
+    static let topInset: CGFloat = 64
+    static let bottomInset: CGFloat = 64
+    static let knobWidth: CGFloat = 3.5
+
     override class var isCompatibleWithOverlayScrollers: Bool { true }
+
+    override func rect(for part: NSScroller.Part) -> NSRect {
+        guard part == .knob else {
+            return super.rect(for: part)
+        }
+
+        let totalHeight = bounds.height
+        let availableHeight = totalHeight - Self.topInset - Self.bottomInset
+        guard availableHeight > 0 else { return .zero }
+
+        let proportion = min(max(knobProportion, 0.05), 1.0)
+        let knobHeight = min(max(availableHeight * proportion, 20), availableHeight)
+        let travel = max(availableHeight - knobHeight, 0)
+        let progress = min(max(CGFloat(doubleValue), 0.0), 1.0)
+
+        let knobY: CGFloat
+        if isFlipped {
+            knobY = Self.topInset + travel * progress
+        } else {
+            knobY = Self.bottomInset + travel * (1.0 - progress)
+        }
+
+        return NSRect(
+            x: bounds.width - Self.knobWidth - 2.5,
+            y: knobY,
+            width: Self.knobWidth,
+            height: knobHeight
+        )
+    }
+
+    override func testPart(_ point: NSPoint) -> NSScroller.Part {
+        var knobHitRect = rect(for: .knob)
+        guard knobHitRect.height > 0 else { return .noPart }
+        knobHitRect.origin.x = 0
+        knobHitRect.size.width = bounds.width
+        if knobHitRect.contains(point) {
+            return .knob
+        }
+        return super.testPart(point)
+    }
 
     override func drawKnob() {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
-        let rect = rect(for: .knob)
-        guard rect.height > 0 else { return }
+        let knobRect = rect(for: .knob)
+        guard knobRect.height > 0 else { return }
 
-        // Constant 3.5pt width, right-aligned with 2.5pt inset
-        let knobWidth: CGFloat = 3.5
-        let knobRect = NSRect(
-            x: bounds.width - knobWidth - 2.5,
-            y: rect.minY,
-            width: knobWidth,
-            height: rect.height
+        let path = CGPath(
+            roundedRect: knobRect,
+            cornerWidth: Self.knobWidth / 2,
+            cornerHeight: Self.knobWidth / 2,
+            transform: nil
         )
-
-        let path = CGPath(roundedRect: knobRect, cornerWidth: knobWidth / 2, cornerHeight: knobWidth / 2, transform: nil)
         context.addPath(path)
         context.setFillColor(NSColor.labelColor.withAlphaComponent(0.25).cgColor)
         context.fillPath()
@@ -585,7 +621,6 @@ private struct ScrollViewBridge: NSViewRepresentable {
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.scrollerStyle = .overlay
             scrollView.horizontalScroller?.scrollerStyle = .overlay
-            scrollView.scrollerInsets = NSEdgeInsets(top: 64, left: 0, bottom: 64, right: 0)
             scrollView.postsBoundsChangedNotifications = true
 
             NotificationCenter.default.addObserver(
@@ -620,7 +655,6 @@ private struct ScrollViewBridge: NSViewRepresentable {
                   let docView = scrollView.documentView else { return }
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.scrollerStyle = .overlay
-            scrollView.scrollerInsets = NSEdgeInsets(top: 64, left: 0, bottom: 64, right: 0)
 
             let offsetY = scrollView.contentView.bounds.origin.y
             let viewportHeight = scrollView.contentView.bounds.height
