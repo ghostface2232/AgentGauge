@@ -253,14 +253,14 @@
                 </StackPanel>
                 <ScrollViewer
                     x:Name="BodyScroll"
-                    Padding="16,0,16,16"
+                    Padding="16,0,16,0"
                     VerticalScrollBarVisibility="Auto"
                     HorizontalScrollMode="Disabled"
                     Visibility="{Binding IsEmpty, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                     <!-- Inter-card spacing lives on the panel (not a per-card bottom margin)
                          so the last card carries no trailing margin: scrolled content clips
                          flush under the footer instead of leaving a thin band above it. -->
-                    <ItemsControl ItemsSource="{Binding Cards}">
+                    <ItemsControl ItemsSource="{Binding Cards}" Margin="0,0,0,16">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Spacing="8" Loaded="OnUsagePanelLoaded" />
@@ -747,7 +747,7 @@
                      when the content actually exceeds the capped panel height. -->
                 <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollMode="Disabled" Padding="16,0,16,0">
-                <StackPanel x:Name="SettingsContent" Spacing="8" VerticalAlignment="Top" Margin="0,0,0,12">
+                <StackPanel x:Name="SettingsContent" Spacing="8" VerticalAlignment="Top" Margin="0,0,0,16">
                     <!-- App-wide toggles, grouped in one card directly under the title:
                          usage notifications and run-on-startup. Two-way bound to the
                          GlobalSettingsViewModel; the empty On/Off content keeps the switch
