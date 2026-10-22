@@ -63,12 +63,12 @@ struct PopoverView: View {
     private var scrollMask: some View {
         GeometryReader { proxy in
             let height = proxy.size.height
-            let topCutoff = 46.0 / max(height, 1)
-            let topMid = 53.0 / max(height, 1)
+            let topCutoff = 42.0 / max(height, 1)
+            let topMid = 51.0 / max(height, 1)
             let topEnd = 64.0 / max(height, 1)
             let bottomEnd = (height - 64.0) / max(height, 1)
-            let bottomMid = (height - 52.0) / max(height, 1)
-            let bottomCutoff = (height - 44.0) / max(height, 1)
+            let bottomMid = (height - 50.0) / max(height, 1)
+            let bottomCutoff = (height - 40.0) / max(height, 1)
 
             LinearGradient(
                 stops: [
@@ -586,8 +586,8 @@ private struct ScrollViewBridge: NSViewRepresentable {
             let docHeight = docView.bounds.height
 
             let canScroll = docHeight > viewportHeight + 1
-            let canScrollUp = canScroll && offsetY > 1
-            let canScrollDown = canScroll && (offsetY + viewportHeight < docHeight - 1)
+            let canScrollUp = canScroll && offsetY > 3
+            let canScrollDown = canScroll && (offsetY + viewportHeight < docHeight - 3)
 
             DispatchQueue.main.async { [weak self] in
                 self?.onScrollChanged?(canScrollUp, canScrollDown)
