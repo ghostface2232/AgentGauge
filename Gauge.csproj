@@ -123,7 +123,7 @@
     </ItemGroup>
     <Delete Files="@(_GaugeMuiPrune)" />
     <!-- The pruned cultures' folders hold nothing but those .mui, so drop the now-empty dirs too. -->
-    <RemoveDir Directories="@(_GaugeMuiPrune->'%(RootDir)%(Directory)'->Distinct())" />
+    <RemoveDir Directories="@(_GaugeMuiPrune->'%(RootDir)%(Directory)'->Distinct())" ContinueOnError="true" />
   </Target>
 
   <!-- Unpackaged WinUI `dotnet publish` drops the app's merged resources index

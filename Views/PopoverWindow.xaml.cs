@@ -816,7 +816,7 @@ public sealed partial class PopoverWindow : Window
     }
 
     // The settings view's natural height. Its scroll's inner panel already carries the
-    // 12dip bottom margin above the update bar; the window itself is capped by PopoverPlacement,
+    // 16dip bottom margin above the update bar; the window itself is capped by PopoverPlacement,
     // at which point the body scrolls within SettingsScroll.
     private void MeasureAndStoreSettingsHeight()
     {

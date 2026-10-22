@@ -213,6 +213,31 @@ public sealed class PopoverXamlContractTests
     }
 
     [Fact]
+    public void ScrollViewsClipFlushToBottomAndApplyPaddingAtEnd()
+    {
+        var document = XDocument.Load(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var xaml = document.Root!.Name.Namespace;
+
+        var bodyScroll = document.Descendants(xaml + "ScrollViewer")
+            .Single(sv => (string?)sv.Attribute(x + "Name") == "BodyScroll");
+
+        var settingsScroll = document.Descendants(xaml + "ScrollViewer")
+            .Single(sv => (string?)sv.Attribute(x + "Name") == "SettingsScroll");
+
+        // Both ScrollViewers have 0 bottom padding so scrolling content clips flush at the bottom
+        Assert.Equal("16,0,16,0", (string?)bodyScroll.Attribute("Padding"));
+        Assert.Equal("16,0,16,0", (string?)settingsScroll.Attribute("Padding"));
+
+        // Content carries the 16 DIP bottom margin so padding is only applied at the very end of scroll
+        var usageItems = bodyScroll.Elements(xaml + "ItemsControl").Single();
+        Assert.Equal("0,0,0,16", (string?)usageItems.Attribute("Margin"));
+
+        var settingsContent = settingsScroll.Elements(xaml + "StackPanel").Single();
+        Assert.Equal("0,0,0,16", (string?)settingsContent.Attribute("Margin"));
+    }
+
+    [Fact]
     public void NotificationDisclosureMotionIsResponsiveAndAccessible()
     {
         var source = File.ReadAllText(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml.cs"));
