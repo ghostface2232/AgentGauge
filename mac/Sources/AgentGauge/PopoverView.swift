@@ -511,76 +511,6 @@ struct UsageBar: View {
     }
 }
 
-/// An overlay scroller that stays a slim, neutral capsule, does not expand on hover,
-/// and constrains its knob to the cards content zone between the header (46pt) and footer (44pt).
-private final class ThinScroller: NSScroller {
-    static let topInset: CGFloat = 46
-    static let bottomInset: CGFloat = 44
-    static let knobWidth: CGFloat = 3.5
-
-    override class var isCompatibleWithOverlayScrollers: Bool { true }
-
-    override func rect(for part: NSScroller.Part) -> NSRect {
-        guard part == .knob else {
-            return super.rect(for: part)
-        }
-
-        let totalHeight = bounds.height
-        let availableHeight = totalHeight - Self.topInset - Self.bottomInset
-        guard availableHeight > 0 else { return .zero }
-
-        let proportion = min(max(knobProportion, 0.05), 1.0)
-        let knobHeight = min(max(availableHeight * proportion, 20), availableHeight)
-        let travel = max(availableHeight - knobHeight, 0)
-        let progress = min(max(CGFloat(doubleValue), 0.0), 1.0)
-
-        let knobY: CGFloat
-        if isFlipped {
-            knobY = Self.topInset + travel * progress
-        } else {
-            knobY = Self.bottomInset + travel * (1.0 - progress)
-        }
-
-        return NSRect(
-            x: bounds.width - Self.knobWidth - 2.5,
-            y: knobY,
-            width: Self.knobWidth,
-            height: knobHeight
-        )
-    }
-
-    override func testPart(_ point: NSPoint) -> NSScroller.Part {
-        var knobHitRect = rect(for: .knob)
-        guard knobHitRect.height > 0 else { return .noPart }
-        knobHitRect.origin.x = 0
-        knobHitRect.size.width = bounds.width
-        if knobHitRect.contains(point) {
-            return .knob
-        }
-        return super.testPart(point)
-    }
-
-    override func drawKnob() {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        let knobRect = rect(for: .knob)
-        guard knobRect.height > 0 else { return }
-
-        let path = CGPath(
-            roundedRect: knobRect,
-            cornerWidth: Self.knobWidth / 2,
-            cornerHeight: Self.knobWidth / 2,
-            transform: nil
-        )
-        context.addPath(path)
-        context.setFillColor(NSColor.labelColor.withAlphaComponent(0.25).cgColor)
-        context.fillPath()
-    }
-
-    override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
-        // Suppress default track background on hover
-    }
-}
-
 /// Bridges NSScrollView to SwiftUI: enforces modern overlay scrollers (eliminating thick legacy bars)
 /// and observes scroll bounds changes to detect when content is scrolled past top and bottom edges.
 private struct ScrollViewBridge: NSViewRepresentable {
@@ -620,20 +550,16 @@ private struct ScrollViewBridge: NSViewRepresentable {
 
         private func attach() {
             guard let scrollView = enclosingScrollView else { return }
-            if observedScrollView === scrollView, scrollView.verticalScroller is ThinScroller { return }
+            if observedScrollView === scrollView { return }
             detach()
             observedScrollView = scrollView
-
-            if !(scrollView.verticalScroller is ThinScroller) {
-                let scroller = ThinScroller()
-                scrollView.verticalScroller = scroller
-            }
 
             // Enforce modern overlay scroller: never the legacy thick 16px grey track
             scrollView.hasVerticalScroller = true
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.scrollerStyle = .overlay
             scrollView.horizontalScroller?.scrollerStyle = .overlay
+            scrollView.scrollerInsets = NSEdgeInsets(top: 46, left: 0, bottom: 44, right: 0)
             scrollView.postsBoundsChangedNotifications = true
             scrollView.tile()
 
@@ -668,12 +594,13 @@ private struct ScrollViewBridge: NSViewRepresentable {
             guard let scrollView = observedScrollView ?? enclosingScrollView,
                   let docView = scrollView.documentView else { return }
 
-            if observedScrollView == nil || !(scrollView.verticalScroller is ThinScroller) {
+            if observedScrollView == nil {
                 attach()
             }
 
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.scrollerStyle = .overlay
+            scrollView.scrollerInsets = NSEdgeInsets(top: 46, left: 0, bottom: 44, right: 0)
 
             let offsetY = scrollView.contentView.bounds.origin.y
             let viewportHeight = scrollView.contentView.bounds.height
