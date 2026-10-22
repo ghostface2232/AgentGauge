@@ -1,4 +1,4 @@
-<img width="1440" alt="banner" src="https://github.com/user-attachments/assets/ba1971e5-3081-47a2-9212-90115f249c87" />
+<img width="1440" alt="AgentGauge_Title" src="https://github.com/user-attachments/assets/359f83c2-0d28-471b-ad06-fccce0777afa" />
 
 
 
@@ -10,10 +10,10 @@ It reads each tool's official usage endpoints using local, read-only credentials
 
 ## Screenshots
 
-<img width="1440" alt="1" src="https://github.com/user-attachments/assets/2e961b59-b9d9-4be7-8bf8-78c42dc19e39" />
-<img width="1440" alt="2" src="https://github.com/user-attachments/assets/6e83ea37-2855-4c00-90e8-3e18f6a047a4" />
-<img width="1440" alt="3" src="https://github.com/user-attachments/assets/4a30e33e-f116-45e8-b85f-e8947fdf6cda" />
-
+<img width="1440" alt="Quick & easy" src="https://github.com/user-attachments/assets/2e961b59-b9d9-4be7-8bf8-78c42dc19e39" />
+<img width="1440" alt="Dynamic tray icon" src="https://github.com/user-attachments/assets/6e83ea37-2855-4c00-90e8-3e18f6a047a4" />
+<img width="1440" alt="Horizontal bars & Circular gauges" src="https://github.com/user-attachments/assets/4a30e33e-f116-45e8-b85f-e8947fdf6cda" />
+<img width="1440" alt="Native macOS" src="https://github.com/user-attachments/assets/9a0e80bf-d0ee-43eb-beb5-b2fc4b9f23a8" />
 
 ## Features
 
