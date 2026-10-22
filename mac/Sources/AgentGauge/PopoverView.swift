@@ -63,25 +63,31 @@ struct PopoverView: View {
     private var scrollMask: some View {
         GeometryReader { proxy in
             let height = proxy.size.height
-            let topStart = 42.0 / max(height, 1)
-            let topEnd = 60.0 / max(height, 1)
-            let bottomStart = (height - 60.0) / max(height, 1)
-            let bottomEnd = (height - 40.0) / max(height, 1)
+            let topCutoff = 46.0 / max(height, 1)
+            let topMid = 53.0 / max(height, 1)
+            let topEnd = 64.0 / max(height, 1)
+            let bottomEnd = (height - 64.0) / max(height, 1)
+            let bottomMid = (height - 52.0) / max(height, 1)
+            let bottomCutoff = (height - 44.0) / max(height, 1)
 
             LinearGradient(
                 stops: [
-                    .init(color: canScrollUp ? .clear : .black, location: 0.0),
-                    .init(color: canScrollUp ? .clear : .black, location: topStart),
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .clear, location: topCutoff),
+                    .init(color: canScrollUp ? .clear : .black, location: topCutoff),
+                    .init(color: canScrollUp ? .black.opacity(0.4) : .black, location: topMid),
                     .init(color: .black, location: topEnd),
-                    .init(color: .black, location: bottomStart),
-                    .init(color: canScrollDown ? .clear : .black, location: bottomEnd),
-                    .init(color: canScrollDown ? .clear : .black, location: 1.0)
+                    .init(color: .black, location: bottomEnd),
+                    .init(color: canScrollDown ? .black.opacity(0.4) : .black, location: bottomMid),
+                    .init(color: canScrollDown ? .clear : .black, location: bottomCutoff),
+                    .init(color: .clear, location: bottomCutoff),
+                    .init(color: .clear, location: 1.0)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .animation(.easeInOut(duration: 0.2), value: canScrollUp)
-            .animation(.easeInOut(duration: 0.2), value: canScrollDown)
+            .animation(.easeOut(duration: 0.24), value: canScrollUp)
+            .animation(.easeOut(duration: 0.24), value: canScrollDown)
         }
     }
 
