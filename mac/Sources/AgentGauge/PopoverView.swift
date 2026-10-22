@@ -70,22 +70,27 @@ struct PopoverView: View {
             let bottomMid = (height - 50.0) / max(height, 1)
             let bottomCutoff = (height - 40.0) / max(height, 1)
 
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0.0),
-                    .init(color: .clear, location: topCutoff),
-                    .init(color: canScrollUp ? .clear : .black, location: topCutoff),
-                    .init(color: canScrollUp ? .black.opacity(0.4) : .black, location: topMid),
-                    .init(color: .black, location: topEnd),
-                    .init(color: .black, location: bottomEnd),
-                    .init(color: canScrollDown ? .black.opacity(0.4) : .black, location: bottomMid),
-                    .init(color: canScrollDown ? .clear : .black, location: bottomCutoff),
-                    .init(color: .clear, location: bottomCutoff),
-                    .init(color: .clear, location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            HStack(spacing: 0) {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0.0),
+                        .init(color: .clear, location: topCutoff),
+                        .init(color: canScrollUp ? .clear : .black, location: topCutoff),
+                        .init(color: canScrollUp ? .black.opacity(0.4) : .black, location: topMid),
+                        .init(color: .black, location: topEnd),
+                        .init(color: .black, location: bottomEnd),
+                        .init(color: canScrollDown ? .black.opacity(0.4) : .black, location: bottomMid),
+                        .init(color: canScrollDown ? .clear : .black, location: bottomCutoff),
+                        .init(color: .clear, location: bottomCutoff),
+                        .init(color: .clear, location: 1.0)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                Color.black
+                    .frame(width: 14)
+            }
             .animation(.easeOut(duration: 0.24), value: canScrollUp)
             .animation(.easeOut(duration: 0.24), value: canScrollDown)
         }
@@ -511,6 +516,35 @@ struct UsageBar: View {
     }
 }
 
+/// An overlay scroller that stays a slim, neutral capsule and does not expand on hover.
+private final class ThinScroller: NSScroller {
+    override class var isCompatibleWithOverlayScrollers: Bool { true }
+
+    override func drawKnob() {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let rect = rect(for: .knob)
+        guard rect.height > 0 else { return }
+
+        // Constant 3.5pt width, right-aligned with 2.5pt inset
+        let knobWidth: CGFloat = 3.5
+        let knobRect = NSRect(
+            x: bounds.width - knobWidth - 2.5,
+            y: rect.minY,
+            width: knobWidth,
+            height: rect.height
+        )
+
+        let path = CGPath(roundedRect: knobRect, cornerWidth: knobWidth / 2, cornerHeight: knobWidth / 2, transform: nil)
+        context.addPath(path)
+        context.setFillColor(NSColor.labelColor.withAlphaComponent(0.25).cgColor)
+        context.fillPath()
+    }
+
+    override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
+        // Suppress default track background on hover
+    }
+}
+
 /// Bridges NSScrollView to SwiftUI: enforces modern overlay scrollers (eliminating thick legacy bars)
 /// and observes scroll bounds changes to detect when content is scrolled past top and bottom edges.
 private struct ScrollViewBridge: NSViewRepresentable {
@@ -542,10 +576,16 @@ private struct ScrollViewBridge: NSViewRepresentable {
             detach()
             observedScrollView = scrollView
 
+            if !(scrollView.verticalScroller is ThinScroller) {
+                let scroller = ThinScroller()
+                scrollView.verticalScroller = scroller
+            }
+
             // Enforce modern overlay scroller: never the legacy thick 16px grey track
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.scrollerStyle = .overlay
             scrollView.horizontalScroller?.scrollerStyle = .overlay
+            scrollView.scrollerInsets = NSEdgeInsets(top: 64, left: 0, bottom: 64, right: 0)
             scrollView.postsBoundsChangedNotifications = true
 
             NotificationCenter.default.addObserver(
@@ -580,6 +620,7 @@ private struct ScrollViewBridge: NSViewRepresentable {
                   let docView = scrollView.documentView else { return }
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.scrollerStyle = .overlay
+            scrollView.scrollerInsets = NSEdgeInsets(top: 64, left: 0, bottom: 64, right: 0)
 
             let offsetY = scrollView.contentView.bounds.origin.y
             let viewportHeight = scrollView.contentView.bounds.height
