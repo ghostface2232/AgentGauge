@@ -180,8 +180,8 @@ struct PopoverView: View {
                 if isVisible {
                     Capsule()
                         .fill(Color.primary.opacity(isDragging ? 0.45 : (isHoveringTrack ? 0.35 : 0.25)))
-                        .frame(width: 3.5, height: knobHeight)
-                        .position(x: Metrics.panelWidth - 5.5, y: knobY + knobHeight / 2)
+                        .frame(width: 4.0, height: knobHeight)
+                        .position(x: Metrics.panelWidth - 6.0, y: knobY + knobHeight / 2)
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
