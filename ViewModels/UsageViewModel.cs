@@ -283,6 +283,7 @@ public sealed partial class UsageViewModel : ObservableObject
     {
         StatusTarget = target ?? string.Empty;
         StatusUsageRatio = CalculateStatusUsageRatio(_lastRecorded, StatusTarget, HighestUsageRatio);
+        TrayTooltipSummary = BuildTrayTooltipSummary(_lastRecorded, StatusTarget);
     }
 
     /// <summary>
@@ -350,7 +351,7 @@ public sealed partial class UsageViewModel : ObservableObject
         LastUpdatedText = LastUpdatedAt is { } updated
             ? Loc.Format("LastUpdated_At", updated.ToLocalTime().ToString("HH:mm"))
             : Loc.Get("LastUpdated_Never");
-        TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
+        TrayTooltipSummary = BuildTrayTooltipSummary(recorded, StatusTarget);
         RefreshCards(recorded);
         ExpireRefreshIndicators();
         ApplyServiceStatuses(_serviceStatuses);
@@ -449,7 +450,7 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
-    private static string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools)
+    private static string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools, string target = "")
     {
         if (tools.Count == 0)
         {
@@ -473,7 +474,33 @@ public sealed partial class UsageViewModel : ObservableObject
             }
         }
 
-        return string.Join(" · ", parts);
+        var overallSummary = string.Join(" · ", parts);
+
+        if (!string.IsNullOrEmpty(target) && !string.Equals(target, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            var targetParts = target.Split(':', 2);
+            if (targetParts.Length == 2)
+            {
+                var toolPart = targetParts[0];
+                var windowPart = targetParts[1];
+                var matchedTool = tools.FirstOrDefault(t => StatusTargetMatcher.ToolsMatch(t.ToolName, toolPart));
+                var matchedWindow = matchedTool?.Snapshot?.Windows.FirstOrDefault(w =>
+                    string.Equals(w.Key, windowPart, StringComparison.OrdinalIgnoreCase));
+
+                if (matchedTool is not null && matchedWindow is not null && double.IsFinite(matchedWindow.UsedRatio))
+                {
+                    var label = !string.IsNullOrEmpty(matchedWindow.GroupLabel)
+                        ? $"{matchedTool.ToolName} · {matchedWindow.GroupLabel} · {matchedWindow.Label}"
+                        : $"{matchedTool.ToolName} · {matchedWindow.Label}";
+                    var targetSummary = $"{label} {matchedWindow.UsedRatio * 100:0}%";
+                    return string.IsNullOrEmpty(overallSummary)
+                        ? targetSummary
+                        : $"{targetSummary} ({overallSummary})";
+                }
+            }
+        }
+
+        return overallSummary;
     }
 
     private static double CalculateStatusUsageRatio(IReadOnlyList<CachedUsage> recorded, string target, double fallback)

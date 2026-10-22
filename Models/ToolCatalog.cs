@@ -56,7 +56,7 @@ public static class ToolCatalog
     /// those stores, so a rename must be migrated there, not just relabeled.
     /// </summary>
     public static readonly IReadOnlyDictionary<string, string> RenamedDisplayNames =
-        new Dictionary<string, string>(StringComparer.Ordinal) { ["Claude Code"] = "Claude" };
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Claude Code"] = "Claude" };
 
     /// <summary>The current display name for a persisted one, whether current or renamed.</summary>
     public static string CurrentDisplayName(string persistedName)

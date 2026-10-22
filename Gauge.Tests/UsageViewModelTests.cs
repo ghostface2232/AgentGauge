@@ -95,6 +95,7 @@ public sealed class UsageViewModelTests
         // Target Codex weekly (0.70)
         viewModel.SetStatusTarget("Codex:weekly");
         Assert.Equal(0.70, viewModel.StatusUsageRatio);
+        Assert.Equal("Codex · 주간 70% (Claude Code 90% · Codex 70%)", viewModel.TrayTooltipSummary);
 
         // Target Claude weekly (0.20)
         viewModel.SetStatusTarget("Claude Code:weekly");

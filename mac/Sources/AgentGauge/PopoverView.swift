@@ -13,7 +13,12 @@ struct PopoverView: View {
     @State private var canScrollDown = false
     @State private var scrollMetrics = ScrollMetrics()
     @State private var isScrolling = false
+    @State private var isHoveringTrack = false
+    @State private var isDragging = false
+    @State private var dragStartProgress: CGFloat = 0
+    @State private var dragStartLocationY: CGFloat = 0
     @State private var hideScrollerTask: Task<Void, Never>? = nil
+    @State private var scrollController = ScrollController()
 
     private let headerHeight: CGFloat = 46
     private let footerHeight: CGFloat = 44
@@ -29,7 +34,7 @@ struct PopoverView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, headerHeight)
                     .padding(.bottom, footerHeight)
-                    .background(ScrollViewBridge { metrics in
+                    .background(ScrollViewBridge(controller: scrollController) { metrics in
                         handleScrollMetrics(metrics)
                     })
                     .onGeometryChange(for: CGFloat.self) { proxy in
@@ -65,6 +70,8 @@ struct PopoverView: View {
     }
 
     private func handleScrollMetrics(_ newMetrics: ScrollMetrics) {
+        guard newMetrics != scrollMetrics else { return }
+
         if canScrollUp != newMetrics.canScrollUp { canScrollUp = newMetrics.canScrollUp }
         if canScrollDown != newMetrics.canScrollDown { canScrollDown = newMetrics.canScrollDown }
 
@@ -82,11 +89,19 @@ struct PopoverView: View {
                     isScrolling = true
                 }
             }
-            hideScrollerTask?.cancel()
-            hideScrollerTask = Task {
-                try? await Task.sleep(nanoseconds: 700_000_000)
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
+            if !isDragging && !isHoveringTrack {
+                scheduleScrollerFadeOut()
+            }
+        }
+    }
+
+    private func scheduleScrollerFadeOut() {
+        hideScrollerTask?.cancel()
+        hideScrollerTask = Task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                if !isDragging && !isHoveringTrack {
                     withAnimation(.easeOut(duration: 0.3)) {
                         isScrolling = false
                     }
@@ -107,17 +122,86 @@ struct PopoverView: View {
         let progress = min(max(scrollMetrics.offsetY / maxOffset, 0.0), 1.0)
         let knobY = trackTop + travel * progress
 
-        return Group {
-            if canScroll && isScrolling {
-                Capsule()
-                    .fill(Color.primary.opacity(0.25))
-                    .frame(width: 3.5, height: knobHeight)
-                    .position(x: Metrics.panelWidth - 5.5, y: knobY + knobHeight / 2)
-                    .transition(.opacity)
+        let isVisible = canScroll && (isScrolling || isHoveringTrack || isDragging)
+
+        return ZStack(alignment: .topTrailing) {
+            if canScroll {
+                // Interactive hit area along the right track (width: 14pt)
+                Color.clear
+                    .frame(width: 14, height: trackHeight)
+                    .contentShape(Rectangle())
+                    .position(x: Metrics.panelWidth - 7, y: trackTop + trackHeight / 2)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                hideScrollerTask?.cancel()
+                                if !isDragging {
+                                    isDragging = true
+                                    isScrolling = true
+                                    let clickY = value.startLocation.y
+                                    let currentKnobTop = travel * progress
+                                    let currentKnobBottom = currentKnobTop + knobHeight
+
+                                    if clickY >= currentKnobTop && clickY <= currentKnobBottom {
+                                        dragStartProgress = progress
+                                        dragStartLocationY = clickY
+                                    } else {
+                                        let targetKnobTop = clickY - (knobHeight / 2)
+                                        let jumpedProgress = travel > 0 ? min(max(targetKnobTop / travel, 0.0), 1.0) : 0
+                                        dragStartProgress = jumpedProgress
+                                        dragStartLocationY = clickY
+                                        scrollController.scroll(to: jumpedProgress * maxOffset)
+                                    }
+                                } else {
+                                    let deltaY = value.location.y - dragStartLocationY
+                                    let deltaProgress = travel > 0 ? deltaY / travel : 0
+                                    let newProgress = min(max(dragStartProgress + deltaProgress, 0.0), 1.0)
+                                    scrollController.scroll(to: newProgress * maxOffset)
+                                }
+                            }
+                            .onEnded { _ in
+                                isDragging = false
+                                scheduleScrollerFadeOut()
+                            }
+                    )
+                    .onHover { hovering in
+                        isHoveringTrack = hovering
+                        if hovering {
+                            hideScrollerTask?.cancel()
+                            withAnimation(.easeIn(duration: 0.12)) {
+                                isScrolling = true
+                            }
+                        } else {
+                            scheduleScrollerFadeOut()
+                        }
+                    }
+
+                // Visual pill knob
+                if isVisible {
+                    Capsule()
+                        .fill(Color.primary.opacity(isDragging ? 0.45 : (isHoveringTrack ? 0.35 : 0.25)))
+                        .frame(width: 3.5, height: knobHeight)
+                        .position(x: Metrics.panelWidth - 5.5, y: knobY + knobHeight / 2)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
             }
         }
-        .allowsHitTesting(false)
-        .animation(.easeInOut(duration: 0.2), value: isScrolling)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Scroll Bar"))
+        .accessibilityValue(Text("\(Int(progress * 100))%"))
+        .accessibilityAdjustableAction { direction in
+            let step: CGFloat = 40
+            switch direction {
+            case .increment:
+                scrollController.scroll(to: scrollMetrics.offsetY + step)
+            case .decrement:
+                scrollController.scroll(to: scrollMetrics.offsetY - step)
+            @unknown default:
+                break
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isVisible)
     }
 
     private var scrollMask: some View {
@@ -571,6 +655,21 @@ struct UsageBar: View {
     }
 }
 
+@MainActor
+final class ScrollController {
+    weak var scrollView: NSScrollView?
+
+    func scroll(to offsetY: CGFloat) {
+        guard let scrollView,
+              let docView = scrollView.documentView else { return }
+        let contentView = scrollView.contentView
+        let maxOffset = max(docView.bounds.height - contentView.bounds.height, 0)
+        let clampedY = min(max(offsetY, 0), maxOffset)
+        contentView.scroll(to: NSPoint(x: 0, y: clampedY))
+        scrollView.reflectScrolledClipView(contentView)
+    }
+}
+
 struct ScrollMetrics: Equatable {
     var offsetY: CGFloat = 0
     var viewportHeight: CGFloat = 1
@@ -582,23 +681,28 @@ struct ScrollMetrics: Equatable {
 /// Bridges NSScrollView to SwiftUI: suppresses default thick/black overlay scrollers
 /// and observes scroll bounds changes in real time for custom indicator and gradient mask.
 private struct ScrollViewBridge: NSViewRepresentable {
+    var controller: ScrollController
     var onMetricsChanged: (ScrollMetrics) -> Void
 
     func makeNSView(context: Context) -> ObserverView {
         let view = ObserverView()
+        view.controller = controller
         view.onMetricsChanged = onMetricsChanged
         return view
     }
 
     func updateNSView(_ nsView: ObserverView, context: Context) {
+        nsView.controller = controller
         nsView.onMetricsChanged = onMetricsChanged
         nsView.ensureAttached()
         nsView.updateState()
     }
 
     final class ObserverView: NSView {
+        weak var controller: ScrollController?
         var onMetricsChanged: ((ScrollMetrics) -> Void)?
         private(set) weak var observedScrollView: NSScrollView?
+        private var lastMetrics: ScrollMetrics?
 
         override func viewDidMoveToSuperview() {
             super.viewDidMoveToSuperview()
@@ -621,11 +725,13 @@ private struct ScrollViewBridge: NSViewRepresentable {
             if observedScrollView === scrollView { return }
             detach()
             observedScrollView = scrollView
+            controller?.scrollView = scrollView
 
             // Suppress default scroller so our custom slim indicator renders cleanly
             scrollView.hasVerticalScroller = false
             scrollView.hasHorizontalScroller = false
             scrollView.postsBoundsChangedNotifications = true
+            scrollView.contentView.postsBoundsChangedNotifications = true
 
             NotificationCenter.default.addObserver(
                 self,
@@ -643,6 +749,9 @@ private struct ScrollViewBridge: NSViewRepresentable {
                     name: NSView.boundsDidChangeNotification,
                     object: scrollView.contentView)
                 observedScrollView = nil
+                if controller?.scrollView === scrollView {
+                    controller?.scrollView = nil
+                }
             }
         }
 
@@ -680,6 +789,9 @@ private struct ScrollViewBridge: NSViewRepresentable {
                 canScrollUp: canScrollUp,
                 canScrollDown: canScrollDown
             )
+
+            guard metrics != lastMetrics else { return }
+            lastMetrics = metrics
 
             DispatchQueue.main.async { [weak self] in
                 self?.onMetricsChanged?(metrics)

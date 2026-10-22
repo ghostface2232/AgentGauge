@@ -295,9 +295,20 @@ private struct DisplaySettings: View {
         Form {
             Section {
                 Toggle(L10n.get("Settings_ShowPercent"), isOn: $model.showPercentInMenuBar)
+                let activeStates = model.states.filter { !model.hiddenTools.contains($0.tool) }
+                let hasMatchingTarget = !model.statusTarget.isEmpty && activeStates.contains { state in
+                    let parts = model.statusTarget.split(separator: ":", maxSplits: 1)
+                    guard parts.count == 2 else { return false }
+                    let toolRaw = String(parts[0])
+                    let windowKey = String(parts[1])
+                    let toolMatches = state.tool.rawValue.caseInsensitiveCompare(toolRaw) == .orderedSame ||
+                                      state.tool.displayName.caseInsensitiveCompare(toolRaw) == .orderedSame
+                    guard toolMatches, let windows = state.snapshot?.windows else { return false }
+                    return windows.contains { $0.key.caseInsensitiveCompare(windowKey) == .orderedSame }
+                }
                 Picker(L10n.get("Settings_StatusTarget"), selection: $model.statusTarget) {
                     Text(L10n.get("StatusTarget_All")).tag("")
-                    ForEach(model.states.filter { !model.hiddenTools.contains($0.tool) }) { state in
+                    ForEach(activeStates) { state in
                         if let windows = state.snapshot?.windows, !windows.isEmpty {
                             ForEach(windows, id: \.key) { window in
                                 let label = if let group = window.groupLabel, !group.isEmpty {
@@ -308,6 +319,9 @@ private struct DisplaySettings: View {
                                 Text(label).tag("\(state.tool.rawValue):\(window.key)")
                             }
                         }
+                    }
+                    if !model.statusTarget.isEmpty && model.statusTarget != "all" && !hasMatchingTarget {
+                        Text(L10n.get("StatusTarget_Unavailable")).tag(model.statusTarget)
                     }
                 }
                 Picker(L10n.get("Settings_DisplayBasis"), selection: $model.displayBasis) {

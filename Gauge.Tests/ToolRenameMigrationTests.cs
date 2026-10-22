@@ -19,6 +19,9 @@ public sealed class ToolRenameMigrationTests : IDisposable
     {
         Assert.Equal("Claude", ToolCatalog.ClaudeCode.DisplayName);
         Assert.Equal("Claude", ToolCatalog.CurrentDisplayName("Claude Code"));
+        Assert.Equal("Claude", ToolCatalog.CurrentDisplayName("CLAUDE CODE"));
+        Assert.Equal("Claude", ToolCatalog.CurrentDisplayName("claude code"));
+        Assert.True(StatusTargetMatcher.ToolsMatch("Claude", "CLAUDE CODE"));
         Assert.Equal("Codex", ToolCatalog.CurrentDisplayName("Codex"));
     }
 

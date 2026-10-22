@@ -195,12 +195,8 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
             _statusTarget = currentTarget;
         }
 
-        _suspendSideEffects = true;
-        StatusTargetOptions.Clear();
-        _statusTargetKeys.Clear();
-
-        StatusTargetOptions.Add(Loc.Get("StatusTarget_All"));
-        _statusTargetKeys.Add(string.Empty);
+        var newOptions = new List<string> { Loc.Get("StatusTarget_All") };
+        var newKeys = new List<string> { string.Empty };
 
         foreach (var tool in tools)
         {
@@ -211,20 +207,45 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
                     ? $"{tool.ToolName} · {window.GroupLabel} · {window.Label}"
                     : $"{tool.ToolName} · {window.Label}";
                 var key = $"{tool.ToolName}:{window.Key}";
-                StatusTargetOptions.Add(label);
-                _statusTargetKeys.Add(key);
+                newOptions.Add(label);
+                newKeys.Add(key);
             }
         }
 
-        var selectedIndex = _statusTargetKeys.FindIndex(k => StatusTargetMatcher.Matches(k, _statusTarget));
+        var selectedIndex = newKeys.FindIndex(k => StatusTargetMatcher.Matches(k, _statusTarget));
         if (selectedIndex < 0)
         {
             // Keep an unavailable preference distinct from Overall so choosing Overall
             // still raises a save request, while temporary quota omissions preserve it.
-            selectedIndex = _statusTargetKeys.Count;
-            StatusTargetOptions.Add(Loc.Get("StatusTarget_Unavailable"));
-            _statusTargetKeys.Add(_statusTarget);
+            selectedIndex = newKeys.Count;
+            newOptions.Add(Loc.Get("StatusTarget_Unavailable"));
+            newKeys.Add(_statusTarget);
         }
+
+        // Avoid churning the ComboBox collection when the candidate items haven't changed.
+        // Recreating items on every background usage poll can disrupt an open dropdown
+        // and trigger redundant layout passes.
+        if (newKeys.SequenceEqual(_statusTargetKeys) && newOptions.SequenceEqual(StatusTargetOptions))
+        {
+            if (StatusTargetIndex != selectedIndex)
+            {
+                _suspendSideEffects = true;
+                StatusTargetIndex = selectedIndex;
+                _suspendSideEffects = false;
+            }
+            return;
+        }
+
+        _suspendSideEffects = true;
+        StatusTargetOptions.Clear();
+        _statusTargetKeys.Clear();
+
+        for (var i = 0; i < newOptions.Count; i++)
+        {
+            StatusTargetOptions.Add(newOptions[i]);
+            _statusTargetKeys.Add(newKeys[i]);
+        }
+
         StatusTargetIndex = selectedIndex;
         _suspendSideEffects = false;
     }
