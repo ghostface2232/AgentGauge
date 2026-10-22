@@ -9,17 +9,34 @@ struct PopoverView: View {
     @Environment(UpdateModel.self) private var update
     @Environment(\.openSettings) private var openSettings
     @State private var contentHeight: CGFloat = 0
+    @State private var canScrollUp = false
+    @State private var canScrollDown = false
+    @State private var scrollMetrics = ScrollMetrics()
+    @State private var isScrolling = false
+    @State private var isHoveringTrack = false
+    @State private var isDragging = false
+    @State private var dragStartProgress: CGFloat = 0
+    @State private var dragStartLocationY: CGFloat = 0
+    @State private var hideScrollerTask: Task<Void, Never>? = nil
+    @State private var scrollController = ScrollController()
+
+    private let headerHeight: CGFloat = 46
+    private let footerHeight: CGFloat = 44
+
+    private var totalHeight: CGFloat {
+        min(max(contentHeight, 130), maximumScrollHeight)
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
-
-            ScrollView(.vertical) {
+        ZStack(alignment: .top) {
+            ScrollView(.vertical, showsIndicators: false) {
                 cards
                     .padding(.horizontal, 12)
+                    .padding(.top, headerHeight)
+                    .padding(.bottom, footerHeight)
+                    .background(ScrollViewBridge(controller: scrollController) { metrics in
+                        handleScrollMetrics(metrics)
+                    })
                     .onGeometryChange(for: CGFloat.self) { proxy in
                         proxy.size.height
                     } action: { height in
@@ -27,15 +44,195 @@ struct PopoverView: View {
                     }
             }
             .scrollBounceBehavior(.basedOnSize)
-            .frame(height: min(max(contentHeight, 44), maximumScrollHeight))
+            .frame(height: totalHeight)
+            .mask(scrollMask)
 
-            footer
+            header
                 .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity)
+
+            VStack(spacing: 0) {
+                Spacer()
+                footer
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(height: totalHeight)
+
+            customScrollIndicator
         }
-        .frame(width: Metrics.panelWidth)
+        .frame(width: Metrics.panelWidth, height: totalHeight)
         .background(WindowKeyObserver { model.popoverOpened() })
+    }
+
+    private func handleScrollMetrics(_ newMetrics: ScrollMetrics) {
+        guard newMetrics != scrollMetrics else { return }
+
+        if canScrollUp != newMetrics.canScrollUp { canScrollUp = newMetrics.canScrollUp }
+        if canScrollDown != newMetrics.canScrollDown { canScrollDown = newMetrics.canScrollDown }
+
+        let didMove = abs(scrollMetrics.offsetY - newMetrics.offsetY) > 0.5
+        scrollMetrics = newMetrics
+
+        guard newMetrics.docHeight > newMetrics.viewportHeight + 1 else {
+            isScrolling = false
+            return
+        }
+
+        if didMove {
+            if !isScrolling {
+                withAnimation(.easeIn(duration: 0.12)) {
+                    isScrolling = true
+                }
+            }
+            if !isDragging && !isHoveringTrack {
+                scheduleScrollerFadeOut()
+            }
+        }
+    }
+
+    private func scheduleScrollerFadeOut() {
+        hideScrollerTask?.cancel()
+        hideScrollerTask = Task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                if !isDragging && !isHoveringTrack {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isScrolling = false
+                    }
+                }
+            }
+        }
+    }
+
+    private var customScrollIndicator: some View {
+        let canScroll = scrollMetrics.docHeight > scrollMetrics.viewportHeight + 1
+        let trackTop: CGFloat = headerHeight
+        let trackBottom: CGFloat = totalHeight - footerHeight
+        let trackHeight = max(trackBottom - trackTop, 0)
+        let maxOffset = max(scrollMetrics.docHeight - scrollMetrics.viewportHeight, 1)
+        let proportion = min(max(scrollMetrics.viewportHeight / max(scrollMetrics.docHeight, 1), 0.08), 1.0)
+        let knobHeight = min(max(trackHeight * proportion, 24), trackHeight)
+        let travel = max(trackHeight - knobHeight, 0)
+        let progress = min(max(scrollMetrics.offsetY / maxOffset, 0.0), 1.0)
+        let knobY = trackTop + travel * progress
+
+        let isVisible = canScroll && (isScrolling || isHoveringTrack || isDragging)
+
+        return ZStack(alignment: .topTrailing) {
+            if canScroll {
+                // Interactive hit area along the right track (width: 14pt)
+                Color.clear
+                    .frame(width: 14, height: trackHeight)
+                    .contentShape(Rectangle())
+                    .position(x: Metrics.panelWidth - 7, y: trackTop + trackHeight / 2)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                hideScrollerTask?.cancel()
+                                if !isDragging {
+                                    isDragging = true
+                                    isScrolling = true
+                                    let clickY = value.startLocation.y
+                                    let currentKnobTop = travel * progress
+                                    let currentKnobBottom = currentKnobTop + knobHeight
+
+                                    if clickY >= currentKnobTop && clickY <= currentKnobBottom {
+                                        dragStartProgress = progress
+                                        dragStartLocationY = clickY
+                                    } else {
+                                        let targetKnobTop = clickY - (knobHeight / 2)
+                                        let jumpedProgress = travel > 0 ? min(max(targetKnobTop / travel, 0.0), 1.0) : 0
+                                        dragStartProgress = jumpedProgress
+                                        dragStartLocationY = clickY
+                                        scrollController.scroll(to: jumpedProgress * maxOffset)
+                                    }
+                                } else {
+                                    let deltaY = value.location.y - dragStartLocationY
+                                    let deltaProgress = travel > 0 ? deltaY / travel : 0
+                                    let newProgress = min(max(dragStartProgress + deltaProgress, 0.0), 1.0)
+                                    scrollController.scroll(to: newProgress * maxOffset)
+                                }
+                            }
+                            .onEnded { _ in
+                                isDragging = false
+                                scheduleScrollerFadeOut()
+                            }
+                    )
+                    .onHover { hovering in
+                        isHoveringTrack = hovering
+                        if hovering {
+                            hideScrollerTask?.cancel()
+                            withAnimation(.easeIn(duration: 0.12)) {
+                                isScrolling = true
+                            }
+                        } else {
+                            scheduleScrollerFadeOut()
+                        }
+                    }
+
+                // Visual pill knob
+                if isVisible {
+                    Capsule()
+                        .fill(Color.primary.opacity(isDragging ? 0.45 : (isHoveringTrack ? 0.35 : 0.25)))
+                        .frame(width: 4.0, height: knobHeight)
+                        .position(x: Metrics.panelWidth - 6.0, y: knobY + knobHeight / 2)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Scroll Bar"))
+        .accessibilityValue(Text("\(Int(progress * 100))%"))
+        .accessibilityAdjustableAction { direction in
+            let step: CGFloat = 40
+            switch direction {
+            case .increment:
+                scrollController.scroll(to: scrollMetrics.offsetY + step)
+            case .decrement:
+                scrollController.scroll(to: scrollMetrics.offsetY - step)
+            @unknown default:
+                break
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isVisible)
+    }
+
+    private var scrollMask: some View {
+        GeometryReader { proxy in
+            let height = proxy.size.height
+            let topCutoff = 42.0 / max(height, 1)
+            let topMid = 51.0 / max(height, 1)
+            let topEnd = 64.0 / max(height, 1)
+            let bottomEnd = (height - 64.0) / max(height, 1)
+            let bottomMid = (height - 50.0) / max(height, 1)
+            let bottomCutoff = (height - 40.0) / max(height, 1)
+
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.0),
+                    .init(color: .clear, location: topCutoff),
+                    .init(color: canScrollUp ? .clear : .black, location: topCutoff),
+                    .init(color: canScrollUp ? .black.opacity(0.4) : .black, location: topMid),
+                    .init(color: .black, location: topEnd),
+                    .init(color: .black, location: bottomEnd),
+                    .init(color: canScrollDown ? .black.opacity(0.4) : .black, location: bottomMid),
+                    .init(color: canScrollDown ? .clear : .black, location: bottomCutoff),
+                    .init(color: .clear, location: bottomCutoff),
+                    .init(color: .clear, location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .animation(.easeOut(duration: 0.24), value: canScrollUp)
+            .animation(.easeOut(duration: 0.24), value: canScrollDown)
+        }
     }
 
     private var maximumScrollHeight: CGFloat {
@@ -129,9 +326,20 @@ struct PopoverView: View {
             Button(L10n.get("Action_Quit")) {
                 NSApp.terminate(nil)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .font(.caption)
             .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .keyboardShortcut("q")
         }
     }
@@ -444,5 +652,150 @@ struct UsageBar: View {
         .frame(height: 6)
         .animation(.smooth(duration: 0.4), value: fraction)
         .accessibilityHidden(true)
+    }
+}
+
+@MainActor
+final class ScrollController {
+    weak var scrollView: NSScrollView?
+
+    func scroll(to offsetY: CGFloat) {
+        guard let scrollView,
+              let docView = scrollView.documentView else { return }
+        let contentView = scrollView.contentView
+        let maxOffset = max(docView.bounds.height - contentView.bounds.height, 0)
+        let clampedY = min(max(offsetY, 0), maxOffset)
+        contentView.scroll(to: NSPoint(x: 0, y: clampedY))
+        scrollView.reflectScrolledClipView(contentView)
+    }
+}
+
+struct ScrollMetrics: Equatable {
+    var offsetY: CGFloat = 0
+    var viewportHeight: CGFloat = 1
+    var docHeight: CGFloat = 1
+    var canScrollUp: Bool = false
+    var canScrollDown: Bool = false
+}
+
+/// Bridges NSScrollView to SwiftUI: suppresses default thick/black overlay scrollers
+/// and observes scroll bounds changes in real time for custom indicator and gradient mask.
+private struct ScrollViewBridge: NSViewRepresentable {
+    var controller: ScrollController
+    var onMetricsChanged: (ScrollMetrics) -> Void
+
+    func makeNSView(context: Context) -> ObserverView {
+        let view = ObserverView()
+        view.controller = controller
+        view.onMetricsChanged = onMetricsChanged
+        return view
+    }
+
+    func updateNSView(_ nsView: ObserverView, context: Context) {
+        nsView.controller = controller
+        nsView.onMetricsChanged = onMetricsChanged
+        nsView.ensureAttached()
+        nsView.updateState()
+    }
+
+    final class ObserverView: NSView {
+        weak var controller: ScrollController?
+        var onMetricsChanged: ((ScrollMetrics) -> Void)?
+        private(set) weak var observedScrollView: NSScrollView?
+        private var lastMetrics: ScrollMetrics?
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            attach()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            attach()
+        }
+
+        func ensureAttached() {
+            if observedScrollView == nil {
+                attach()
+            }
+        }
+
+        private func attach() {
+            guard let scrollView = enclosingScrollView else { return }
+            if observedScrollView === scrollView { return }
+            detach()
+            observedScrollView = scrollView
+            controller?.scrollView = scrollView
+
+            // Suppress default scroller so our custom slim indicator renders cleanly
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
+            scrollView.postsBoundsChangedNotifications = true
+            scrollView.contentView.postsBoundsChangedNotifications = true
+
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleScroll),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView)
+
+            updateState()
+        }
+
+        private func detach() {
+            if let scrollView = observedScrollView {
+                NotificationCenter.default.removeObserver(
+                    self,
+                    name: NSView.boundsDidChangeNotification,
+                    object: scrollView.contentView)
+                observedScrollView = nil
+                if controller?.scrollView === scrollView {
+                    controller?.scrollView = nil
+                }
+            }
+        }
+
+        deinit {
+            detach()
+        }
+
+        @objc private func handleScroll() {
+            updateState()
+        }
+
+        func updateState() {
+            guard let scrollView = observedScrollView ?? enclosingScrollView,
+                  let docView = scrollView.documentView else { return }
+
+            if observedScrollView == nil {
+                attach()
+            }
+
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
+
+            let offsetY = scrollView.contentView.bounds.origin.y
+            let viewportHeight = scrollView.contentView.bounds.height
+            let docHeight = docView.bounds.height
+
+            let canScroll = docHeight > viewportHeight + 1
+            let canScrollUp = canScroll && offsetY > 3
+            let canScrollDown = canScroll && (offsetY + viewportHeight < docHeight - 3)
+
+            let metrics = ScrollMetrics(
+                offsetY: offsetY,
+                viewportHeight: viewportHeight,
+                docHeight: docHeight,
+                canScrollUp: canScrollUp,
+                canScrollDown: canScrollDown
+            )
+
+            guard metrics != lastMetrics else { return }
+            lastMetrics = metrics
+
+            DispatchQueue.main.async { [weak self] in
+                self?.onMetricsChanged?(metrics)
+            }
+        }
     }
 }

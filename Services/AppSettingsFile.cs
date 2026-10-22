@@ -52,6 +52,9 @@ internal sealed class AppSettingsDto
     /// <summary>Usage display basis ("used" / "remaining"). Null (absent) reads as used.</summary>
     public string? DisplayBasis { get; set; }
 
+    /// <summary>Status bar / tray icon target window (e.g. "ClaudeCode:fiveHour", or null/empty for overall).</summary>
+    public string? StatusTarget { get; set; }
+
     /// <summary>Whether bar rows show the burndown sparkline. Null (absent) reads as shown.</summary>
     public bool? ShowSparkline { get; set; }
 

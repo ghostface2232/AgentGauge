@@ -69,6 +69,41 @@ final class MenuBarSummaryTests: XCTestCase {
         XCTAssertEqual(summary.percentText(basis: .remaining), "25%")
         XCTAssertNil(MenuBarSummary(states: []).level)
     }
+
+    func testTargetKeySelectsSpecificWindow() {
+        let codexSnapshot = UsageSnapshot(tool: .codex, plan: nil, windows: [
+            UsageWindow(type: .fiveHour, usedRatio: 0.2),
+            UsageWindow(type: .weekly, usedRatio: 0.75),
+        ], capturedAt: Date())
+        let claudeSnapshot = UsageSnapshot(tool: .claude, plan: nil, windows: [
+            UsageWindow(type: .fiveHour, usedRatio: 0.95),
+            UsageWindow(type: .weekly, usedRatio: 0.1),
+        ], capturedAt: Date())
+        let states = [
+            ToolState(tool: .codex, snapshot: codexSnapshot),
+            ToolState(tool: .claude, snapshot: claudeSnapshot),
+        ]
+
+        // Select codex 5-hour (0.2), even though claude 5h is 0.95 and codex weekly is 0.75
+        let summary1 = MenuBarSummary(states: states, targetKey: "codex:fiveHour")
+        XCTAssertEqual(summary1.level, .ok)
+        XCTAssertEqual(summary1.percentText(basis: .used), "20%")
+
+        // Select claude weekly (0.1)
+        let summary2 = MenuBarSummary(states: states, targetKey: "claude:weekly")
+        XCTAssertEqual(summary2.level, .ok)
+        XCTAssertEqual(summary2.percentText(basis: .used), "10%")
+
+        // Non-existent targetKey falls back to max (0.95)
+        let summaryFallback = MenuBarSummary(states: states, targetKey: "cursor:billingCycle")
+        XCTAssertEqual(summaryFallback.level, .danger)
+        XCTAssertEqual(summaryFallback.percentText(basis: .used), "95%")
+
+        // Empty/nil targetKey falls back to max (0.95)
+        let summaryAll = MenuBarSummary(states: states, targetKey: "")
+        XCTAssertEqual(summaryAll.level, .danger)
+        XCTAssertEqual(summaryAll.percentText(basis: .used), "95%")
+    }
 }
 
 final class HiddenToolResumeTests: XCTestCase {

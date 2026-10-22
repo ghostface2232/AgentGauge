@@ -60,6 +60,65 @@ public sealed class UsageViewModelTests
     }
 
     [Fact]
+    public void StatusTargetSelectsSpecificWindowOrFallsBack()
+    {
+        var viewModel = new UsageViewModel();
+        var snapshotClaude = new UsageSnapshot
+        {
+            ToolName = "Claude Code",
+            Windows = [
+                new UsageWindow { Type = UsageWindowType.FiveHour, UsedRatio = 0.90, Label = "5시간" },
+                new UsageWindow { Type = UsageWindowType.Weekly, UsedRatio = 0.20, Label = "주간" },
+            ]
+        };
+        var snapshotCodex = new UsageSnapshot
+        {
+            ToolName = "Codex",
+            Windows = [
+                new UsageWindow { Type = UsageWindowType.FiveHour, UsedRatio = 0.30, Label = "5시간" },
+                new UsageWindow { Type = UsageWindowType.Weekly, UsedRatio = 0.70, Label = "주간" },
+            ]
+        };
+        var state = new UsageState
+        {
+            Tools = [
+                new CachedUsage { ToolName = "Claude Code", Snapshot = snapshotClaude },
+                new CachedUsage { ToolName = "Codex", Snapshot = snapshotCodex },
+            ]
+        };
+
+        // When status target is not set (empty), StatusUsageRatio is HighestUsageRatio (0.90)
+        viewModel.Apply(state);
+        Assert.Equal(0.90, viewModel.HighestUsageRatio);
+        Assert.Equal(0.90, viewModel.StatusUsageRatio);
+
+        // Target Codex weekly (0.70)
+        viewModel.SetStatusTarget("Codex:weekly");
+        Assert.Equal(0.70, viewModel.StatusUsageRatio);
+        Assert.Equal("Codex · 주간 70% (Claude Code 90% · Codex 70%)", viewModel.TrayTooltipSummary);
+
+        // Target Claude weekly (0.20)
+        viewModel.SetStatusTarget("Claude Code:weekly");
+        Assert.Equal(0.20, viewModel.StatusUsageRatio);
+
+        // Target ClaudeCode:weekly (ToolKind enum alias)
+        viewModel.SetStatusTarget("ClaudeCode:weekly");
+        Assert.Equal(0.20, viewModel.StatusUsageRatio);
+
+        // Target claude:FiveHour (case-insensitive / macOS rawValue alias)
+        viewModel.SetStatusTarget("claude:FiveHour");
+        Assert.Equal(0.90, viewModel.StatusUsageRatio);
+
+        // Unknown target falls back to HighestUsageRatio (0.90)
+        viewModel.SetStatusTarget("Unknown:unknown");
+        Assert.Equal(0.90, viewModel.StatusUsageRatio);
+
+        // Reset to all/empty falls back to HighestUsageRatio (0.90)
+        viewModel.SetStatusTarget("");
+        Assert.Equal(0.90, viewModel.StatusUsageRatio);
+    }
+
+    [Fact]
     public void ApplyExcludesToolsWithNoRecord()
     {
         var viewModel = new UsageViewModel();

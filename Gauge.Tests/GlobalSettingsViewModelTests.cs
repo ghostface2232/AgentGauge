@@ -320,4 +320,133 @@ public sealed class GlobalSettingsViewModelTests
         Assert.True(vm.NotifyResets);
         Assert.Equal(0, kinds);
     }
+
+    [Fact]
+    public void StatusTargetDefaultsToZeroAndRaisesRequestWhenChanged()
+    {
+        var vm = Create();
+        Assert.Equal(0, vm.StatusTargetIndex);
+
+        var requested = new List<string>();
+        vm.StatusTargetChangeRequested += (_, target) => requested.Add(target);
+
+        var tools = new List<CachedUsage>
+        {
+            new()
+            {
+                ToolName = "Claude Code",
+                Snapshot = new UsageSnapshot
+                {
+                    ToolName = "Claude Code",
+                    Windows = [new UsageWindow { Type = UsageWindowType.FiveHour, UsedRatio = 0.5, Label = "5시간" }]
+                }
+            }
+        };
+
+        vm.UpdateStatusTargetOptions(tools);
+        Assert.Equal(2, vm.StatusTargetOptions.Count); // "Overall", "Claude Code · 5시간"
+
+        vm.StatusTargetIndex = 1;
+        Assert.Equal(["Claude Code:FiveHour"], requested);
+    }
+
+    [Theory]
+    [InlineData("Claude Code:FiveHour", 1)]
+    [InlineData("ClaudeCode:fiveHour", 1)]
+    [InlineData("claude:fivehour", 1)]
+    [InlineData("", 0)]
+    [InlineData("all", 0)]
+    [InlineData("ALL", 0)]
+    [InlineData("Codex:weekly", 2)] // An unavailable target remains distinct from Overall.
+    public void StatusTargetMatchesAliases(string target, int expectedIndex)
+    {
+        var vm = Create();
+        var tools = new List<CachedUsage>
+        {
+            new()
+            {
+                ToolName = "Claude Code",
+                Snapshot = new UsageSnapshot
+                {
+                    ToolName = "Claude Code",
+                    Windows = [new UsageWindow { Type = UsageWindowType.FiveHour, UsedRatio = 0.5, Label = "5시간" }]
+                }
+            }
+        };
+
+        vm.UpdateStatusTargetOptions(tools, target);
+        Assert.Equal(expectedIndex, vm.StatusTargetIndex);
+    }
+
+    [Fact]
+    public void MissingStatusTargetCanBeExplicitlyClearedToOverall()
+    {
+        var vm = Create();
+        var requested = new List<string>();
+        vm.StatusTargetChangeRequested += (_, target) => requested.Add(target);
+
+        vm.UpdateStatusTargetOptions(StatusTargetTools(), "Codex:weekly");
+        vm.UpdateStatusTargetOptions([]);
+
+        Assert.Equal(1, vm.StatusTargetIndex);
+        Assert.Equal(Loc.Get("StatusTarget_Unavailable"), vm.StatusTargetOptions[1]);
+        Assert.Empty(requested);
+
+        vm.StatusTargetIndex = 0;
+        vm.UpdateStatusTargetOptions(StatusTargetTools());
+
+        Assert.Equal([string.Empty], requested);
+        Assert.Equal(0, vm.StatusTargetIndex);
+        Assert.Equal(2, vm.StatusTargetOptions.Count);
+    }
+
+    [Fact]
+    public void TemporarilyMissingStatusTargetReturnsWithoutASaveRequest()
+    {
+        var vm = Create();
+        var requested = new List<string>();
+        vm.StatusTargetChangeRequested += (_, target) => requested.Add(target);
+
+        vm.UpdateStatusTargetOptions(StatusTargetTools(), "Codex:weekly");
+        vm.UpdateStatusTargetOptions([]);
+        vm.UpdateStatusTargetOptions(StatusTargetTools());
+
+        Assert.Equal(1, vm.StatusTargetIndex);
+        Assert.Equal("Codex · 주간", vm.StatusTargetOptions[1]);
+        Assert.Equal(2, vm.StatusTargetOptions.Count);
+        Assert.Empty(requested);
+    }
+
+    [Fact]
+    public void FailedSaveRestoresAnUnavailableStatusTargetWithoutAnotherRequest()
+    {
+        var vm = new GlobalSettingsViewModel(
+            NotificationPreferences.Default, false, UsageViewMode.Bar, statusTarget: "Codex:weekly");
+        Assert.Equal(1, vm.StatusTargetIndex);
+        var requested = new List<string>();
+        vm.StatusTargetChangeRequested += (_, target) =>
+        {
+            requested.Add(target);
+            vm.SetStatusTarget("Codex:weekly");
+        };
+
+        vm.StatusTargetIndex = 0;
+
+        Assert.Equal([string.Empty], requested);
+        Assert.Equal(1, vm.StatusTargetIndex);
+        Assert.Equal(2, vm.StatusTargetOptions.Count);
+    }
+
+    private static IReadOnlyList<CachedUsage> StatusTargetTools() =>
+    [
+        new()
+        {
+            ToolName = "Codex",
+            Snapshot = new UsageSnapshot
+            {
+                ToolName = "Codex",
+                Windows = [new UsageWindow { Type = UsageWindowType.Weekly, UsedRatio = 0.5, Label = "주간" }]
+            }
+        }
+    ];
 }

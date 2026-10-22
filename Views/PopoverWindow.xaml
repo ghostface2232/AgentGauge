@@ -260,7 +260,7 @@
                     <!-- Inter-card spacing lives on the panel (not a per-card bottom margin)
                          so the last card carries no trailing margin: scrolled content clips
                          flush under the footer instead of leaving a thin band above it. -->
-                    <ItemsControl ItemsSource="{Binding Cards}">
+                    <ItemsControl ItemsSource="{Binding Cards}" Margin="0,0,0,16">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Spacing="8" Loaded="OnUsagePanelLoaded" />
@@ -747,7 +747,7 @@
                      when the content actually exceeds the capped panel height. -->
                 <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollMode="Disabled" Padding="16,0,16,0">
-                <StackPanel x:Name="SettingsContent" Spacing="8" VerticalAlignment="Top" Margin="0,0,0,12">
+                <StackPanel x:Name="SettingsContent" Spacing="8" VerticalAlignment="Top" Margin="0,0,0,16">
                     <!-- App-wide toggles, grouped in one card directly under the title:
                          usage notifications and run-on-startup. Two-way bound to the
                          GlobalSettingsViewModel; the empty On/Off content keeps the switch
@@ -866,6 +866,28 @@
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
                                           ItemsSource="{Binding Global.DisplayBasisOptions}"
                                           SelectedIndex="{Binding Global.DisplayBasisIndex, Mode=TwoWay}" />
+                            </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <!-- Status bar / tray icon target: which quota drives the tray icon and level. -->
+                            <Grid MinHeight="48" RowSpacing="8" Margin="0,10">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" TextWrapping="Wrap"
+                                           Text="{loc:Localize Key=Settings_StatusTarget}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ComboBox Grid.Row="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                          ItemsSource="{Binding Global.StatusTargetOptions}"
+                                          SelectedIndex="{Binding Global.StatusTargetIndex, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"
+                                                       ToolTipService.ToolTip="{Binding}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                             </Grid>
                             <Border Height="1" Margin="0,2"
                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />

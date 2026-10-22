@@ -22,6 +22,10 @@ final class AppModel {
         didSet { defaults.set(showPercentInMenuBar, forKey: Keys.showPercent) }
     }
 
+    var statusTarget: String {
+        didSet { defaults.set(statusTarget, forKey: Keys.statusTarget) }
+    }
+
     var displayBasis: DisplayBasis {
         didSet { defaults.set(displayBasis.rawValue, forKey: Keys.displayBasis) }
     }
@@ -63,7 +67,9 @@ final class AppModel {
     private(set) var hiddenTools: Set<ToolKind>
 
     var visibleTools: [ToolKind] { ToolKind.allCases.filter { !hiddenTools.contains($0) } }
-    var menuBarSummary: MenuBarSummary { MenuBarSummary(states: states) }
+    var menuBarSummary: MenuBarSummary {
+        MenuBarSummary(states: states.filter { !hiddenTools.contains($0.tool) }, targetKey: statusTarget)
+    }
     var isRefreshing: Bool { states.contains(where: \.isRefreshing) }
 
     /// The newest capture across shown tools, for the footer's "Updated HH:mm".
@@ -98,12 +104,14 @@ final class AppModel {
     init() {
         defaults.register(defaults: [
             Keys.showPercent: true,
+            Keys.statusTarget: "",
             Keys.notifyThresholds: true,
             Keys.notifyResets: true,
             Keys.showSparkline: true,
             Keys.showApiCost: false,
         ])
         showPercentInMenuBar = defaults.bool(forKey: Keys.showPercent)
+        statusTarget = defaults.string(forKey: Keys.statusTarget) ?? ""
         displayBasis = DisplayBasis(rawValue: defaults.string(forKey: Keys.displayBasis) ?? "") ?? .used
         viewMode = UsageViewMode(rawValue: defaults.string(forKey: Keys.viewMode) ?? "") ?? .bar
         showSparkline = defaults.bool(forKey: Keys.showSparkline)
@@ -438,6 +446,7 @@ final class AppModel {
 
     private enum Keys {
         static let showPercent = "showPercentInMenuBar"
+        static let statusTarget = "statusTarget"
         static let displayBasis = "displayBasis"
         static let viewMode = "viewMode"
         static let showSparkline = "showSparkline"
