@@ -4,9 +4,9 @@
 
 # AgentGauge
 
-AgentGauge is a Windows system-tray app that lets you check the real usage limits of Claude Code, Codex, Cursor, Antigravity, and GitHub Copilot at a glance.
+AgentGauge is a lightweight desktop app for **macOS** (menu bar) and **Windows** (system tray) that lets you monitor real usage limits and quotas for AI coding tools at a glance: **Claude Code**, **Codex**, **Cursor**, **Antigravity**, and **GitHub Copilot**.
 
-A native macOS menu bar version lives in [`mac/`](mac/README.md): Claude and Codex, plus Cursor and GitHub Copilot (hidden by default, switched on in Settings).
+It reads each tool's official usage endpoints using local, read-only credentials — displaying your exact rate-limit windows, reset timers, and pace tracking without manual guesswork.
 
 ## Screenshots
 
@@ -17,74 +17,79 @@ A native macOS menu bar version lives in [`mac/`](mac/README.md): Claude and Cod
 
 ## Features
 
-- Shows the usage windows each service currently reports, including Claude's separate model-scoped weekly limits such as Fable and Codex's weekly-only or 5-hour + weekly plan shapes.
-- Antigravity follows the model families enabled for your current plan: Gemini quotas remain visible while withdrawn or unavailable Claude/GPT quotas disappear instead of lingering as stale rows.
-- Register the services you want in settings, and remove them from their card (default: Claude Code · Codex; add Cursor, Antigravity, or GitHub Copilot from settings).
-- Choose how cards display usage — horizontal **bars** or circular **gauges** — from the view-mode dropdown in settings.
-- Progress bars/gauges and the tray icon turn yellow above 70% and red above 90%.
-- When a provider exposes both the window duration and reset time, an unobtrusive warning appears if usage is running meaningfully ahead of an even pace. For weekly and longer windows, the **weekly pace basis** setting picks the curve that "even" means: every day, workdays only (Mon–Fri, so a weekend off no longer reads as a deficit), or automatic, which follows your own recorded weekday pattern once two weeks of history exist.
-- Optional **API-equivalent cost** (off by default): beside each Claude and Codex card's plan, this month's usage priced at public API list rates — "≈ $340" — estimated from the token counts in the CLIs' local session logs. It is an estimate of what the same work would cost on the pay-as-you-go API, never your subscription bill; a trailing "+" means some model had no known rate, and the tooltip shows the token mix. Turning it on is what lets AgentGauge read those logs (token counts only — see PRIVACY.md).
-- Refreshes usage every few minutes, and immediately when you open the app from the tray.
-- Caps the popover height and scrolls internally when you add many tools.
-- Optional run on Windows startup.
-- Light and dark mode.
-- UI in English, Korean, or Japanese — detected from your Windows display language on first run (English for anything else).
+- **Accurate rate-limit quotas**: Shows live usage windows reported directly by official APIs, including Claude's 5-hour session and model-scoped weekly limits (such as Fable), Codex's 5-hour and weekly windows, Cursor's billing-cycle limits, GitHub Copilot's monthly metered allowances, and Antigravity's plan-enabled model families (Gemini and Claude/GPT).
+- **Flexible display styles**: Switch between horizontal **bars** and circular **gauges** in Settings. Progress bars/gauges and the tray/menu bar icon change color as limits fill up (warning at 70%, critical at 90%).
+- **Pace tracking & run-out projections**: An unobtrusive warning appears when usage runs ahead of an even pace. Weekly pace curves can be adjusted to every day, workdays only (Mon–Fri), or an automatic curve based on your personal weekday rhythm.
+- **Sparklines & burn rates**: Glanceable sparklines trace recent quota trends, complemented by measured burn-rate projections for when active windows will run out.
+- **Optional API-equivalent cost**: Displays estimated monthly usage priced at public API list rates (e.g. "≈ $340") calculated from local session token logs (off by default; reads token counts only — see [PRIVACY.md](PRIVACY.md)).
+- **Native OS integration**:
+  - **macOS**: Native menu bar app with Liquid Glass styling on macOS 26+ (standard look on macOS 14/15), needle-gauge status icon, and system notifications.
+  - **Windows**: WinUI 3 popover styled after the Windows 11 Quick Settings panel, docking smoothly to the taskbar notification area.
+- **Tool management**: Enable or hide tools from Settings (Claude Code and Codex are shown by default; enable Cursor, Antigravity, or GitHub Copilot anytime).
+- **Background refresh**: Automatically polls usage every few minutes and immediately upon opening the popover.
+- **Launch at startup & theme options**: Configurable start-on-boot, light/dark mode support, and internal scrolling for tall tool lists.
+- **Multilingual**: Available in English, Korean, and Japanese — automatically matching your system display language.
 
 
 ## Requirements
 
-- Windows 10 version 2004 (build 19041) or later, or Windows 11.
-- An x64 PC.
-- The tools you want to track installed: the Claude Code CLI, the Codex CLI, the Cursor app, the Antigravity app, and/or GitHub CLI for Copilot usage.
-- Being signed in to those tools (for Cursor and Antigravity, sign in from their own app).
+| Platform | Requirements |
+| --- | --- |
+| **macOS** | macOS 14 Sonoma or later (Apple silicon and Intel supported) |
+| **Windows** | Windows 10 version 2004 (build 19041) or later, or Windows 11 (x64) |
+
+You will also need the tools you wish to monitor installed and signed in on your system (the Claude Code CLI, Codex CLI, Cursor app, Antigravity app, and/or GitHub CLI for Copilot).
 
 
-## Running
+## Installation
 
-1. Install with `GaugeSetup-win-x64.exe` (no administrator rights required). You can launch it straight from the finish page.
-2. Left-click the AgentGauge icon in the taskbar notification area.
+### macOS
 
-AgentGauge has no ordinary main window. Right-click the tray icon to toggle run-on-startup or quit the app.
+1. Download **AgentGauge-macOS.dmg** from the [latest release](https://github.com/ghostface2232/AgentGauge/releases/latest).
+2. Open the disk image and drag **AgentGauge.app** to your **Applications** folder.
+3. Launch AgentGauge from Applications. Click the gauge icon in your menu bar to open the panel.
 
-Unsigned local builds may trigger Windows SmartScreen's unknown-publisher warning.
+*(Manual zip archives and source build instructions are available in [`mac/`](mac/README.md).)*
+
+### Windows
+
+1. Download **GaugeSetup-win-x64.exe** from the [latest release](https://github.com/ghostface2232/AgentGauge/releases/latest).
+2. Run the installer (per-user installation; no administrator privileges required) and launch the app from the finish page.
+3. Click the AgentGauge icon in the taskbar notification area. Right-click the tray icon to configure startup options or exit.
 
 
-## Sign-in and data
+## Sign-in and Data Privacy
 
-AgentGauge never issues or refreshes credentials itself. It reads the files managed by each official CLI, read-only.
+AgentGauge never issues, stores, or transmits your credentials to external servers. It reads the local authentication state already maintained by each official tool strictly in **read-only** mode.
 
-| Tool | Credential location | Sign-in |
-| --- | --- | --- |
-| Claude Code | `%USERPROFILE%\.claude\.credentials.json` | `claude /login` |
-| Codex | `%CODEX_HOME%\auth.json` or `%USERPROFILE%\.codex\auth.json` | `codex login` |
-| Cursor | `%APPDATA%\Cursor\User\globalStorage\state.vscdb` (read-only) | Sign in from the Cursor app |
-| Antigravity | None read by AgentGauge — usage comes from the app's local engine | Sign in from the Antigravity app |
-| GitHub Copilot | `gh auth token`, with compatible Copilot config files as fallback | `gh auth login` |
+| Tool | Credential Source (macOS) | Credential Source (Windows) | Sign-in Command / Method |
+| --- | --- | --- | --- |
+| **Claude Code** | Login Keychain (`Claude Code-credentials`) or `~/.claude/.credentials.json` | `%USERPROFILE%\.claude\.credentials.json` | `claude /login` |
+| **Codex** | `$CODEX_HOME/auth.json` or `~/.codex/auth.json` | `%CODEX_HOME%\auth.json` or `%USERPROFILE%\.codex\auth.json` | `codex login` |
+| **Cursor** | `~/Library/Application Support/Cursor/.../state.vscdb` (read-only) | `%APPDATA%\Cursor\User\globalStorage\state.vscdb` (read-only) | Sign in via the Cursor app |
+| **Antigravity** | None read: fetched via local loopback engine | None read: fetched via local loopback engine | Sign in via the Antigravity app |
+| **GitHub Copilot** | `gh auth token`, or fallback config files (`~/.config/github-copilot/`) | `gh auth token`, or fallback config files (`%LOCALAPPDATA%\github-copilot\`) | `gh auth login` |
 
-Cursor has no separate CLI login: once you sign in to the Cursor app, AgentGauge reads its local session token to display usage (the file is opened read-only).
-
-Antigravity is different again: AgentGauge reads no credential file for it at all. It reads usage from Antigravity's own local engine over a loopback (127.0.0.1) connection — either the one the running app already hosts, or, when the app is closed, an engine AgentGauge briefly launches that signs itself in from your existing on-disk Antigravity login (and is shut down again right after the reading). AgentGauge never reads, writes, or refreshes your Antigravity credentials.
-
-When a sign-in is needed, you can start the relevant CLI login process from the settings screen in the popover. AgentGauge does not write to or delete CLI credential files, and never logs tokens or CLI login output.
+- **Cursor**: AgentGauge reads its session token directly from Cursor's local state database in read-only mode — no secondary CLI login is required.
+- **Antigravity**: AgentGauge reads no credential files. Quotas are fetched over an authenticated local loopback (`127.0.0.1`) connection to Antigravity's language server (either the currently running instance, or a short-lived process launched to inspect current quota).
+- **Token Freshness**: When a CLI token expires after prolonged inactivity, AgentGauge triggers the CLI's own non-interactive background refresh commands (`claude mcp list`, `codex doctor`) so the official CLI renews its token safely.
 
 
 ## Updates
 
-On startup AgentGauge quietly checks GitHub for the latest release and, if a newer version exists, turns the button at the bottom of settings into **Update**. You can also check manually with that button (**Check for updates**).
+AgentGauge includes an automatic update checker:
+- On startup, AgentGauge quietly checks GitHub Releases for new versions. When an update is detected, the button in Settings changes to **Update**. You can also trigger an on-demand check at any time via **Check for updates**.
+- Clicking **Update** downloads the release asset and verifies its SHA-256 digest against GitHub's published hash before applying the update and restarting.
 
-When an update is available, clicking **Update** downloads the installer and runs it silently: the running AgentGauge exits, the new version is installed in the same location, and the app restarts automatically. No administrator rights are required. Before it runs, the downloaded installer is checked against the SHA-256 digest GitHub records for the release asset; a file that does not match is discarded.
 
+## Current Limitations
 
-## Current limitations
-
-- AgentGauge relies on the tokens each CLI refreshes, so if you go a long time without using a CLI and its token expires, you may need to sign in again from that CLI.
-- The app does not implement its own OAuth/PKCE or token refresh.
-- It includes no official code signing.
-- Release automation currently targets x64 only.
+- **CLI Token Expiry**: AgentGauge relies on credentials maintained by official CLIs. If a tool remains unused for an extended period and its session fully expires, you may need to re-authenticate via the CLI.
+- **Code Signing**: Release binaries are not currently signed with paid commercial certificates. You may see a Gatekeeper prompt on macOS ("Open Anyway" in System Settings) or Windows SmartScreen on first launch.
+- **Architecture**: macOS builds are Universal (supporting Apple silicon and Intel). Windows builds currently target x64.
 
 
 ## Credits
 
-AgentGauge was inspired by [CodexBar](https://github.com/steipete/codexbar), the macOS menu bar app for tracking AI coding tool usage. Several design ideas — including reading the official CLIs' usage endpoints read-only and delegating token refresh back to the CLI — were learned from it.
-
-The UI is set in [Pretendard](https://github.com/orioncactus/pretendard) by Kil Hyung-jin, bundled with the app under the SIL Open Font License 1.1 (see `Assets/Fonts/OFL.txt`).
+- Inspired by [CodexBar](https://github.com/steipete/codexbar), the macOS menu bar app for tracking AI coding tool usage.
+- Typography set in [Pretendard](https://github.com/orioncactus/pretendard) by Kil Hyung-jin, bundled under the SIL Open Font License 1.1.
