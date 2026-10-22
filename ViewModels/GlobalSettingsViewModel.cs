@@ -19,6 +19,7 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 {
     private bool _suspendSideEffects;
     private string _statusTarget = string.Empty;
+    private IReadOnlyList<CachedUsage> _statusTargetTools = [];
 
     public GlobalSettingsViewModel(
         NotificationPreferences notifications,
@@ -39,6 +40,7 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         PaceModelIndex = (int)paceModel;
         ShowApiCost = showApiCost;
         LanguageIndex = (int)Loc.Current;
+        UpdateStatusTargetOptions([]);
         _suspendSideEffects = false;
     }
 
@@ -187,6 +189,7 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 
     public void UpdateStatusTargetOptions(IReadOnlyList<CachedUsage> tools, string? currentTarget = null)
     {
+        _statusTargetTools = tools;
         if (currentTarget is not null)
         {
             _statusTarget = currentTarget;
@@ -214,18 +217,20 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         }
 
         var selectedIndex = _statusTargetKeys.FindIndex(k => StatusTargetMatcher.Matches(k, _statusTarget));
-        StatusTargetIndex = selectedIndex >= 0 ? selectedIndex : 0;
+        if (selectedIndex < 0)
+        {
+            // Keep an unavailable preference distinct from Overall so choosing Overall
+            // still raises a save request, while temporary quota omissions preserve it.
+            selectedIndex = _statusTargetKeys.Count;
+            StatusTargetOptions.Add(Loc.Get("StatusTarget_Unavailable"));
+            _statusTargetKeys.Add(_statusTarget);
+        }
+        StatusTargetIndex = selectedIndex;
         _suspendSideEffects = false;
     }
 
     public void SetStatusTarget(string target)
-    {
-        _statusTarget = target ?? string.Empty;
-        var index = _statusTargetKeys.FindIndex(k => StatusTargetMatcher.Matches(k, _statusTarget));
-        _suspendSideEffects = true;
-        StatusTargetIndex = index >= 0 ? index : 0;
-        _suspendSideEffects = false;
-    }
+        => UpdateStatusTargetOptions(_statusTargetTools, target ?? string.Empty);
 
     partial void OnShowSparklineChanged(bool value)
     {

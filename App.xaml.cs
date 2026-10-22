@@ -525,6 +525,7 @@ public partial class App : Application
                 dto.Language = Loc.Current.ToCode();
                 dto.ViewMode = _viewMode == UsageViewMode.Gauge ? "gauge" : "bar";
                 dto.DisplayBasis = _displayBasis == UsageDisplayBasis.Remaining ? "remaining" : "used";
+                dto.StatusTarget = _statusTarget;
                 dto.ShowSparkline = _showSparkline;
                 dto.WeeklyPaceModel = WeeklyPaceModelSettingsStore.Serialize(_paceModel);
                 dto.ShowApiCost = _showApiCost;

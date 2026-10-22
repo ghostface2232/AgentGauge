@@ -140,6 +140,7 @@ public sealed class AppSettingsFileTests : IDisposable
                 dto.NotifyThresholds = false;
                 dto.NotifyResets = false;
                 dto.Language = "ja";
+                dto.StatusTarget = "Codex:weekly";
             },
             out _));
 
@@ -147,6 +148,7 @@ public sealed class AppSettingsFileTests : IDisposable
         Assert.False(seeded.NotifyThresholds);
         Assert.False(seeded.NotifyResets);
         Assert.Equal("ja", seeded.Language);
+        Assert.Equal("Codex:weekly", new StatusTargetSettingsStore(() => _dir).Load());
     }
 
     [Fact]

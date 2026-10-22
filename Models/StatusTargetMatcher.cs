@@ -9,12 +9,14 @@ public static class StatusTargetMatcher
 {
     public static bool Matches(string candidateTarget, string requestedTarget)
     {
-        if (string.IsNullOrEmpty(candidateTarget) && (string.IsNullOrEmpty(requestedTarget) || requestedTarget == "all"))
+        var overallRequested = string.IsNullOrEmpty(requestedTarget)
+            || string.Equals(requestedTarget, "all", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrEmpty(candidateTarget) && overallRequested)
         {
             return true;
         }
 
-        if (string.IsNullOrEmpty(candidateTarget) || string.IsNullOrEmpty(requestedTarget) || requestedTarget == "all")
+        if (string.IsNullOrEmpty(candidateTarget) || overallRequested)
         {
             return false;
         }

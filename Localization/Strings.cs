@@ -41,6 +41,7 @@ internal static class Strings
         ["Settings_DisplayBasis"] = ["표시 기준",         "Show as",           "表示基準"],
         ["Settings_StatusTarget"] = ["상태 표시줄 표시 기준", "Status bar target", "タスクバー表示対象"],
         ["StatusTarget_All"]      = ["전체",             "Overall",           "全体"],
+        ["StatusTarget_Unavailable"] = ["선택한 대상 없음 · 전체 표시", "Target unavailable · showing overall", "選択した対象なし · 全体を表示"],
         ["DisplayBasis_Used"]     = ["사용량",           "Used",              "使用量"],
         ["DisplayBasis_Remaining"] = ["남은 사용량",      "Remaining",         "残量"],
         ["Settings_Sparkline"]    = ["소진 추이 그래프",   "Trend sparkline",   "消費推移グラフ"],
