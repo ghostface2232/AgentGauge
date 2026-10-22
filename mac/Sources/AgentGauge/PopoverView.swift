@@ -594,21 +594,33 @@ private struct ScrollViewBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: ObserverView, context: Context) {
         nsView.onScrollChanged = onScrollChanged
+        nsView.ensureAttached()
         nsView.updateState()
     }
 
     final class ObserverView: NSView {
         var onScrollChanged: ((Bool, Bool) -> Void)?
-        private weak var observedScrollView: NSScrollView?
+        private(set) weak var observedScrollView: NSScrollView?
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            attach()
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             attach()
         }
 
+        func ensureAttached() {
+            if observedScrollView == nil {
+                attach()
+            }
+        }
+
         private func attach() {
             guard let scrollView = enclosingScrollView else { return }
-            if observedScrollView === scrollView { return }
+            if observedScrollView === scrollView, scrollView.verticalScroller is ThinScroller { return }
             detach()
             observedScrollView = scrollView
 
@@ -618,10 +630,12 @@ private struct ScrollViewBridge: NSViewRepresentable {
             }
 
             // Enforce modern overlay scroller: never the legacy thick 16px grey track
+            scrollView.hasVerticalScroller = true
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.scrollerStyle = .overlay
             scrollView.horizontalScroller?.scrollerStyle = .overlay
             scrollView.postsBoundsChangedNotifications = true
+            scrollView.tile()
 
             NotificationCenter.default.addObserver(
                 self,
@@ -653,6 +667,11 @@ private struct ScrollViewBridge: NSViewRepresentable {
         func updateState() {
             guard let scrollView = observedScrollView ?? enclosingScrollView,
                   let docView = scrollView.documentView else { return }
+
+            if observedScrollView == nil || !(scrollView.verticalScroller is ThinScroller) {
+                attach()
+            }
+
             scrollView.scrollerStyle = .overlay
             scrollView.verticalScroller?.scrollerStyle = .overlay
 
@@ -663,6 +682,11 @@ private struct ScrollViewBridge: NSViewRepresentable {
             let canScroll = docHeight > viewportHeight + 1
             let canScrollUp = canScroll && offsetY > 3
             let canScrollDown = canScroll && (offsetY + viewportHeight < docHeight - 3)
+
+            if scrollView.hasVerticalScroller != canScroll {
+                scrollView.hasVerticalScroller = canScroll
+                scrollView.tile()
+            }
 
             DispatchQueue.main.async { [weak self] in
                 self?.onScrollChanged?(canScrollUp, canScrollDown)
