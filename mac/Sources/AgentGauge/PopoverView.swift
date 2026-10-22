@@ -11,6 +11,9 @@ struct PopoverView: View {
     @State private var contentHeight: CGFloat = 0
     @State private var canScrollUp = false
     @State private var canScrollDown = false
+    @State private var scrollMetrics = ScrollMetrics()
+    @State private var isScrolling = false
+    @State private var hideScrollerTask: Task<Void, Never>? = nil
 
     private let headerHeight: CGFloat = 46
     private let footerHeight: CGFloat = 44
@@ -21,14 +24,13 @@ struct PopoverView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            ScrollView(.vertical) {
+            ScrollView(.vertical, showsIndicators: false) {
                 cards
                     .padding(.horizontal, 12)
                     .padding(.top, headerHeight)
                     .padding(.bottom, footerHeight)
-                    .background(ScrollViewBridge { up, down in
-                        if canScrollUp != up { canScrollUp = up }
-                        if canScrollDown != down { canScrollDown = down }
+                    .background(ScrollViewBridge { metrics in
+                        handleScrollMetrics(metrics)
                     })
                     .onGeometryChange(for: CGFloat.self) { proxy in
                         proxy.size.height
@@ -55,9 +57,67 @@ struct PopoverView: View {
                     .frame(maxWidth: .infinity)
             }
             .frame(height: totalHeight)
+
+            customScrollIndicator
         }
         .frame(width: Metrics.panelWidth, height: totalHeight)
         .background(WindowKeyObserver { model.popoverOpened() })
+    }
+
+    private func handleScrollMetrics(_ newMetrics: ScrollMetrics) {
+        if canScrollUp != newMetrics.canScrollUp { canScrollUp = newMetrics.canScrollUp }
+        if canScrollDown != newMetrics.canScrollDown { canScrollDown = newMetrics.canScrollDown }
+
+        let didMove = abs(scrollMetrics.offsetY - newMetrics.offsetY) > 0.5
+        scrollMetrics = newMetrics
+
+        guard newMetrics.docHeight > newMetrics.viewportHeight + 1 else {
+            isScrolling = false
+            return
+        }
+
+        if didMove {
+            if !isScrolling {
+                withAnimation(.easeIn(duration: 0.12)) {
+                    isScrolling = true
+                }
+            }
+            hideScrollerTask?.cancel()
+            hideScrollerTask = Task {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        isScrolling = false
+                    }
+                }
+            }
+        }
+    }
+
+    private var customScrollIndicator: some View {
+        let canScroll = scrollMetrics.docHeight > scrollMetrics.viewportHeight + 1
+        let trackTop: CGFloat = headerHeight
+        let trackBottom: CGFloat = totalHeight - footerHeight
+        let trackHeight = max(trackBottom - trackTop, 0)
+        let maxOffset = max(scrollMetrics.docHeight - scrollMetrics.viewportHeight, 1)
+        let proportion = min(max(scrollMetrics.viewportHeight / max(scrollMetrics.docHeight, 1), 0.08), 1.0)
+        let knobHeight = min(max(trackHeight * proportion, 24), trackHeight)
+        let travel = max(trackHeight - knobHeight, 0)
+        let progress = min(max(scrollMetrics.offsetY / maxOffset, 0.0), 1.0)
+        let knobY = trackTop + travel * progress
+
+        return Group {
+            if canScroll && isScrolling {
+                Capsule()
+                    .fill(Color.primary.opacity(0.25))
+                    .frame(width: 3.5, height: knobHeight)
+                    .position(x: Metrics.panelWidth - 5.5, y: knobY + knobHeight / 2)
+                    .transition(.opacity)
+            }
+        }
+        .allowsHitTesting(false)
+        .animation(.easeInOut(duration: 0.2), value: isScrolling)
     }
 
     private var scrollMask: some View {
@@ -511,25 +571,33 @@ struct UsageBar: View {
     }
 }
 
-/// Bridges NSScrollView to SwiftUI: enforces modern overlay scrollers (eliminating thick legacy bars)
-/// and observes scroll bounds changes to detect when content is scrolled past top and bottom edges.
+struct ScrollMetrics: Equatable {
+    var offsetY: CGFloat = 0
+    var viewportHeight: CGFloat = 1
+    var docHeight: CGFloat = 1
+    var canScrollUp: Bool = false
+    var canScrollDown: Bool = false
+}
+
+/// Bridges NSScrollView to SwiftUI: suppresses default thick/black overlay scrollers
+/// and observes scroll bounds changes in real time for custom indicator and gradient mask.
 private struct ScrollViewBridge: NSViewRepresentable {
-    var onScrollChanged: (_ canScrollUp: Bool, _ canScrollDown: Bool) -> Void
+    var onMetricsChanged: (ScrollMetrics) -> Void
 
     func makeNSView(context: Context) -> ObserverView {
         let view = ObserverView()
-        view.onScrollChanged = onScrollChanged
+        view.onMetricsChanged = onMetricsChanged
         return view
     }
 
     func updateNSView(_ nsView: ObserverView, context: Context) {
-        nsView.onScrollChanged = onScrollChanged
+        nsView.onMetricsChanged = onMetricsChanged
         nsView.ensureAttached()
         nsView.updateState()
     }
 
     final class ObserverView: NSView {
-        var onScrollChanged: ((Bool, Bool) -> Void)?
+        var onMetricsChanged: ((ScrollMetrics) -> Void)?
         private(set) weak var observedScrollView: NSScrollView?
 
         override func viewDidMoveToSuperview() {
@@ -554,14 +622,10 @@ private struct ScrollViewBridge: NSViewRepresentable {
             detach()
             observedScrollView = scrollView
 
-            // Enforce modern overlay scroller: never the legacy thick 16px grey track
-            scrollView.hasVerticalScroller = true
-            scrollView.scrollerStyle = .overlay
-            scrollView.verticalScroller?.scrollerStyle = .overlay
-            scrollView.horizontalScroller?.scrollerStyle = .overlay
-            scrollView.scrollerInsets = NSEdgeInsets(top: 46, left: 0, bottom: 44, right: 0)
+            // Suppress default scroller so our custom slim indicator renders cleanly
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
             scrollView.postsBoundsChangedNotifications = true
-            scrollView.tile()
 
             NotificationCenter.default.addObserver(
                 self,
@@ -598,9 +662,8 @@ private struct ScrollViewBridge: NSViewRepresentable {
                 attach()
             }
 
-            scrollView.scrollerStyle = .overlay
-            scrollView.verticalScroller?.scrollerStyle = .overlay
-            scrollView.scrollerInsets = NSEdgeInsets(top: 46, left: 0, bottom: 44, right: 0)
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
 
             let offsetY = scrollView.contentView.bounds.origin.y
             let viewportHeight = scrollView.contentView.bounds.height
@@ -610,13 +673,16 @@ private struct ScrollViewBridge: NSViewRepresentable {
             let canScrollUp = canScroll && offsetY > 3
             let canScrollDown = canScroll && (offsetY + viewportHeight < docHeight - 3)
 
-            if scrollView.hasVerticalScroller != canScroll {
-                scrollView.hasVerticalScroller = canScroll
-                scrollView.tile()
-            }
+            let metrics = ScrollMetrics(
+                offsetY: offsetY,
+                viewportHeight: viewportHeight,
+                docHeight: docHeight,
+                canScrollUp: canScrollUp,
+                canScrollDown: canScrollDown
+            )
 
             DispatchQueue.main.async { [weak self] in
-                self?.onScrollChanged?(canScrollUp, canScrollDown)
+                self?.onMetricsChanged?(metrics)
             }
         }
     }
