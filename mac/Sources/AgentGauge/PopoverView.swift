@@ -20,7 +20,7 @@ struct PopoverView: View {
     @State private var hideScrollerTask: Task<Void, Never>? = nil
     @State private var scrollController = ScrollController()
 
-    private let headerHeight: CGFloat = 46
+    private let headerHeight: CGFloat = 54
     private let footerHeight: CGFloat = 44
 
     private var totalHeight: CGFloat {
@@ -207,9 +207,9 @@ struct PopoverView: View {
     private var scrollMask: some View {
         GeometryReader { proxy in
             let height = proxy.size.height
-            let topCutoff = 42.0 / max(height, 1)
-            let topMid = 51.0 / max(height, 1)
-            let topEnd = 64.0 / max(height, 1)
+            let topCutoff = 50.0 / max(height, 1)
+            let topMid = 59.0 / max(height, 1)
+            let topEnd = 72.0 / max(height, 1)
             let bottomEnd = (height - 64.0) / max(height, 1)
             let bottomMid = (height - 50.0) / max(height, 1)
             let bottomCutoff = (height - 40.0) / max(height, 1)
