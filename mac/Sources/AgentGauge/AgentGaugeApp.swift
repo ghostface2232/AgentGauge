@@ -73,6 +73,26 @@ struct MenuBarLabel: View {
 
     private static let spacing: CGFloat = 5
 
+    /// Window tags ("5H", "W") are dimmed against their digits; template alpha, so the menu
+    /// bar still tints them. The parts of a two-arc reading are told apart by a wider gap.
+    private static let labelAlpha: CGFloat = 0.55
+    private static let partSeparator = "   "
+
+    private static func attributed(_ text: String, font: NSFont) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let dim: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black.withAlphaComponent(labelAlpha)]
+        for (index, part) in text.components(separatedBy: " | ").enumerated() {
+            if index > 0 { result.append(NSAttributedString(string: partSeparator, attributes: [.font: font])) }
+            if let space = part.firstIndex(of: " ") {
+                result.append(NSAttributedString(string: String(part[...space]), attributes: dim))
+                result.append(NSAttributedString(string: String(part[part.index(after: space)...]), attributes: [.font: font]))
+            } else {
+                result.append(NSAttributedString(string: part, attributes: [.font: font]))
+            }
+        }
+        return result
+    }
+
     /// Optical nudge, tuned by eye on a Retina menu bar: the gauge opens at the bottom, so its
     /// bounding-box center sits above where it reads; one device pixel down settles it
     /// against the digits.
@@ -81,6 +101,10 @@ struct MenuBarLabel: View {
     /// Point size of the tray gauge; its artwork fills the width and ~85% of the height,
     /// which reads about as large as the SF Symbol it replaces.
     private static let iconSize = NSSize(width: 16, height: 16)
+
+    /// The ring carries a logo and two arcs, so at the gauge's 16pt it reads smaller than the
+    /// system's own status items (~20pt).
+    private static let ringSize = NSSize(width: 20, height: 20)
 
     private static let trayIcons: [String: NSImage] = Dictionary(uniqueKeysWithValues:
         ["gauge_icon", "gauge_icon_70", "gauge_icon_90"].compactMap { name in
@@ -107,7 +131,7 @@ struct MenuBarLabel: View {
     /// symmetrically, so it needs none of the gauge's optical drop.
     private static func image(summary: MenuBarSummary, basis: DisplayBasis, text: String?) -> NSImage {
         if let ring = summary.ring {
-            return render(icon: (ringImage(ring, basis: basis), iconSize), drop: 0, text: text)
+            return render(icon: (ringImage(ring, basis: basis), ringSize), drop: 0, text: text)
         }
         return render(icon: icon(for: summary), drop: iconDrop, text: text)
     }
@@ -115,9 +139,7 @@ struct MenuBarLabel: View {
     private static func render(icon: (image: NSImage, size: NSSize), drop: CGFloat, text: String?) -> NSImage {
         let font = NSFont.menuBarFont(ofSize: 0)
         let iconSize = icon.size
-        let line = text.map {
-            CTLineCreateWithAttributedString(NSAttributedString(string: $0, attributes: [.font: monospacedDigits(font)]))
-        }
+        let line = text.map { CTLineCreateWithAttributedString(attributed($0, font: monospacedDigits(font))) }
         let textWidth = line.map { CGFloat(CTLineGetTypographicBounds($0, nil, nil, nil)) } ?? 0
         let gap = line == nil ? 0 : spacing
         let size = NSSize(width: ceil(iconSize.width + gap + textWidth), height: iconSize.height)
@@ -168,8 +190,8 @@ struct MenuBarLabel: View {
         })
 
     private static func ringImage(_ ring: StatusRing, basis: DisplayBasis) -> NSImage {
-        let side = iconSize.width
-        let image = NSImage(size: iconSize, flipped: false) { _ in
+        let side = ringSize.width
+        let image = NSImage(size: ringSize, flipped: false) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             let stroke = max(Ring.minStroke, side * Ring.strokeShare)
             let radius = side / 2 - stroke / 2
