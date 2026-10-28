@@ -507,9 +507,11 @@ public sealed partial class UsageViewModel : ObservableObject
     private static StatusRingState? BuildStatusRing(IReadOnlyList<CachedUsage> recorded, string target)
     {
         if (StatusTargetMatcher.IsOverall(target)) return null;
-        var tool = recorded.FirstOrDefault(t => StatusTargetMatcher.ToolsMatch(t.ToolName, target));
-        if (tool is null || StatusTargetMatcher.Descriptor(tool.ToolName) is not { } descriptor) return null;
-        var (shortWindow, longWindow) = StatusRingSelection.Select(tool.Snapshot?.Windows ?? []);
+        // A tool that has never produced a snapshot falls back to the overall gauge, as the
+        // dropdown treats it as unavailable.
+        var tool = recorded.FirstOrDefault(t => t.Snapshot is not null && StatusTargetMatcher.ToolsMatch(t.ToolName, target));
+        if (tool?.Snapshot is null || StatusTargetMatcher.Descriptor(tool.ToolName) is not { } descriptor) return null;
+        var (shortWindow, longWindow) = StatusRingSelection.Select(tool.Snapshot.Windows);
         return new StatusRingState(descriptor.Kind, tool.ToolName, shortWindow, longWindow);
     }
 }

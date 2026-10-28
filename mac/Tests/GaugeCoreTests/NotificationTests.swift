@@ -106,6 +106,10 @@ final class MenuBarSummaryTests: XCTestCase {
         let missing = MenuBarSummary(states: states, targetKey: "cursor")
         XCTAssertNil(missing.ring)
         XCTAssertEqual(missing.percentText(basis: .used), "95%")
+        // A target whose first read failed has a state but no snapshot: also overall.
+        let unread = MenuBarSummary(states: states + [ToolState(tool: .cursor, snapshot: nil)], targetKey: "cursor")
+        XCTAssertNil(unread.ring)
+        XCTAssertEqual(unread.percentText(basis: .used), "95%")
         let overall = MenuBarSummary(states: states, targetKey: "")
         XCTAssertNil(overall.ring)
         XCTAssertEqual(overall.level, .danger)

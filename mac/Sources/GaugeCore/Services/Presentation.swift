@@ -45,8 +45,10 @@ public struct MenuBarSummary: Sendable, Equatable {
 
     public init(states: [ToolState], targetKey: String? = nil) {
         let target = StatusTarget.tool(from: targetKey)
-        if let target, let state = states.first(where: { $0.tool == target }) {
-            let (short, long) = StatusRingSelection.select(state.snapshot?.windows ?? [])
+        // A target with no snapshot yet is unavailable (as in Settings), so it falls back to overall.
+        if let target, let state = states.first(where: { $0.tool == target && $0.snapshot != nil }),
+           let snapshot = state.snapshot {
+            let (short, long) = StatusRingSelection.select(snapshot.windows)
             ring = StatusRing(tool: state.tool, short: short, long: long)
             // The level follows the arc that moves first: the 5-hour window, or the long one
             // for a tool that has none.
