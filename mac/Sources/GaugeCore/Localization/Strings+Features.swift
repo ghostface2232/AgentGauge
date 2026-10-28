@@ -6,15 +6,14 @@ extension Strings {
     static let features: [String: [String]] = [
         // Card header
         "Status_Refreshing": ["새로고침 중…", "Refreshing…", "更新中…"],
-        "Tooltip_RefreshIssue": ["마지막 갱신 실패 · 이전 값을 표시 중", "Last refresh failed · showing previous data",
-                                 "最終更新に失敗・以前のデータを表示中"],
+        "Tooltip_RefreshIssue": ["갱신하지 못해 이전 값을 보여주고 있어요", "Couldn't refresh · showing the last values", "更新できず、前回の値を表示しています"],
 
         // Display settings
         "Settings_Display": ["표시", "Display", "表示"],
-        "Settings_ViewMode": ["사용량 보기", "View Mode", "表示方式"],
+        "Settings_ViewMode": ["표시 형태", "View Mode", "表示形式"],
         "ViewMode_Bar": ["막대", "Bars", "バー"],
         "ViewMode_Gauge": ["게이지", "Gauges", "ゲージ"],
-        "Settings_Sparkline": ["소진 추이 그래프", "Trend Sparkline", "消費推移グラフ"],
+        "Settings_Sparkline": ["사용 속도 그래프", "Usage Rate Graph", "使用ペースグラフ"],
         "Settings_SparklineHelp": ["최근 6시간 동안 남은 사용량의 변화를 막대 옆에 그립니다.",
                                    "Draws the last six hours of remaining quota beside each bar.",
                                    "直近6時間の残量の推移を各バーの横に描きます。"],
@@ -53,8 +52,6 @@ extension Strings {
         "ServiceStatus_Maintenance": ["서비스 점검", "Service maintenance", "サービスメンテナンス"],
         "ServiceStatus_Unknown": ["서비스 상태 확인 불가", "Service status unavailable", "サービス状態を確認できません"],
         "ServiceStatus_Stale": ["서비스 상태 미확인", "Service status unconfirmed", "サービス状態は未確認"],
-        "ServiceStatus_Detail": ["서비스 전체 상태 · 내 계정의 오류 원인과 다를 수 있습니다.\n{0}\n마지막 확인: {1}",
-                                 "Service-wide status; may be unrelated to your account's error.\n{0}\nLast checked: {1}",
-                                 "サービス全体の状態です。アカウントのエラー原因とは異なる場合があります。\n{0}\n最終確認: {1}"],
+        "ServiceStatus_Detail": ["{0}\n서비스 전체 상태라 내 계정 문제와는 다를 수 있어요.\n{1} 확인", "{0}\nThis is the service-wide status and may differ from what you're seeing.\nChecked {1}", "{0}\nサービス全体の状況で、お使いのアカウントの状態とは異なる場合があります。\n{1} 確認"],
     ]
 }

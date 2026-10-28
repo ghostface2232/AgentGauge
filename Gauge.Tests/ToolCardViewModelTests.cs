@@ -201,7 +201,7 @@ public sealed class ToolCardViewModelTests
 
         Assert.True(card.HasResetCredits);
         Assert.Equal("초기화 2회", card.ResetCreditsText);
-        Assert.Equal("사용할 수 있는 사용량 초기화 2회", card.ResetCreditsDescription);
+        Assert.Equal("사용량 초기화 2회 사용 가능", card.ResetCreditsDescription);
     }
 
     [Fact]

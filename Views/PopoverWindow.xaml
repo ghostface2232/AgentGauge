@@ -203,7 +203,7 @@
                      no back button here since this is the root view. The 32dip min
                      height mirrors the settings header (whose back button sets that
                      height) so the gap below the title matches across both views. -->
-                <Border Grid.Row="0" Padding="16,16,16,8">
+                <Border Grid.Row="0" Padding="16,12,16,12">
                     <Grid MinHeight="32">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
                             <!-- App mark sized to sit ~level with the 20pt title cap height.
@@ -290,6 +290,15 @@
                                             Orientation="Horizontal"
                                             VerticalAlignment="Center"
                                             Spacing="6">
+                                            <Path
+                                                Width="16" Height="16"
+                                                Stretch="Uniform"
+                                                VerticalAlignment="Center"
+                                                Data="{Binding LogoGeometry}"
+                                                Fill="{ThemeResource TextFillColorPrimaryBrush}"
+                                                Opacity="0.75"
+                                                Visibility="{Binding HasLogo, Converter={StaticResource BoolToVis}}"
+                                                AutomationProperties.AccessibilityView="Raw" />
                                             <TextBlock
                                                 VerticalAlignment="Center"
                                                 FontSize="16"
@@ -354,10 +363,10 @@
                                                  sits on the header's right edge and with both they
                                                  line up side by side from that edge — the status
                                                  chip first, the reset chip keeping the edge. When the
-                                                 API-cost caption is shown too, the row cannot fit both
-                                                 labels, so both chips drop to icon only
-                                                 (ShowHeaderChipLabels); the tooltip and automation name
-                                                 keep the full text. MinHeight="16" on each chip's inner
+                                                 API-cost caption and the status chip are shown too, the
+                                                 reset chip drops its label (ShowHeaderChipLabels). The
+                                                 status chip is always icon only; its tooltip and
+                                                 automation name carry the full text. MinHeight="16" on each chip's inner
                                                  row is the caption's line height, so an icon-only chip
                                                  keeps the labelled chip's height and the header does
                                                  not shift when the labels go. -->
@@ -385,22 +394,19 @@
                                                     <ctrl:SquircleBorder
                                                         Radius="8"
                                                         Smoothing="0.75"
-                                                        Padding="8,4,9,5"
+                                                        Padding="0"
                                                         Fill="{ThemeResource StatusChipFillBrush}">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4" MinHeight="16">
+                                                        <!-- Icon only, so the chip is an exact square (25 matches
+                                                             the reset chip's height) with the glyph centred;
+                                                             the text chips' 8,4,9,5 padding is asymmetric. -->
+                                                        <Grid Width="25" Height="25">
                                                             <FontIcon
+                                                                HorizontalAlignment="Center"
                                                                 VerticalAlignment="Center"
                                                                 FontSize="10"
                                                                 Glyph="&#xE7BA;"
                                                                 Foreground="{ThemeResource StatusChipTextBrush}" />
-                                                            <TextBlock
-                                                                VerticalAlignment="Center"
-                                                                FontSize="11"
-                                                                Text="{Binding ServiceStatusText}"
-                                                                Foreground="{ThemeResource StatusChipTextBrush}"
-                                                                Style="{StaticResource CaptionTextBlockStyle}"
-                                                                Visibility="{Binding ShowHeaderChipLabels, Converter={StaticResource BoolToVis}}" />
-                                                        </StackPanel>
+                                                        </Grid>
                                                     </ctrl:SquircleBorder>
                                                 </HyperlinkButton>
                                                 <!-- Manual rate-limit resets the account holds (Codex).
@@ -723,7 +729,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- Header stays fixed; only the service list scrolls. -->
-                <Border Grid.Row="0" Padding="16,16,16,8">
+                <Border Grid.Row="0" Padding="16,12,16,12">
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -748,10 +754,13 @@
                 <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollMode="Disabled" Padding="16,0,16,0">
                 <StackPanel x:Name="SettingsContent" Spacing="8" VerticalAlignment="Top" Margin="0,0,0,16">
-                    <!-- App-wide toggles, grouped in one card directly under the title:
-                         usage notifications and run-on-startup. Two-way bound to the
-                         GlobalSettingsViewModel; the empty On/Off content keeps the switch
-                         compact and language-neutral. -->
+                    <!-- Settings are grouped like the Windows Settings app: a short heading
+                         above each card (general, display, analysis, then the services). Every
+                         row is two-way bound to the GlobalSettingsViewModel; the empty On/Off
+                         content keeps the switches compact and language-neutral, and every
+                         dropdown sits on one line, trimming its own text. -->
+                    <TextBlock Margin="4,0,0,0" Text="{loc:Localize Key=Settings_GroupGeneral}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <Border CornerRadius="8"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
@@ -836,6 +845,53 @@
                             </Grid>
                             <Border Height="1" Margin="0,2"
                                     Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <!-- UI language. Options are each language's own native name, so
+                                 the list itself needs no localization. Changing it persists
+                                 the override and relaunches the app (language is fixed per
+                                 process lifetime — XAML strings resolve at parse time). -->
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           Text="{loc:Localize Key=Settings_Language}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
+                                          ItemsSource="{Binding Global.LanguageOptions}"
+                                          SelectedIndex="{Binding Global.LanguageIndex, Mode=TwoWay}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Margin="4,12,0,0" Text="{loc:Localize Key=Settings_GroupDisplay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Border CornerRadius="8"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                            Padding="14,4">
+                        <StackPanel>
+                            <!-- Service shown on the tray icon: overall, or one tool's logo ring. -->
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           Text="{loc:Localize Key=Settings_StatusTarget}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120" MaxWidth="168"
+                                          ItemsSource="{Binding Global.StatusTargetOptions}"
+                                          SelectedIndex="{Binding Global.StatusTargetIndex, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"
+                                                       ToolTipService.ToolTip="{Binding}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
                             <!-- View mode: a dropdown (not a toggle) since there are named
                                  choices — bar vs gauge — rather than an on/off state. -->
                             <Grid MinHeight="48" ColumnSpacing="12">
@@ -843,7 +899,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                            Text="{loc:Localize Key=Settings_ViewMode}"
                                            Style="{StaticResource BodyTextBlockStyle}" />
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
@@ -860,37 +916,22 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                            Text="{loc:Localize Key=Settings_DisplayBasis}"
                                            Style="{StaticResource BodyTextBlockStyle}" />
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
                                           ItemsSource="{Binding Global.DisplayBasisOptions}"
                                           SelectedIndex="{Binding Global.DisplayBasisIndex, Mode=TwoWay}" />
                             </Grid>
-                            <Border Height="1" Margin="0,2"
-                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                            <!-- Status bar / tray icon target: which quota drives the tray icon and level. -->
-                            <Grid MinHeight="48" RowSpacing="8" Margin="0,10">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" TextWrapping="Wrap"
-                                           Text="{loc:Localize Key=Settings_StatusTarget}"
-                                           Style="{StaticResource BodyTextBlockStyle}" />
-                                <ComboBox Grid.Row="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                          ItemsSource="{Binding Global.StatusTargetOptions}"
-                                          SelectedIndex="{Binding Global.StatusTargetIndex, Mode=TwoWay}">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"
-                                                       ToolTipService.ToolTip="{Binding}" />
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                            </Grid>
-                            <Border Height="1" Margin="0,2"
-                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Margin="4,12,0,0" Text="{loc:Localize Key=Settings_GroupInsights}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <Border CornerRadius="8"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                            Padding="14,4">
+                        <StackPanel>
                             <!-- Burndown sparkline on bar rows: an on/off state, so a toggle. -->
                             <Grid MinHeight="48" ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
@@ -913,7 +954,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                            Text="{loc:Localize Key=Settings_PaceModel}"
                                            Style="{StaticResource BodyTextBlockStyle}" />
                                 <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
@@ -936,40 +977,20 @@
                                 <ToggleSwitch Style="{StaticResource EdgeAlignedToggleSwitchStyle}" Grid.Column="1"
                                               IsOn="{Binding Global.ShowApiCost, Mode=TwoWay}" />
                             </Grid>
-                            <Border Height="1" Margin="0,2"
-                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                            <!-- UI language. Options are each language's own native name, so
-                                 the list itself needs no localization. Changing it persists
-                                 the override and relaunches the app (language is fixed per
-                                 process lifetime — XAML strings resolve at parse time). -->
-                            <Grid MinHeight="48" ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                                           Text="{loc:Localize Key=Settings_Language}"
-                                           Style="{StaticResource BodyTextBlockStyle}" />
-                                <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="120"
-                                          ItemsSource="{Binding Global.LanguageOptions}"
-                                          SelectedIndex="{Binding Global.LanguageIndex, Mode=TwoWay}" />
-                            </Grid>
-                            <!-- settings.json notice: a write the file refused, or a document
-                                 replaced because it stopped being JSON. Collapsed otherwise.
-                                 Without it a switch that snapped back on its own reads as a
-                                 bug rather than as the disk saying no. The text is bound, not
-                                 localized here, because App picks which of the two it is. It
-                                 carries no divider and no 48dip row height — it is not a
-                                 setting, and sizing it like one would leave a gap in the
-                                 normal case. -->
-                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap"
-                                       Text="{Binding Global.SettingsNotice}"
-                                       Foreground="{ThemeResource UsageCautionTextBrush}"
-                                       Style="{StaticResource CaptionTextBlockStyle}"
-                                       Visibility="{Binding Global.HasSettingsNotice, Converter={StaticResource BoolToVis}}" />
                         </StackPanel>
                     </Border>
-
+                    <!-- settings.json notice: a write the file refused, or a document
+                         replaced because it stopped being JSON. Collapsed otherwise.
+                         Without it a switch that snapped back on its own reads as a
+                         bug rather than as the disk saying no. The text is bound, not
+                         localized here, because App picks which of the two it is. -->
+                    <TextBlock Margin="4,0,0,0" TextWrapping="Wrap"
+                               Text="{Binding Global.SettingsNotice}"
+                               Foreground="{ThemeResource UsageCautionTextBrush}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Visibility="{Binding Global.HasSettingsNotice, Converter={StaticResource BoolToVis}}" />
+                    <TextBlock Margin="4,12,0,0" Text="{loc:Localize Key=Settings_GroupServices}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
                     <!-- One card per tool, side by side at equal width and height.
                          Data-bound (not indexed) so adding a tool needs no XAML change. -->
                     <ItemsRepeater x:Name="AuthRepeater" ItemsSource="{Binding Authentication}"

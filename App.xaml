@@ -73,9 +73,12 @@
             <!-- Tray context menu (SecondWindow host) sizes its window from content and,
                  at fractional DPI, lands a couple physical pixels short of the presenter.
                  That makes the presenter's internal ScrollViewer show a scrollbar and
-                 allow a few px of scroll. Disable scrolling outright — the menu is short
-                 and fixed, so there is nothing to scroll — while keeping the native look. -->
-            <Style x:Key="GaugeMenuFlyoutPresenterStyle" TargetType="MenuFlyoutPresenter"
+                 allow a few px of scroll. H.NotifyIcon clones the supplied MenuFlyout but
+                 does not copy MenuFlyoutPresenterStyle, so a keyed style assigned in code
+                 never reaches the presenter of the clone; this one is implicit for that
+                 reason. Scrolling is disabled outright — the tray menu and the popover's
+                 add-service menu are short and fixed — while keeping the native look. -->
+            <Style TargetType="MenuFlyoutPresenter"
                    BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}">
                 <Setter Property="ScrollViewer.VerticalScrollMode" Value="Disabled" />
                 <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />

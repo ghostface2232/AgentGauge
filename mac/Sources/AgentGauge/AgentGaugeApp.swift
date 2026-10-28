@@ -69,6 +69,7 @@ struct MenuBarLabel: View {
         Image(nsImage: Self.image(summary: summary, basis: basis, text: percent))
             .accessibilityLabel("AgentGauge")
             .accessibilityValue(summary.percentText(basis: basis) ?? "")
+            .help(summary.tooltip)
     }
 
     private static let spacing: CGFloat = 5
@@ -178,22 +179,6 @@ struct MenuBarLabel: View {
         static let antigravityLiftShare: CGFloat = 0.03
     }
 
-    /// Logo files share their names with the Windows `ToolKind` members.
-    private static let logos: [ToolKind: SVGLogo] = Dictionary(uniqueKeysWithValues:
-        ToolKind.allCases.compactMap { tool in
-            let name = switch tool {
-            case .claude: "ClaudeCode"
-            case .codex: "Codex"
-            case .cursor: "Cursor"
-            case .antigravity: "Antigravity"
-            case .githubCopilot: "GitHubCopilot"
-            }
-            return Bundle.main.url(forResource: name, withExtension: "svg", subdirectory: "ToolLogos")
-                .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-                .flatMap(SVGLogo.init(svg:))
-                .map { (tool, $0) }
-        })
-
     private static func ringImage(_ ring: StatusRing, basis: DisplayBasis) -> NSImage {
         let side = ringSize.width
         let image = NSImage(size: ringSize, flipped: false) { _ in
@@ -226,7 +211,7 @@ struct MenuBarLabel: View {
             }
 
             let inner = radius - stroke / 2 - max(1, side * Ring.logoPaddingShare)
-            if let logo = logos[ring.tool], inner > 2 {
+            if let logo = ToolLogos.all[ring.tool], inner > 2 {
                 let scale = inner * Ring.logoSpan / CGFloat(max(logo.width, logo.height))
                 let lift = ring.tool == .antigravity ? side * Ring.antigravityLiftShare : 0
                 // SVG y points down; flip it while centring the logo.

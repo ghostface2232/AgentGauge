@@ -290,7 +290,7 @@ public sealed partial class UsageViewModel : ObservableObject
         StatusTarget = StatusTargetMatcher.ToolPart(target);
         StatusUsageRatio = HighestUsageRatio;
         StatusRing = BuildStatusRing(_lastRecorded, StatusTarget);
-        TrayTooltipSummary = BuildTrayTooltipSummary(_lastRecorded, StatusRing);
+        TrayTooltipSummary = BuildTrayTooltipSummary(_lastRecorded);
     }
 
     /// <summary>
@@ -359,7 +359,7 @@ public sealed partial class UsageViewModel : ObservableObject
         LastUpdatedText = LastUpdatedAt is { } updated
             ? Loc.Format("LastUpdated_At", updated.ToLocalTime().ToString("HH:mm"))
             : Loc.Get("LastUpdated_Never");
-        TrayTooltipSummary = BuildTrayTooltipSummary(recorded, StatusRing);
+        TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
         RefreshCards(recorded);
         ExpireRefreshIndicators();
         ApplyServiceStatuses(_serviceStatuses);
@@ -458,60 +458,72 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
-    private static string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools, StatusRingState? ring = null)
+    /// <summary>
+    /// Characters the summary may use. The shell tooltip is length-limited (~127), and
+    /// <see cref="TrayIconService.UpdateToolTip"/> adds the update time and any incident line
+    /// around it, so the summary keeps to what is left.
+    /// </summary>
+    private const int TooltipSummaryBudget = 84;
+
+    private static string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools)
     {
         if (tools.Count == 0)
         {
             return "AgentGauge";
         }
 
-        // Compact one-line-per-tool summary using each tool's highest window ratio, e.g.
-        // "Claude Code 63% · Codex 42%". A recorded tool with no windows (stale/empty
-        // snapshot) shows "<tool> no data" instead. Kept short for the shell tooltip.
-        var parts = new List<string>();
+        // One line per tool with the same two windows the ring shows ("Claude  5시간 32% ·
+        // 주간 15%"); scoped extras stay out, as in the ring. A recorded tool with no windows
+        // (stale/empty snapshot) reads "no data". With many tools the lines would not fit the
+        // shell's limit, so they fall back to one highest percent per tool on a single line.
+        var lines = new List<string>();
+        var compact = new List<string>();
         foreach (var tool in tools)
         {
             if (tool.Snapshot is { Windows.Count: > 0 } snapshot)
             {
-                var highest = snapshot.Windows.Max(w => w.UsedRatio);
-                parts.Add($"{tool.ToolName} {highest * 100:0}%");
+                var (shortWindow, longWindow) = StatusRingSelection.Select(snapshot.Windows);
+                var shown = new[] { shortWindow, longWindow }.OfType<UsageWindow>().ToList();
+                if (shown.Count == 0) shown.Add(snapshot.Windows.MaxBy(w => w.UsedRatio)!);
+                lines.Add($"{tool.ToolName}  {string.Join(" · ", shown.Select(w => $"{w.Label} {w.UsedRatio * 100:0}%"))}");
+                compact.Add($"{tool.ToolName} {snapshot.Windows.Max(w => w.UsedRatio) * 100:0}%");
             }
             else
             {
-                parts.Add(Loc.Format("Tray_NoData", tool.ToolName));
+                lines.Add(Loc.Format("Tray_NoData", tool.ToolName));
+                compact.Add(Loc.Format("Tray_NoData", tool.ToolName));
             }
         }
 
-        var overallSummary = string.Join(" · ", parts);
-
-        if (ring is not null)
-        {
-            // Name what the two arcs show, so the tooltip explains the ring.
-            var arcs = new[] { ring.Short, ring.Long }
-                .OfType<UsageWindow>()
-                .Select(w => string.IsNullOrEmpty(w.GroupLabel)
-                    ? $"{w.Label} {w.UsedRatio * 100:0}%"
-                    : $"{w.GroupLabel} {w.Label} {w.UsedRatio * 100:0}%")
-                .ToList();
-            var targetSummary = arcs.Count > 0
-                ? $"{ring.ToolName} · {string.Join(" · ", arcs)}"
-                : Loc.Format("Tray_NoData", ring.ToolName);
-            return string.IsNullOrEmpty(overallSummary) || tools.Count == 1
-                ? targetSummary
-                : $"{targetSummary} ({overallSummary})";
-        }
-
-        return overallSummary;
+        var detailed = string.Join("\n", lines);
+        return detailed.Length <= TooltipSummaryBudget ? detailed : string.Join(" · ", compact);
     }
 
     private static StatusRingState? BuildStatusRing(IReadOnlyList<CachedUsage> recorded, string target)
     {
-        if (StatusTargetMatcher.IsOverall(target)) return null;
-        // A tool that has never produced a snapshot falls back to the overall gauge, as the
-        // dropdown treats it as unavailable.
+        if (StatusTargetMatcher.IsOverall(target)) return MostUsedRing(recorded);
+        // A tool that has never produced a snapshot is treated as unavailable by the
+        // dropdown, so the icon follows the most-used tool instead.
         var tool = recorded.FirstOrDefault(t => t.Snapshot is not null && StatusTargetMatcher.ToolsMatch(t.ToolName, target));
-        if (tool?.Snapshot is null || StatusTargetMatcher.Descriptor(tool.ToolName) is not { } descriptor) return null;
+        return (tool is null ? null : RingFor(tool)) ?? MostUsedRing(recorded);
+    }
+
+    private static StatusRingState? RingFor(CachedUsage tool)
+    {
+        if (tool.Snapshot is null || StatusTargetMatcher.Descriptor(tool.ToolName) is not { } descriptor) return null;
         var (shortWindow, longWindow) = StatusRingSelection.Select(tool.Snapshot.Windows);
         return new StatusRingState(descriptor.Kind, tool.ToolName, shortWindow, longWindow);
     }
+
+    /// <summary>
+    /// "Overall" follows whichever tool has used the most of its quota right now, judged by the
+    /// same windows its ring draws. The first such tool wins a tie, so the icon does not flip
+    /// between equal tools on every refresh. Null when no tool has a usable window, which is
+    /// when the classic gauge is shown instead.
+    /// </summary>
+    private static StatusRingState? MostUsedRing(IReadOnlyList<CachedUsage> recorded) => recorded
+        .Select(RingFor)
+        .OfType<StatusRingState>()
+        .Where(r => r.HighestUsedRatio is not null)
+        .MaxBy(r => r.HighestUsedRatio);
 }

@@ -49,9 +49,8 @@ struct PopoverView: View {
 
             header
                 .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
                 .frame(maxWidth: .infinity)
+                .frame(height: headerHeight)
 
             VStack(spacing: 0) {
                 Spacer()
@@ -384,6 +383,10 @@ struct ToolCard: View {
         // both chip labels, so both drop to their icons; help and accessibility keep the text.
         let chipLabels = !(apiCost != nil && status != nil && credits != nil)
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            ToolLogoView(tool: state.tool)
+                .foregroundStyle(.primary)
+                .frame(width: 15, height: 15)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
             Text(verbatim: state.tool.displayName)
                 .font(.headline)
                 .layoutPriority(1)
@@ -418,7 +421,7 @@ struct ToolCard: View {
                     .help(L10n.get("Status_Refreshing"))
             }
             if let status {
-                StatusChip(status: status, showsLabel: chipLabels)
+                StatusChip(status: status)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             }
             if let credits {
@@ -531,7 +534,6 @@ struct HeaderChip: View {
 /// health is service-wide and may be unrelated to this account's error.
 struct StatusChip: View {
     let status: ProviderStatus
-    let showsLabel: Bool
 
     var body: some View {
         if let url = status.tool.statusPageURL {
@@ -547,7 +549,7 @@ struct StatusChip: View {
 
     private var chip: some View {
         HeaderChip(systemImage: "exclamationmark.triangle.fill", label: status.label,
-                   detail: status.detail, tint: .orange, showsLabel: showsLabel)
+                   detail: status.detail, tint: .orange, showsLabel: false)
     }
 }
 

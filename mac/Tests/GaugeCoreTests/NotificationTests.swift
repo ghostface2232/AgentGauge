@@ -63,11 +63,19 @@ final class MenuBarSummaryTests: XCTestCase {
             UsageWindow(type: .fiveHour, usedRatio: 0.2),
             UsageWindow(type: .weekly, usedRatio: 0.75),
         ], capturedAt: Date())
+        // Without a target the icon follows the most-used tool, so the lone tool's ring
+        // reads both arcs; its level follows the 5-hour arc.
         let summary = MenuBarSummary(states: [ToolState(tool: .codex, snapshot: snapshot)])
-        XCTAssertEqual(summary.level, .caution)
-        XCTAssertEqual(summary.percentText(basis: .used), "75%")
-        XCTAssertEqual(summary.percentText(basis: .remaining), "25%")
+        XCTAssertEqual(summary.ring?.tool, .codex)
+        XCTAssertEqual(summary.level, .ok)
+        XCTAssertEqual(summary.percentText(basis: .used), "5H 20% | W 75%")
+        XCTAssertEqual(summary.percentText(basis: .remaining), "5H 80% | W 25%")
         XCTAssertNil(MenuBarSummary(states: []).level)
+        XCTAssertNil(MenuBarSummary(states: []).ring)
+
+        // A tool with no window the ring can draw leaves the classic gauge and its level.
+        let scoped = UsageSnapshot(tool: .codex, plan: nil, windows: [], capturedAt: Date())
+        XCTAssertNil(MenuBarSummary(states: [ToolState(tool: .codex, snapshot: scoped)]).ring)
     }
 
     func testTargetKeySelectsToolRing() {
@@ -102,17 +110,30 @@ final class MenuBarSummaryTests: XCTestCase {
         XCTAssertEqual(MenuBarSummary(states: states, targetKey: "claude:weekly").ring?.tool, .claude)
         XCTAssertEqual(MenuBarSummary(states: states, targetKey: "Claude").ring?.tool, .claude)
 
-        // A tool with no state, and overall, fall back to the highest window (0.95).
+        // A tool with no state, and "auto", follow the most-used tool (Claude at 95%).
         let missing = MenuBarSummary(states: states, targetKey: "cursor")
-        XCTAssertNil(missing.ring)
-        XCTAssertEqual(missing.percentText(basis: .used), "95%")
-        // A target whose first read failed has a state but no snapshot: also overall.
+        XCTAssertEqual(missing.ring?.tool, .claude)
+        XCTAssertEqual(missing.percentText(basis: .used), "5H 95% | W 10%")
+        // A target whose first read failed has a state but no snapshot: also the most used.
         let unread = MenuBarSummary(states: states + [ToolState(tool: .cursor, snapshot: nil)], targetKey: "cursor")
-        XCTAssertNil(unread.ring)
-        XCTAssertEqual(unread.percentText(basis: .used), "95%")
-        let overall = MenuBarSummary(states: states, targetKey: "")
-        XCTAssertNil(overall.ring)
-        XCTAssertEqual(overall.level, .danger)
+        XCTAssertEqual(unread.ring?.tool, .claude)
+        XCTAssertEqual(unread.percentText(basis: .used), "5H 95% | W 10%")
+        let auto = MenuBarSummary(states: states, targetKey: "")
+        XCTAssertEqual(auto.ring?.tool, .claude)
+        XCTAssertEqual(auto.level, .danger)
+
+        // Equal tools keep the first, so the icon does not flip between them.
+        let tied = [
+            ToolState(tool: .codex, snapshot: UsageSnapshot(tool: .codex, plan: nil,
+                windows: [UsageWindow(type: .fiveHour, usedRatio: 0.5)], capturedAt: Date())),
+            ToolState(tool: .claude, snapshot: UsageSnapshot(tool: .claude, plan: nil,
+                windows: [UsageWindow(type: .fiveHour, usedRatio: 0.5)], capturedAt: Date())),
+        ]
+        XCTAssertEqual(MenuBarSummary(states: tied).ring?.tool, .codex)
+
+        // The hover text lists each tool's two arcs on its own line.
+        XCTAssertEqual(auto.tooltip.split(separator: "\n").count, 2)
+        XCTAssertTrue(auto.tooltip.contains("20%"))
     }
 
     func testTargetNormalizesLegacyWindowKeys() {

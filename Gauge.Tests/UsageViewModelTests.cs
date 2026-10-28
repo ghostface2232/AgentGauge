@@ -19,7 +19,7 @@ public sealed class UsageViewModelTests
         var card = Assert.Single(viewModel.Cards);
         Assert.Equal("Claude", card.ToolName);
         Assert.False(viewModel.IsEmpty);
-        Assert.Equal("Claude 42%", viewModel.TrayTooltipSummary);
+        Assert.Equal("Claude  5-hour 42%", viewModel.TrayTooltipSummary);
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public sealed class UsageViewModelTests
         Assert.All(viewModel.Cards, card => Assert.Equal(UsageDisplayBasis.Remaining, card.DisplayBasis));
         Assert.Equal("90%", viewModel.Cards.Single(c => c.ToolName == "Codex").Windows.Single().PercentText);
         // The tray/tooltip summary stays a usage figure regardless of the basis.
-        Assert.Equal("Claude 42% · Codex 10%", viewModel.TrayTooltipSummary);
+        Assert.Equal("Claude  5-hour 42%\nCodex  5-hour 10%", viewModel.TrayTooltipSummary);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public sealed class UsageViewModelTests
     }
 
     [Fact]
-    public void StatusTargetSelectsToolRingOrFallsBackToOverall()
+    public void StatusTargetSelectsToolRingOrFallsBackToMostUsed()
     {
         var viewModel = new UsageViewModel();
         var snapshotClaude = new UsageSnapshot
@@ -87,8 +87,9 @@ public sealed class UsageViewModelTests
             ]
         };
 
+        // "Overall" follows whichever tool has used the most (Claude Code at 90%).
         viewModel.Apply(state);
-        Assert.Null(viewModel.StatusRing);
+        Assert.Equal(ToolKind.ClaudeCode, viewModel.StatusRing?.Kind);
         Assert.Equal(0.90, viewModel.StatusUsageRatio);
 
         viewModel.SetStatusTarget("Codex");
@@ -96,8 +97,8 @@ public sealed class UsageViewModelTests
         Assert.Equal(ToolKind.Codex, ring.Kind);
         Assert.Equal(0.30, ring.Short?.UsedRatio);
         Assert.Equal(0.70, ring.Long?.UsedRatio);
-        Assert.Equal("Codex · 5시간 30% · 주간 70% (Claude Code 90% · Codex 70%)", viewModel.TrayTooltipSummary);
-        // The classic gauge, shown again if the target is cleared, keeps the overall level.
+        Assert.Equal("Claude Code  5시간 90% · 주간 20%\nCodex  5시간 30% · 주간 70%", viewModel.TrayTooltipSummary);
+        // The classic gauge, shown when no tool has usable windows, keeps the overall level.
         Assert.Equal(0.90, viewModel.StatusUsageRatio);
 
         // A window target from an older build, the ToolKind alias, and the macOS raw value
@@ -108,11 +109,26 @@ public sealed class UsageViewModelTests
             Assert.Equal(ToolKind.ClaudeCode, viewModel.StatusRing?.Kind);
         }
 
+        // A target that names no tool, or "overall", follows the most-used tool.
         viewModel.SetStatusTarget("Unknown");
-        Assert.Null(viewModel.StatusRing);
-        Assert.Equal("Claude Code 90% · Codex 70%", viewModel.TrayTooltipSummary);
+        Assert.Equal(ToolKind.ClaudeCode, viewModel.StatusRing?.Kind);
 
         viewModel.SetStatusTarget("");
+        Assert.Equal(ToolKind.ClaudeCode, viewModel.StatusRing?.Kind);
+    }
+
+    [Fact]
+    public void OverallRingFollowsTheMostUsedToolAndTiesKeepTheFirst()
+    {
+        var viewModel = new UsageViewModel();
+
+        viewModel.Apply(State(WithUsage("Claude Code", 0.40), WithUsage("Codex", 0.40)));
+        Assert.Equal(ToolKind.ClaudeCode, viewModel.StatusRing?.Kind);
+
+        viewModel.Apply(State(WithUsage("Claude Code", 0.40), WithUsage("Codex", 0.55)));
+        Assert.Equal(ToolKind.Codex, viewModel.StatusRing?.Kind);
+
+        viewModel.Apply(State(WithEmptyRecord("Claude Code"), WithEmptyRecord("Codex")));
         Assert.Null(viewModel.StatusRing);
     }
 
@@ -155,7 +171,7 @@ public sealed class UsageViewModelTests
         Assert.Equal(2, viewModel.Cards.Count);
         Assert.False(viewModel.IsEmpty);
         Assert.Equal(
-            $"Claude 42% · {Loc.Format("Tray_NoData", "Codex")}",
+            $"Claude  5-hour 42%\n{Loc.Format("Tray_NoData", "Codex")}",
             viewModel.TrayTooltipSummary);
     }
 
@@ -169,7 +185,7 @@ public sealed class UsageViewModelTests
 
         var card = Assert.Single(viewModel.Cards);
         Assert.Equal("Codex", card.ToolName);
-        Assert.Equal("Codex 73%", viewModel.TrayTooltipSummary);
+        Assert.Equal("Codex  5-hour 73%", viewModel.TrayTooltipSummary);
     }
 
     [Fact]

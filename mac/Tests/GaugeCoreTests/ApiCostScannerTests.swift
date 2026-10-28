@@ -472,8 +472,7 @@ final class ApiCostScannerTests: XCTestCase {
         XCTAssertEqual(ApiCostText.chip(base), "≈ $1,235")
         let tooltip = ApiCostText.tooltip(base)
         XCTAssertTrue(tooltip.contains("API"))
-        XCTAssertTrue(tooltip.contains("구독"))
-        XCTAssertTrue(tooltip.contains("입력 1"))
+                XCTAssertTrue(tooltip.contains("입력 1"))
         XCTAssertTrue(tooltip.contains("캐시 쓰기 7"))
         // VoiceOver hears the amount first, then the explanation.
         XCTAssertTrue(ApiCostText.accessibilityLabel(base)?.hasPrefix("≈ $1,235. ") == true)
@@ -500,7 +499,7 @@ final class ApiCostScannerTests: XCTestCase {
         let big = estimate("1234.5", tokens: TokenTotals(input: 1_234_567))
         XCTAssertEqual(ApiCostText.chip(big), "≈ $1,235")
         XCTAssertTrue(ApiCostText.tooltip(big).contains("Input 1,234,567"))
-        XCTAssertTrue(ApiCostText.tooltip(big).contains("unrelated to what the subscription costs"))
+        XCTAssertTrue(ApiCostText.tooltip(big).contains("API-price equivalent"))
     }
 
     // MARK: Helpers

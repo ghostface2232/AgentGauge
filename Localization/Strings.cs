@@ -20,14 +20,14 @@ internal static class Strings
         ["Tooltip_Disconnect"] = ["연결 해제",        "Disconnect",        "接続解除"],
         ["Tooltip_Refresh"]   = ["새로고침",          "Refresh",           "更新"],
         ["Status_RefreshIssue"] = ["갱신 실패",        "Refresh failed",    "更新失敗"],
-        ["Tooltip_RefreshIssue"] = ["마지막 갱신 실패 · 이전 값을 표시 중", "Last refresh failed · showing previous data", "最終更新に失敗・以前のデータを表示中"],
+        ["Tooltip_RefreshIssue"] = ["갱신하지 못해 이전 값을 보여주고 있어요", "Couldn't refresh · showing the last values", "更新できず、前回の値を表示しています"],
         ["Status_Refreshing"]  = ["새로고침 중…",      "Refreshing…",       "更新中…"],
         ["ServiceStatus_Minor"] = ["서비스 장애", "Service degradation", "サービスの一部障害"],
         ["ServiceStatus_Major"] = ["서비스 장애", "Service outage", "サービス障害"],
         ["ServiceStatus_Maintenance"] = ["서비스 점검", "Service maintenance", "サービスメンテナンス"],
         ["ServiceStatus_Unknown"] = ["서비스 상태 확인 불가", "Service status unavailable", "サービス状態を確認できません"],
         ["ServiceStatus_Stale"] = ["서비스 상태 미확인", "Service status unconfirmed", "サービス状態は未確認"],
-        ["ServiceStatus_Detail"] = ["서비스 전체 상태 · 내 계정의 오류 원인과 다를 수 있습니다.\n{0}\n마지막 확인: {1}", "Service-wide status; may be unrelated to your account's error.\n{0}\nLast checked: {1}", "サービス全体の状態です。アカウントのエラー原因とは異なる場合があります。\n{0}\n最終確認: {1}"],
+        ["ServiceStatus_Detail"] = ["{0}\n서비스 전체 상태라 내 계정 문제와는 다를 수 있어요.\n{1} 확인", "{0}\nThis is the service-wide status and may differ from what you're seeing.\nChecked {1}", "{0}\nサービス全体の状況で、お使いのアカウントの状態とは異なる場合があります。\n{1} 確認"],
         ["Tooltip_Back"]      = ["뒤로",             "Back",              "戻る"],
         ["AddService"]        = ["서비스 추가",        "Add service",       "サービスを追加"],
         ["NoServicesToAdd"]   = ["추가할 서비스가 없습니다", "No services to add", "追加できるサービスがありません"],
@@ -35,16 +35,21 @@ internal static class Strings
         // ── Global settings (toggles above the service list) ───────────────
         ["Settings_Notifications"] = ["알림",          "Notifications",     "通知"],
         ["Settings_StartOnBoot"]   = ["Windows 시작 시 실행", "Start on boot",   "スタートアップに登録"],
-        ["Settings_ViewMode"]      = ["사용량 보기",        "View mode",         "表示方式"],
+        ["Settings_ViewMode"]      = ["표시 형태",          "View mode",         "表示形式"],
         ["ViewMode_Bar"]          = ["막대",             "Bar",               "バー"],
         ["ViewMode_Gauge"]        = ["게이지",           "Gauge",             "ゲージ"],
-        ["Settings_DisplayBasis"] = ["표시 기준",         "Show as",           "表示基準"],
-        ["Settings_StatusTarget"] = ["상태 표시줄 표시 기준", "Status bar target", "タスクバー表示対象"],
-        ["StatusTarget_All"]      = ["전체",             "Overall",           "全体"],
-        ["StatusTarget_Unavailable"] = ["선택한 대상 없음 · 전체 표시", "Target unavailable · showing overall", "選択した対象なし · 全体を表示"],
+        ["Settings_DisplayBasis"] = ["사용량 보기 방식",    "Show usage as",     "使用量の表示方法"],
+        ["Settings_StatusTarget"] = ["아이콘에 표시할 서비스", "Service on icon",  "アイコンに表示するサービス"],
+        ["StatusTarget_All"] = ["자동 · 최대 사용", "Auto · highest use", "自動 · 最大使用"],
+        ["StatusTarget_Unavailable"] = ["선택 없음 · 자동", "Unavailable · auto", "対象なし · 自動"],
         ["DisplayBasis_Used"]     = ["사용량",           "Used",              "使用量"],
         ["DisplayBasis_Remaining"] = ["남은 사용량",      "Remaining",         "残量"],
-        ["Settings_Sparkline"]    = ["소진 추이 그래프",   "Trend sparkline",   "消費推移グラフ"],
+        ["Settings_Sparkline"]    = ["사용 속도 그래프",   "Usage rate graph",  "使用ペースグラフ"],
+        // Headings above the settings cards, in the Windows Settings app's grouping style.
+        ["Settings_GroupGeneral"]  = ["일반",           "General",           "一般"],
+        ["Settings_GroupDisplay"]  = ["표시",           "Display",           "表示"],
+        ["Settings_GroupInsights"] = ["사용 분석",       "Insights",          "使用状況の分析"],
+        ["Settings_GroupServices"] = ["서비스",          "Services",          "サービス"],
         // The weekly pace model: which days the multi-day windows' quota is expected to be
         // spent on. Uniform is the original even spread; work days flattens weekends;
         // automatic shapes the curve from the recorded history once two weeks exist.
@@ -58,9 +63,7 @@ internal static class Strings
         ["Settings_ApiCost"]      = ["API 환산 비용 표시",  "Show API-equivalent cost", "API換算コストを表示"],
         ["ApiCost_Value"]         = ["≈ ${0}",             "≈ ${0}",            "≈ ${0}"],
         ["ApiCost_ValueFloor"]    = ["≈ ${0}+",            "≈ ${0}+",           "≈ ${0}+"],
-        ["Tooltip_ApiCost"]       = ["이번 달 API 환산 추정 · 로컬 세션 로그의 토큰을 공개 API 요금으로 계산한 값이며 구독 요금과 무관합니다.\n입력 {0} · 캐시 읽기 {1} · 캐시 쓰기 {2} · 출력 {3}",
-                                     "This month at API list prices — an estimate from the tokens in local session logs, unrelated to what the subscription costs.\nInput {0} · cache read {1} · cache write {2} · output {3}",
-                                     "今月のAPI換算の目安 · ローカルのセッションログのトークンを公開API料金で計算した値で、サブスクリプション料金とは無関係です。\n入力 {0} · キャッシュ読取 {1} · キャッシュ書込 {2} · 出力 {3}"],
+        ["Tooltip_ApiCost"] = ["이 기기에서 사용한 토큰에 대한 API 비용 환산\n입력 {0} · 캐시 읽기 {1} · 캐시 쓰기 {2} · 출력 {3}", "API-price equivalent of tokens used on this device\nInput {0} · cache read {1} · cache write {2} · output {3}", "この端末で使用したトークンのAPI料金換算\n入力 {0} · キャッシュ読取 {1} · キャッシュ書込 {2} · 出力 {3}"],
         ["ApiCost_Unpriced"]      = ["\n가격 미확인 모델({0})의 토큰 {1}개는 제외됨",
                                      "\n{1} tokens from unpriced models ({0}) not included",
                                      "\n価格未確認のモデル（{0}）の {1} トークンは未計上"],
@@ -118,11 +121,9 @@ internal static class Strings
         // Manual rate-limit resets the account holds. The chip is terse; the tooltip and
         // automation peer spell it out.
         ["ResetCredits"]      = ["초기화 {0}회",        "{0} resets",        "リセット {0}回"],       // {0} = count
-        ["Tooltip_ResetCredits"] = ["사용할 수 있는 사용량 초기화 {0}회",
-                                 "{0} rate-limit resets available",
-                                 "利用可能な使用量リセット {0}回"],
+        ["Tooltip_ResetCredits"] = ["사용량 초기화 {0}회 사용 가능", "{0} resets available", "使用量リセットが{0}回使えます"],
         ["Tray_NoData"]       = ["{0} 데이터 없음",     "{0} no data",       "{0} データなし"],       // {0} = tool
-        ["Tray_Tooltip"]      = ["AgentGauge — {0}\n갱신: {1}", "AgentGauge — {0}\nUpdated: {1}", "AgentGauge — {0}\n更新: {1}"], // {0}=summary {1}=time
+        ["Tray_Tooltip"] = ["{0}\n{1} 업데이트", "{0}\nUpdated {1}", "{0}\n{1} 更新"], // {0}=summary {1}=time
 
         // ── Usage-window labels (by UsageWindowType) ───────────────────────
         ["Label_FiveHour"]    = ["5시간",            "5-hour",            "5時間"],
@@ -147,7 +148,7 @@ internal static class Strings
         ["Pace_OnPace"] = ["0% · 적정", "0% · On pace", "0% · 適正ペース"],
         ["Pace_Deficit"] = ["−{0}% · 빠르게 소진 중", "−{0}% · Deficit", "−{0}% · 不足"],
         ["Pace_Reserve"] = ["+{0}% · 여유 있음", "+{0}% · Reserve", "+{0}% · 余裕"],
-        ["Tooltip_Pace"] = ["남은 시간 대비 얼마나 빠르게, 혹은 느리게 사용 중인지 표시합니다.", "How fast or slow you are using this window relative to the time left.", "残り時間に対してどれだけ速く、または遅く使っているかを示します。"],
+        ["Tooltip_Pace"] = ["초기화까지 남은 시간 대비 소모 속도", "Usage rate vs. time left until reset", "リセットまでの残り時間に対する消費ペース"],
         // ETA-to-exhaustion captions (from the measured recent burn rate; see UsageEtaClassifier).
         ["Eta_InDays"]        = ["{0}일 후 소진 예상",       "Runs out in ~{0} days", "{0}日後に使い切る見込み"],
         ["Eta_InDay"]         = ["{0}일 후 소진 예상",       "Runs out in ~{0} day",  "{0}日後に使い切る見込み"], // singular (English)

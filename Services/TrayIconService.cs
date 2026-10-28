@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -68,6 +69,12 @@ public sealed class TrayIconService : IDisposable
 
     private const int MenuBottomMargin = 16;
     private const int MenuSideMargin = 8;
+    // H.NotifyIcon builds its SecondWindow host before the flyout has a XamlRoot, so on the
+    // first open part of the content is measured at scale 1.0 and the window lands short of
+    // the presenter at any DPI above 100% (measured: 202 px against 212 px at 150%, the
+    // later opens being right). That part is about 20 DIP, so the first open is grown by it
+    // scaled up to the window's DPI. Later opens are left alone.
+    private const double FirstOpenUnscaledDip = 20;
 
     private readonly TaskbarIcon _trayIcon;
     private readonly MenuFlyoutItem _thresholdAlertsItem;
@@ -105,6 +112,7 @@ public sealed class TrayIconService : IDisposable
     private readonly bool _manageForegroundLock;
     // Held so we can unsubscribe the ProcessExit safety net on dispose.
     private readonly EventHandler _processExitHandler;
+    private bool _contextMenuMeasured;
     private bool _disposed;
 
     /// <summary>Raised on left-click; wired to the popover toggle.</summary>
@@ -232,7 +240,7 @@ public sealed class TrayIconService : IDisposable
     /// </summary>
     public void UpdateToolTip(string summary, DateTimeOffset lastUpdated, string statusSummary = "")
     {
-        var text = Loc.Format("Tray_Tooltip", summary, lastUpdated.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
+        var text = Loc.Format("Tray_Tooltip", summary, lastUpdated.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture));
         // Put incidents first so the shell's 127-character limit cannot hide them behind usage.
         if (statusSummary.Length > 0) text = statusSummary + "\n" + text;
         _trayIcon.ToolTipText = text.Length > 127 ? text[..127] : text;
@@ -359,7 +367,7 @@ public sealed class TrayIconService : IDisposable
         _dispatcher?.TryEnqueue(DispatcherQueuePriority.Low, RepositionContextMenuAboveTray);
     }
 
-    private static void RepositionContextMenuAboveTray()
+    private void RepositionContextMenuAboveTray()
     {
         var hwnd = NativeMethods.GetForegroundWindow();
         if (hwnd == IntPtr.Zero) return;
@@ -374,15 +382,25 @@ public sealed class TrayIconService : IDisposable
         var info = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
         if (!NativeMethods.GetMonitorInfo(monitor, ref info)) return;
 
+        var width = rect.right - rect.left;
+        var height = rect.bottom - rect.top;
+        var grow = 0;
+        if (!_contextMenuMeasured)
+        {
+            _contextMenuMeasured = true;
+            var scale = NativeMethods.GetDpiForWindow(hwnd) / 96.0;
+            if (scale > 1) grow = (int)Math.Round(FirstOpenUnscaledDip * (scale - 1));
+        }
+
         var work = info.rcWork;
         var (left, top) = Views.PopoverPlacement.MenuAboveTray(
             work.left, work.right, work.bottom,
-            rect.right - rect.left, rect.bottom - rect.top,
+            width, height + grow,
             cursor.X, MenuBottomMargin, MenuSideMargin);
 
         _ = NativeMethods.SetWindowPos(
-            hwnd, IntPtr.Zero, left, top, 0, 0,
-            NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+            hwnd, IntPtr.Zero, left, top, width, height + grow,
+            (grow == 0 ? NativeMethods.SWP_NOSIZE : 0) | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
     }
 
     private void LoadInitialIcon()
@@ -469,14 +487,6 @@ public sealed class TrayIconService : IDisposable
         exit.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
 
         var menu = new MenuFlyout();
-        // Disable the presenter's internal scrolling so the SecondWindow host never
-        // shows a scrollbar / allows a few-px scroll when its window lands a couple
-        // physical pixels short of the content at fractional DPI.
-        if (Application.Current.Resources.TryGetValue("GaugeMenuFlyoutPresenterStyle", out var presenterStyle)
-            && presenterStyle is Style style)
-        {
-            menu.MenuFlyoutPresenterStyle = style;
-        }
         menu.Items.Add(_thresholdAlertsItem);
         menu.Items.Add(_resetAlertsItem);
         menu.Items.Add(new MenuFlyoutSeparator());
