@@ -35,24 +35,33 @@ public enum WindowGrouping {
     }
 }
 
-/// What the menu bar item shows. Overall, the most-used window across shown tools, so the
-/// state is glanceable without opening the panel; with a tool chosen as the target, that
-/// tool's logo ring (`ring`), whose arcs carry its 5-hour and weekly windows.
+/// What the menu bar item shows: a tool's logo ring (`ring`), whose arcs carry its 5-hour and
+/// weekly windows. The chosen tool's, or — for "auto" — whichever tool has used the most of
+/// its quota right now, so the state is glanceable without opening the panel.
 public struct MenuBarSummary: Sendable, Equatable {
     public let highestUsedRatio: Double?
-    /// The chosen tool's ring, or nil for overall or a target with no state right now.
+    /// The ring to draw, or nil when no shown tool has a usable window yet.
     public let ring: StatusRing?
+    /// One line per tool ("Claude  5H 32% · W 15%"), for the hover tooltip.
+    public let tooltip: String
 
     public init(states: [ToolState], targetKey: String? = nil) {
         let target = StatusTarget.tool(from: targetKey)
-        // A target with no snapshot yet is unavailable (as in Settings), so it falls back to overall.
-        if let target, let state = states.first(where: { $0.tool == target && $0.snapshot != nil }),
-           let snapshot = state.snapshot {
-            let (short, long) = StatusRingSelection.select(snapshot.windows)
-            ring = StatusRing(tool: state.tool, short: short, long: long)
+        // A target with no usable windows yet is unavailable (as in Settings), so the icon
+        // follows the most-used tool instead.
+        var chosen: StatusRing?
+        if let target, let state = states.first(where: { $0.tool == target }) {
+            chosen = StatusRing(state: state)
+        }
+        if chosen == nil {
+            chosen = states.compactMap { StatusRing(state: $0) }.mostUsed
+        }
+        tooltip = Self.tooltipText(for: states)
+        if let chosen {
+            ring = chosen
             // The level follows the arc that moves first: the 5-hour window, or the long one
             // for a tool that has none.
-            highestUsedRatio = (short ?? long).map(\.usedRatio)
+            highestUsedRatio = (chosen.short ?? chosen.long).map(\.usedRatio)
             return
         }
         ring = nil
@@ -61,6 +70,16 @@ public struct MenuBarSummary: Sendable, Equatable {
             .map(\.usedRatio)
             .filter(\.isFinite)
             .max()
+    }
+
+    private static func tooltipText(for states: [ToolState]) -> String {
+        states.compactMap { state -> String? in
+            guard let ring = StatusRing(state: state) else { return nil }
+            let readings = [ring.short, ring.long].compactMap { window in
+                window.map { "\(WindowLabels.label(for: $0)) \(Int(($0.usedRatio * 100).rounded()))%" }
+            }
+            return "\(state.tool.displayName)  \(readings.joined(separator: " · "))"
+        }.joined(separator: "\n")
     }
 
     public var level: UsageLevel? { highestUsedRatio.map(UsageLevel.init(ratio:)) }
@@ -75,7 +94,7 @@ public struct MenuBarSummary: Sendable, Equatable {
         }
     }
 
-    /// Overall, the single highest percent. With a ring, one labelled percent per arc
+    /// One labelled percent per arc
     /// ("5H 32% | W 15%"); the long arc reads "M" for a billing cycle, which is monthly.
     public func percentText(basis: DisplayBasis) -> String? {
         if let ring {
@@ -113,6 +132,36 @@ public struct StatusRing: Sendable, Equatable {
     public let tool: ToolKind
     public let short: UsageWindow?
     public let long: UsageWindow?
+
+    public init(tool: ToolKind, short: UsageWindow?, long: UsageWindow?) {
+        self.tool = tool
+        self.short = short
+        self.long = long
+    }
+
+    /// The tool's ring, or nil when it has no snapshot or no window the ring can draw.
+    public init?(state: ToolState) {
+        guard let snapshot = state.snapshot else { return nil }
+        let (short, long) = StatusRingSelection.select(snapshot.windows)
+        guard short != nil || long != nil else { return nil }
+        self.init(tool: state.tool, short: short, long: long)
+    }
+
+    /// The higher of the two arcs' used shares.
+    var highestUsedRatio: Double {
+        [short?.usedRatio, long?.usedRatio].compactMap { $0 }.max() ?? 0
+    }
+}
+
+extension Array where Element == StatusRing {
+    /// The ring that has used the most; the first of equals wins, so the icon does not flip
+    /// between tools on every refresh.
+    var mostUsed: StatusRing? {
+        reduce(nil) { best, ring in
+            guard let best else { return ring }
+            return ring.highestUsedRatio > best.highestUsedRatio ? ring : best
+        }
+    }
 }
 
 public enum StatusRingSelection {

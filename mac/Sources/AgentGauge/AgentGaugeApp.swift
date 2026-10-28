@@ -69,6 +69,7 @@ struct MenuBarLabel: View {
         Image(nsImage: Self.image(summary: summary, basis: basis, text: percent))
             .accessibilityLabel("AgentGauge")
             .accessibilityValue(summary.percentText(basis: basis) ?? "")
+            .help(summary.tooltip)
     }
 
     private static let spacing: CGFloat = 5
