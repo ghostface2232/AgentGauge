@@ -469,14 +469,6 @@ public sealed class TrayIconService : IDisposable
         exit.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
 
         var menu = new MenuFlyout();
-        // Disable the presenter's internal scrolling so the SecondWindow host never
-        // shows a scrollbar / allows a few-px scroll when its window lands a couple
-        // physical pixels short of the content at fractional DPI.
-        if (Application.Current.Resources.TryGetValue("GaugeMenuFlyoutPresenterStyle", out var presenterStyle)
-            && presenterStyle is Style style)
-        {
-            menu.MenuFlyoutPresenterStyle = style;
-        }
         menu.Items.Add(_thresholdAlertsItem);
         menu.Items.Add(_resetAlertsItem);
         menu.Items.Add(new MenuFlyoutSeparator());
