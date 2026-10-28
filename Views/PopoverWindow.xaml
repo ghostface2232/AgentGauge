@@ -385,15 +385,19 @@
                                                     <ctrl:SquircleBorder
                                                         Radius="8"
                                                         Smoothing="0.75"
-                                                        Padding="8,4,9,5"
+                                                        Padding="0"
                                                         Fill="{ThemeResource StatusChipFillBrush}">
-                                                        <StackPanel Orientation="Horizontal" Spacing="4" MinHeight="16">
+                                                        <!-- Icon only, so the chip is an exact square (25 matches
+                                                             the reset chip's height) with the glyph centred;
+                                                             the text chips' 8,4,9,5 padding is asymmetric. -->
+                                                        <Grid Width="25" Height="25">
                                                             <FontIcon
+                                                                HorizontalAlignment="Center"
                                                                 VerticalAlignment="Center"
                                                                 FontSize="10"
                                                                 Glyph="&#xE7BA;"
                                                                 Foreground="{ThemeResource StatusChipTextBrush}" />
-                                                        </StackPanel>
+                                                        </Grid>
                                                     </ctrl:SquircleBorder>
                                                 </HyperlinkButton>
                                                 <!-- Manual rate-limit resets the account holds (Codex).
