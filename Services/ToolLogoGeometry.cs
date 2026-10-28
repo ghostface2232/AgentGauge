@@ -34,6 +34,6 @@ public static partial class ToolLogoGeometry
         }
     }
 
-    [GeneratedRegex("""\sd="([^"]+)\"""")]
+    [GeneratedRegex(@"\sd=""([^""]+)""")]
     private static partial Regex PathDataPattern();
 }
