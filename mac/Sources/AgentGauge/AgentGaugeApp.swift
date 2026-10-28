@@ -74,15 +74,19 @@ struct MenuBarLabel: View {
     private static let spacing: CGFloat = 5
 
     /// Window tags ("5H", "W") are dimmed against their digits; template alpha, so the menu
-    /// bar still tints them. The parts of a two-arc reading are told apart by a wider gap.
+    /// bar still tints them. The two arcs' readings are set apart by the same gap as the icon from its text.
     private static let labelAlpha: CGFloat = 0.55
-    private static let partSeparator = "   "
 
     private static func attributed(_ text: String, font: NSFont) -> NSAttributedString {
         let result = NSMutableAttributedString()
         let dim: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black.withAlphaComponent(labelAlpha)]
         for (index, part) in text.components(separatedBy: " | ").enumerated() {
-            if index > 0 { result.append(NSAttributedString(string: partSeparator, attributes: [.font: font])) }
+            if index > 0 {
+                // One space whose advance is stretched to `spacing`, so the gap matches the icon's.
+                let space = NSAttributedString(string: " ", attributes: [.font: font])
+                let natural = CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(space), nil, nil, nil))
+                result.append(NSAttributedString(string: " ", attributes: [.font: font, .kern: spacing - natural]))
+            }
             if let space = part.firstIndex(of: " ") {
                 result.append(NSAttributedString(string: String(part[...space]), attributes: dim))
                 result.append(NSAttributedString(string: String(part[part.index(after: space)...]), attributes: [.font: font]))
