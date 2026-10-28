@@ -79,7 +79,8 @@ struct MenuBarLabel: View {
 
     private static func attributed(_ text: String, font: NSFont) -> NSAttributedString {
         let result = NSMutableAttributedString()
-        let dim: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.black.withAlphaComponent(labelAlpha)]
+        let plain: [NSAttributedString.Key: Any] = [.font: font]
+        let dim = plain.merging([.foregroundColor: NSColor.black.withAlphaComponent(labelAlpha)]) { $1 }
         for (index, part) in text.components(separatedBy: " | ").enumerated() {
             if index > 0 {
                 // One space whose advance is stretched to `spacing`, so the gap matches the icon's.
@@ -89,9 +90,9 @@ struct MenuBarLabel: View {
             }
             if let space = part.firstIndex(of: " ") {
                 result.append(NSAttributedString(string: String(part[...space]), attributes: dim))
-                result.append(NSAttributedString(string: String(part[part.index(after: space)...]), attributes: [.font: font]))
+                result.append(NSAttributedString(string: String(part[part.index(after: space)...]), attributes: plain))
             } else {
-                result.append(NSAttributedString(string: part, attributes: [.font: font]))
+                result.append(NSAttributedString(string: part, attributes: plain))
             }
         }
         return result
@@ -255,7 +256,7 @@ struct MenuBarLabel: View {
 
     /// Tabular figures keep the item from shifting width as the percentage changes.
     private static func monospacedDigits(_ font: NSFont) -> NSFont {
-        let descriptor = font.fontDescriptor.addingAttributes([
+        let descriptor = (font.fontDescriptor.withDesign(.rounded) ?? font.fontDescriptor).addingAttributes([
             .featureSettings: [[
                 NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
                 NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector,
