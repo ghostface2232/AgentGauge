@@ -70,7 +70,7 @@ final class MenuBarSummaryTests: XCTestCase {
         XCTAssertNil(MenuBarSummary(states: []).level)
     }
 
-    func testTargetKeySelectsSpecificWindow() {
+    func testTargetKeySelectsToolRing() {
         let codexSnapshot = UsageSnapshot(tool: .codex, plan: nil, windows: [
             UsageWindow(type: .fiveHour, usedRatio: 0.2),
             UsageWindow(type: .weekly, usedRatio: 0.75),
@@ -84,25 +84,88 @@ final class MenuBarSummaryTests: XCTestCase {
             ToolState(tool: .claude, snapshot: claudeSnapshot),
         ]
 
-        // Select codex 5-hour (0.2), even though claude 5h is 0.95 and codex weekly is 0.75
-        let summary1 = MenuBarSummary(states: states, targetKey: "codex:fiveHour")
-        XCTAssertEqual(summary1.level, .ok)
-        XCTAssertEqual(summary1.percentText(basis: .used), "20%")
+        // The ring carries both arcs; the percent beside it is the 5-hour one.
+        let codex = MenuBarSummary(states: states, targetKey: "codex")
+        XCTAssertEqual(codex.ring?.tool, .codex)
+        XCTAssertEqual(codex.ring?.short?.usedRatio, 0.2)
+        XCTAssertEqual(codex.ring?.long?.usedRatio, 0.75)
+        XCTAssertEqual(codex.percentText(basis: .used), "20%")
 
-        // Select claude weekly (0.1)
-        let summary2 = MenuBarSummary(states: states, targetKey: "claude:weekly")
-        XCTAssertEqual(summary2.level, .ok)
-        XCTAssertEqual(summary2.percentText(basis: .used), "10%")
+        // A window target from an older build and the display name both name the tool.
+        XCTAssertEqual(MenuBarSummary(states: states, targetKey: "claude:weekly").ring?.tool, .claude)
+        XCTAssertEqual(MenuBarSummary(states: states, targetKey: "Claude").ring?.tool, .claude)
 
-        // Non-existent targetKey falls back to max (0.95)
-        let summaryFallback = MenuBarSummary(states: states, targetKey: "cursor:billingCycle")
-        XCTAssertEqual(summaryFallback.level, .danger)
-        XCTAssertEqual(summaryFallback.percentText(basis: .used), "95%")
+        // A tool with no state, and overall, fall back to the highest window (0.95).
+        let missing = MenuBarSummary(states: states, targetKey: "cursor")
+        XCTAssertNil(missing.ring)
+        XCTAssertEqual(missing.percentText(basis: .used), "95%")
+        let overall = MenuBarSummary(states: states, targetKey: "")
+        XCTAssertNil(overall.ring)
+        XCTAssertEqual(overall.level, .danger)
+    }
 
-        // Empty/nil targetKey falls back to max (0.95)
-        let summaryAll = MenuBarSummary(states: states, targetKey: "")
-        XCTAssertEqual(summaryAll.level, .danger)
-        XCTAssertEqual(summaryAll.percentText(basis: .used), "95%")
+    func testTargetNormalizesLegacyWindowKeys() {
+        XCTAssertEqual(StatusTarget.normalize("codex:weekly"), "codex")
+        XCTAssertEqual(StatusTarget.normalize("Claude"), "claude")
+        XCTAssertEqual(StatusTarget.normalize(""), "")
+        XCTAssertEqual(StatusTarget.normalize(nil), "")
+    }
+}
+
+final class StatusRingSelectionTests: XCTestCase {
+    func testAccountWideWindowsWinOverScopedOnes() {
+        let ring = StatusRingSelection.select([
+            UsageWindow(type: .weekly, providerID: "fable", groupLabel: "Fable", usedRatio: 0.95),
+            UsageWindow(type: .fiveHour, usedRatio: 0.4),
+            UsageWindow(type: .weekly, usedRatio: 0.2),
+        ])
+        XCTAssertEqual(ring.short?.usedRatio, 0.4)
+        XCTAssertEqual(ring.long?.usedRatio, 0.2)
+    }
+
+    func testFamilyScopedToolUsesItsFirstFamily() {
+        let ring = StatusRingSelection.select([
+            UsageWindow(type: .fiveHour, providerID: "g5", groupLabel: "Gemini", usedRatio: 0.1),
+            UsageWindow(type: .weekly, providerID: "gw", groupLabel: "Gemini", usedRatio: 0.3),
+            UsageWindow(type: .fiveHour, providerID: "c5", groupLabel: "Claude/GPT", usedRatio: 0.8),
+        ])
+        XCTAssertEqual(ring.short?.providerID, "g5")
+        XCTAssertEqual(ring.long?.providerID, "gw")
+    }
+
+    func testBillingCycleToolUsesItsMostUsedQuota() {
+        let ring = StatusRingSelection.select([
+            UsageWindow(type: .billingCycle, providerID: "chat", usedRatio: 0.1),
+            UsageWindow(type: .billingCycle, providerID: "premium_interactions", usedRatio: 0.65),
+        ])
+        XCTAssertNil(ring.short)
+        XCTAssertEqual(ring.long?.providerID, "premium_interactions")
+    }
+}
+
+final class SVGPathDataTests: XCTestCase {
+    func testReadsAbsoluteAndRelativeCommands() throws {
+        let figures = try SVGPathData.parse("M10 10H20V20L10 20Z m5-5 c1 1 2 2 3 3 s4 4 5 5 q1 1 2-.5")
+        XCTAssertEqual(figures.count, 2)
+        XCTAssertTrue(figures[0].closed)
+        XCTAssertEqual(figures[0].segments.count, 3)
+        XCTAssertEqual(figures[1].start, SVGFigure.Point(15, 5))
+        XCTAssertEqual(figures[1].segments[1].end, SVGFigure.Point(23, 13))
+        XCTAssertEqual(figures[1].segments[2].end, SVGFigure.Point(25, 12.5))
+    }
+
+    func testRejectsMalformedData() {
+        for data in ["10 10", "M0 0 A5 5 0 0 1 10 10", "M0 0 Z 5 5", "M0 0 L5"] {
+            XCTAssertThrowsError(try SVGPathData.parse(data), data)
+        }
+    }
+
+    func testReadsALogoDocument() {
+        let logo = SVGLogo(svg: #"<svg viewBox="0 0 24 12"><path d="M0 0H24V12Z" fill-rule="evenodd"/></svg>"#)
+        XCTAssertEqual(logo?.width, 24)
+        XCTAssertEqual(logo?.height, 12)
+        XCTAssertEqual(logo?.evenOdd, true)
+        XCTAssertNil(SVGLogo(svg: "<svg/>"))
     }
 }
 

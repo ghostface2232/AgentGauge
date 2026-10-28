@@ -344,10 +344,10 @@ public sealed class GlobalSettingsViewModelTests
         };
 
         vm.UpdateStatusTargetOptions(tools);
-        Assert.Equal(2, vm.StatusTargetOptions.Count); // "Overall", "Claude Code · 5시간"
+        Assert.Equal(2, vm.StatusTargetOptions.Count); // "Overall", "Claude Code"
 
         vm.StatusTargetIndex = 1;
-        Assert.Equal(["Claude Code:FiveHour"], requested);
+        Assert.Equal(["Claude Code"], requested);
     }
 
     [Theory]
@@ -357,6 +357,8 @@ public sealed class GlobalSettingsViewModelTests
     [InlineData("", 0)]
     [InlineData("all", 0)]
     [InlineData("ALL", 0)]
+    [InlineData("Claude Code", 1)]
+    [InlineData("ClaudeCode", 1)]
     [InlineData("Codex:weekly", 2)] // An unavailable target remains distinct from Overall.
     public void StatusTargetMatchesAliases(string target, int expectedIndex)
     {
@@ -412,7 +414,7 @@ public sealed class GlobalSettingsViewModelTests
         vm.UpdateStatusTargetOptions(StatusTargetTools());
 
         Assert.Equal(1, vm.StatusTargetIndex);
-        Assert.Equal("Codex · 주간", vm.StatusTargetOptions[1]);
+        Assert.Equal("Codex", vm.StatusTargetOptions[1]);
         Assert.Equal(2, vm.StatusTargetOptions.Count);
         Assert.Empty(requested);
     }

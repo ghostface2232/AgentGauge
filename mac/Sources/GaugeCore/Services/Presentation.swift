@@ -35,31 +35,25 @@ public enum WindowGrouping {
     }
 }
 
-/// What the menu bar item shows: the most-used window across shown tools, so the state is
-/// glanceable without opening the panel.
+/// What the menu bar item shows. Overall, the most-used window across shown tools, so the
+/// state is glanceable without opening the panel; with a tool chosen as the target, that
+/// tool's logo ring (`ring`), whose arcs carry its 5-hour and weekly windows.
 public struct MenuBarSummary: Sendable, Equatable {
     public let highestUsedRatio: Double?
+    /// The chosen tool's ring, or nil for overall or a target with no state right now.
+    public let ring: StatusRing?
 
     public init(states: [ToolState], targetKey: String? = nil) {
-        if let targetKey, !targetKey.isEmpty, targetKey != "all" {
-            let parts = targetKey.split(separator: ":", maxSplits: 1)
-            if parts.count == 2 {
-                let toolRaw = String(parts[0])
-                let windowKey = String(parts[1])
-                let match = states
-                    .first {
-                        $0.tool.rawValue.caseInsensitiveCompare(toolRaw) == .orderedSame ||
-                        $0.tool.displayName.caseInsensitiveCompare(toolRaw) == .orderedSame
-                    }?
-                    .snapshot?.windows
-                    .first { $0.key.caseInsensitiveCompare(windowKey) == .orderedSame }?
-                    .usedRatio
-                if let match, match.isFinite {
-                    highestUsedRatio = match
-                    return
-                }
-            }
+        let target = StatusTarget.tool(from: targetKey)
+        if let target, let state = states.first(where: { $0.tool == target }) {
+            let (short, long) = StatusRingSelection.select(state.snapshot?.windows ?? [])
+            ring = StatusRing(tool: state.tool, short: short, long: long)
+            // The percent beside the ring is the arc that moves first: the 5-hour window,
+            // or the long one for a tool that has none.
+            highestUsedRatio = (short ?? long).map(\.usedRatio)
+            return
         }
+        ring = nil
         highestUsedRatio = states
             .flatMap { $0.snapshot?.windows ?? [] }
             .map(\.usedRatio)
@@ -81,5 +75,53 @@ public struct MenuBarSummary: Sendable, Equatable {
 
     public func percentText(basis: DisplayBasis) -> String? {
         highestUsedRatio.map { "\(basis.percent(for: $0))%" }
+    }
+}
+
+/// The menu bar target: empty for overall, otherwise a tool's raw value. Earlier builds
+/// stored one window ("codex:weekly"); the ring shows a tool's windows together, so such a
+/// value is read as its tool.
+public enum StatusTarget {
+    public static func normalize(_ key: String?) -> String {
+        tool(from: key)?.rawValue ?? (key.map { String($0.split(separator: ":", maxSplits: 1).first ?? "") } ?? "")
+    }
+
+    public static func tool(from key: String?) -> ToolKind? {
+        guard let key, !key.isEmpty, key.caseInsensitiveCompare("all") != .orderedSame else { return nil }
+        let toolPart = String(key.split(separator: ":", maxSplits: 1).first ?? "")
+        return ToolKind.allCases.first {
+            $0.rawValue.caseInsensitiveCompare(toolPart) == .orderedSame ||
+                $0.displayName.caseInsensitiveCompare(toolPart) == .orderedSame
+        }
+    }
+}
+
+/// A tool's logo ring: the top arc is the short (5-hour) window, the bottom arc the long one
+/// (weekly, or a billing cycle). A nil window leaves that arc as a bare track.
+public struct StatusRing: Sendable, Equatable {
+    public let tool: ToolKind
+    public let short: UsageWindow?
+    public let long: UsageWindow?
+}
+
+public enum StatusRingSelection {
+    /// Both arcs come from the tool's primary family: account-wide windows when it reports
+    /// any, otherwise the first family with a 5-hour or weekly window (Antigravity reports
+    /// only family-scoped ones). Scoped extras — Fable, Gemini 4 Argon, Codex's named limits
+    /// — never reach the ring. A tool billed per cycle (Cursor, Copilot) puts its most-used
+    /// billing-cycle window on the long arc. Mirrors the Windows `StatusRingSelection`.
+    public static func select(_ windows: [UsageWindow]) -> (short: UsageWindow?, long: UsageWindow?) {
+        let rolling = windows.filter { ($0.type == .fiveHour || $0.type == .weekly) && $0.usedRatio.isFinite }
+        if let first = rolling.first {
+            let family = rolling.contains { ProviderText.normalize($0.groupLabel) == nil }
+                ? nil
+                : ProviderText.normalize(first.groupLabel)
+            let members = rolling.filter { ProviderText.normalize($0.groupLabel) == family }
+            return (members.first { $0.type == .fiveHour }, members.first { $0.type == .weekly })
+        }
+        let billing = windows
+            .filter { $0.type == .billingCycle && $0.usedRatio.isFinite }
+            .max { $0.usedRatio < $1.usedRatio }
+        return (nil, billing)
     }
 }
