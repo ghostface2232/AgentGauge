@@ -383,6 +383,10 @@ struct ToolCard: View {
         // both chip labels, so both drop to their icons; help and accessibility keep the text.
         let chipLabels = !(apiCost != nil && status != nil && credits != nil)
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            ToolLogoView(tool: state.tool)
+                .foregroundStyle(.primary)
+                .frame(width: 15, height: 15)
+                .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
             Text(verbatim: state.tool.displayName)
                 .font(.headline)
                 .layoutPriority(1)

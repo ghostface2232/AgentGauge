@@ -203,7 +203,7 @@
                      no back button here since this is the root view. The 32dip min
                      height mirrors the settings header (whose back button sets that
                      height) so the gap below the title matches across both views. -->
-                <Border Grid.Row="0" Padding="16,16,16,8">
+                <Border Grid.Row="0" Padding="16,12,16,12">
                     <Grid MinHeight="32">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
                             <!-- App mark sized to sit ~level with the 20pt title cap height.
@@ -290,6 +290,15 @@
                                             Orientation="Horizontal"
                                             VerticalAlignment="Center"
                                             Spacing="6">
+                                            <Path
+                                                Width="16" Height="16"
+                                                Stretch="Uniform"
+                                                VerticalAlignment="Center"
+                                                Data="{Binding LogoGeometry}"
+                                                Fill="{ThemeResource TextFillColorPrimaryBrush}"
+                                                Opacity="0.75"
+                                                Visibility="{Binding HasLogo, Converter={StaticResource BoolToVis}}"
+                                                AutomationProperties.AccessibilityView="Raw" />
                                             <TextBlock
                                                 VerticalAlignment="Center"
                                                 FontSize="16"
@@ -720,7 +729,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- Header stays fixed; only the service list scrolls. -->
-                <Border Grid.Row="0" Padding="16,16,16,8">
+                <Border Grid.Row="0" Padding="16,12,16,12">
                     <Grid ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
