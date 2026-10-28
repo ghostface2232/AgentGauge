@@ -49,9 +49,8 @@ struct PopoverView: View {
 
             header
                 .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
                 .frame(maxWidth: .infinity)
+                .frame(height: headerHeight)
 
             VStack(spacing: 0) {
                 Spacer()
@@ -418,7 +417,7 @@ struct ToolCard: View {
                     .help(L10n.get("Status_Refreshing"))
             }
             if let status {
-                StatusChip(status: status, showsLabel: chipLabels)
+                StatusChip(status: status)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             }
             if let credits {
@@ -531,7 +530,6 @@ struct HeaderChip: View {
 /// health is service-wide and may be unrelated to this account's error.
 struct StatusChip: View {
     let status: ProviderStatus
-    let showsLabel: Bool
 
     var body: some View {
         if let url = status.tool.statusPageURL {
@@ -547,7 +545,7 @@ struct StatusChip: View {
 
     private var chip: some View {
         HeaderChip(systemImage: "exclamationmark.triangle.fill", label: status.label,
-                   detail: status.detail, tint: .orange, showsLabel: showsLabel)
+                   detail: status.detail, tint: .orange, showsLabel: false)
     }
 }
 

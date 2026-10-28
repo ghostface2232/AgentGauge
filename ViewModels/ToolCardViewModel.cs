@@ -142,10 +142,10 @@ public sealed partial class ToolCardViewModel : ObservableObject
     public partial bool HasResetCredits { get; set; }
 
     /// <summary>
-    /// Whether the header chips carry their text labels. With the API-cost caption, the
-    /// service-status chip and the reset chip all shown, the header row is too narrow for
-    /// both labels (it does not trim), so the two chips fall back to icon only; their
-    /// tooltip and automation name still spell everything out.
+    /// Whether the reset chip carries its text label. With the API-cost caption, the
+    /// service-status chip and the reset chip all shown, the header row is too narrow (it
+    /// does not trim), so the reset chip falls back to icon only; its tooltip and
+    /// automation name still spell everything out. The status chip is always icon only.
     /// </summary>
     public bool ShowHeaderChipLabels => !(HasApiCost && HasServiceStatus && HasResetCredits);
 

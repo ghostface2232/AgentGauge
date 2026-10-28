@@ -354,10 +354,10 @@
                                                  sits on the header's right edge and with both they
                                                  line up side by side from that edge — the status
                                                  chip first, the reset chip keeping the edge. When the
-                                                 API-cost caption is shown too, the row cannot fit both
-                                                 labels, so both chips drop to icon only
-                                                 (ShowHeaderChipLabels); the tooltip and automation name
-                                                 keep the full text. MinHeight="16" on each chip's inner
+                                                 API-cost caption and the status chip are shown too, the
+                                                 reset chip drops its label (ShowHeaderChipLabels). The
+                                                 status chip is always icon only; its tooltip and
+                                                 automation name carry the full text. MinHeight="16" on each chip's inner
                                                  row is the caption's line height, so an icon-only chip
                                                  keeps the labelled chip's height and the header does
                                                  not shift when the labels go. -->
@@ -393,13 +393,6 @@
                                                                 FontSize="10"
                                                                 Glyph="&#xE7BA;"
                                                                 Foreground="{ThemeResource StatusChipTextBrush}" />
-                                                            <TextBlock
-                                                                VerticalAlignment="Center"
-                                                                FontSize="11"
-                                                                Text="{Binding ServiceStatusText}"
-                                                                Foreground="{ThemeResource StatusChipTextBrush}"
-                                                                Style="{StaticResource CaptionTextBlockStyle}"
-                                                                Visibility="{Binding ShowHeaderChipLabels, Converter={StaticResource BoolToVis}}" />
                                                         </StackPanel>
                                                     </ctrl:SquircleBorder>
                                                 </HyperlinkButton>
