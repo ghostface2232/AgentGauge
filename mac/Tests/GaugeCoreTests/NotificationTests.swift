@@ -84,12 +84,19 @@ final class MenuBarSummaryTests: XCTestCase {
             ToolState(tool: .claude, snapshot: claudeSnapshot),
         ]
 
-        // The ring carries both arcs; the percent beside it is the 5-hour one.
+        // The ring carries both arcs, and the text beside it labels both.
         let codex = MenuBarSummary(states: states, targetKey: "codex")
         XCTAssertEqual(codex.ring?.tool, .codex)
         XCTAssertEqual(codex.ring?.short?.usedRatio, 0.2)
         XCTAssertEqual(codex.ring?.long?.usedRatio, 0.75)
-        XCTAssertEqual(codex.percentText(basis: .used), "20%")
+        XCTAssertEqual(codex.percentText(basis: .used), "5H 20% | W 75%")
+        XCTAssertEqual(codex.percentText(basis: .remaining), "5H 80% | W 25%")
+
+        // A tool with only a billing cycle shows that arc alone.
+        let cursor = MenuBarSummary(states: [ToolState(tool: .cursor, snapshot: UsageSnapshot(
+            tool: .cursor, plan: nil, windows: [UsageWindow(type: .billingCycle, usedRatio: 0.4)], capturedAt: Date()))],
+            targetKey: "cursor")
+        XCTAssertEqual(cursor.percentText(basis: .used), "M 40%")
 
         // A window target from an older build and the display name both name the tool.
         XCTAssertEqual(MenuBarSummary(states: states, targetKey: "claude:weekly").ring?.tool, .claude)

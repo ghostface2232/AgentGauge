@@ -48,8 +48,8 @@ public struct MenuBarSummary: Sendable, Equatable {
         if let target, let state = states.first(where: { $0.tool == target }) {
             let (short, long) = StatusRingSelection.select(state.snapshot?.windows ?? [])
             ring = StatusRing(tool: state.tool, short: short, long: long)
-            // The percent beside the ring is the arc that moves first: the 5-hour window,
-            // or the long one for a tool that has none.
+            // The level follows the arc that moves first: the 5-hour window, or the long one
+            // for a tool that has none.
             highestUsedRatio = (short ?? long).map(\.usedRatio)
             return
         }
@@ -73,8 +73,17 @@ public struct MenuBarSummary: Sendable, Equatable {
         }
     }
 
+    /// Overall, the single highest percent. With a ring, one labelled percent per arc
+    /// ("5H 32% | W 15%"); the long arc reads "M" for a billing cycle, which is monthly.
     public func percentText(basis: DisplayBasis) -> String? {
-        highestUsedRatio.map { "\(basis.percent(for: $0))%" }
+        if let ring {
+            let parts = [("5H", ring.short), (ring.long?.type == .billingCycle ? "M" : "W", ring.long)]
+                .compactMap { label, window in
+                    window.map { "\(label) \(basis.percent(for: $0.usedRatio))%" }
+                }
+            return parts.isEmpty ? nil : parts.joined(separator: " | ")
+        }
+        return highestUsedRatio.map { "\(basis.percent(for: $0))%" }
     }
 }
 
