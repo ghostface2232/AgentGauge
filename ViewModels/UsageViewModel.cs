@@ -265,14 +265,20 @@ public sealed partial class UsageViewModel : ObservableObject
     /// </summary>
     public double HighestUsageRatio { get; private set; }
 
-    /// <summary>Target tool:window key for the status bar / tray icon, or empty for overall.</summary>
+    /// <summary>Tool the status bar / tray icon follows, or empty for overall.</summary>
     public string StatusTarget { get; private set; } = string.Empty;
 
     /// <summary>
-    /// Usage ratio (0–1) used to drive the tray icon variant. Follows <see cref="StatusTarget"/>
-    /// if set and found, otherwise falls back to <see cref="HighestUsageRatio"/>.
+    /// Usage ratio (0–1) used to drive the classic tray gauge. Always the overall highest:
+    /// a chosen tool is shown by <see cref="StatusRing"/> instead.
     /// </summary>
     public double StatusUsageRatio { get; private set; }
+
+    /// <summary>
+    /// The chosen tool's ring for the tray icon, or null when the target is overall or the
+    /// tool has no record right now (the tray then shows the classic overall gauge).
+    /// </summary>
+    public StatusRingState? StatusRing { get; private set; }
 
     private IReadOnlyList<CachedUsage> _lastRecorded = [];
 
@@ -281,9 +287,10 @@ public sealed partial class UsageViewModel : ObservableObject
     /// </summary>
     public void SetStatusTarget(string? target)
     {
-        StatusTarget = target ?? string.Empty;
-        StatusUsageRatio = CalculateStatusUsageRatio(_lastRecorded, StatusTarget, HighestUsageRatio);
-        TrayTooltipSummary = BuildTrayTooltipSummary(_lastRecorded, StatusTarget);
+        StatusTarget = StatusTargetMatcher.ToolPart(target);
+        StatusUsageRatio = HighestUsageRatio;
+        StatusRing = BuildStatusRing(_lastRecorded, StatusTarget);
+        TrayTooltipSummary = BuildTrayTooltipSummary(_lastRecorded, StatusRing);
     }
 
     /// <summary>
@@ -345,13 +352,14 @@ public sealed partial class UsageViewModel : ObservableObject
             .DefaultIfEmpty(0)
             .Max();
 
-        StatusUsageRatio = CalculateStatusUsageRatio(recorded, StatusTarget, HighestUsageRatio);
+        StatusUsageRatio = HighestUsageRatio;
+        StatusRing = BuildStatusRing(recorded, StatusTarget);
 
         LastUpdatedAt = recorded.Select(t => t.LastUpdatedAt).Max();
         LastUpdatedText = LastUpdatedAt is { } updated
             ? Loc.Format("LastUpdated_At", updated.ToLocalTime().ToString("HH:mm"))
             : Loc.Get("LastUpdated_Never");
-        TrayTooltipSummary = BuildTrayTooltipSummary(recorded, StatusTarget);
+        TrayTooltipSummary = BuildTrayTooltipSummary(recorded, StatusRing);
         RefreshCards(recorded);
         ExpireRefreshIndicators();
         ApplyServiceStatuses(_serviceStatuses);
@@ -450,7 +458,7 @@ public sealed partial class UsageViewModel : ObservableObject
         }
     }
 
-    private static string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools, string target = "")
+    private static string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools, StatusRingState? ring = null)
     {
         if (tools.Count == 0)
         {
@@ -476,54 +484,34 @@ public sealed partial class UsageViewModel : ObservableObject
 
         var overallSummary = string.Join(" · ", parts);
 
-        if (!string.IsNullOrEmpty(target) && !string.Equals(target, "all", StringComparison.OrdinalIgnoreCase))
+        if (ring is not null)
         {
-            var targetParts = target.Split(':', 2);
-            if (targetParts.Length == 2)
-            {
-                var toolPart = targetParts[0];
-                var windowPart = targetParts[1];
-                var matchedTool = tools.FirstOrDefault(t => StatusTargetMatcher.ToolsMatch(t.ToolName, toolPart));
-                var matchedWindow = matchedTool?.Snapshot?.Windows.FirstOrDefault(w =>
-                    string.Equals(w.Key, windowPart, StringComparison.OrdinalIgnoreCase));
-
-                if (matchedTool is not null && matchedWindow is not null && double.IsFinite(matchedWindow.UsedRatio))
-                {
-                    var label = !string.IsNullOrEmpty(matchedWindow.GroupLabel)
-                        ? $"{matchedTool.ToolName} · {matchedWindow.GroupLabel} · {matchedWindow.Label}"
-                        : $"{matchedTool.ToolName} · {matchedWindow.Label}";
-                    var targetSummary = $"{label} {matchedWindow.UsedRatio * 100:0}%";
-                    return string.IsNullOrEmpty(overallSummary)
-                        ? targetSummary
-                        : $"{targetSummary} ({overallSummary})";
-                }
-            }
+            // Name what the two arcs show, so the tooltip explains the ring.
+            var arcs = new[] { ring.Short, ring.Long }
+                .OfType<UsageWindow>()
+                .Select(w => string.IsNullOrEmpty(w.GroupLabel)
+                    ? $"{w.Label} {w.UsedRatio * 100:0}%"
+                    : $"{w.GroupLabel} {w.Label} {w.UsedRatio * 100:0}%")
+                .ToList();
+            var targetSummary = arcs.Count > 0
+                ? $"{ring.ToolName} · {string.Join(" · ", arcs)}"
+                : Loc.Format("Tray_NoData", ring.ToolName);
+            return string.IsNullOrEmpty(overallSummary) || tools.Count == 1
+                ? targetSummary
+                : $"{targetSummary} ({overallSummary})";
         }
 
         return overallSummary;
     }
 
-    private static double CalculateStatusUsageRatio(IReadOnlyList<CachedUsage> recorded, string target, double fallback)
+    private static StatusRingState? BuildStatusRing(IReadOnlyList<CachedUsage> recorded, string target)
     {
-        if (string.IsNullOrEmpty(target) || string.Equals(target, "all", StringComparison.OrdinalIgnoreCase))
-        {
-            return fallback;
-        }
-
-        var parts = target.Split(':', 2);
-        if (parts.Length != 2)
-        {
-            return fallback;
-        }
-
-        var toolPart = parts[0];
-        var windowPart = parts[1];
-
-        var tool = recorded.FirstOrDefault(t => StatusTargetMatcher.ToolsMatch(t.ToolName, toolPart));
-
-        var window = tool?.Snapshot?.Windows.FirstOrDefault(w =>
-            string.Equals(w.Key, windowPart, StringComparison.OrdinalIgnoreCase));
-
-        return window is not null && double.IsFinite(window.UsedRatio) ? window.UsedRatio : fallback;
+        if (StatusTargetMatcher.IsOverall(target)) return null;
+        // A tool that has never produced a snapshot falls back to the overall gauge, as the
+        // dropdown treats it as unavailable.
+        var tool = recorded.FirstOrDefault(t => t.Snapshot is not null && StatusTargetMatcher.ToolsMatch(t.ToolName, target));
+        if (tool?.Snapshot is null || StatusTargetMatcher.Descriptor(tool.ToolName) is not { } descriptor) return null;
+        var (shortWindow, longWindow) = StatusRingSelection.Select(tool.Snapshot.Windows);
+        return new StatusRingState(descriptor.Kind, tool.ToolName, shortWindow, longWindow);
     }
 }

@@ -198,18 +198,12 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         var newOptions = new List<string> { Loc.Get("StatusTarget_All") };
         var newKeys = new List<string> { string.Empty };
 
+        // One entry per tool: choosing a tool switches the tray to its logo ring, whose two
+        // arcs already carry its 5-hour and weekly windows.
         foreach (var tool in tools)
         {
-            if (tool.Snapshot is not { Windows.Count: > 0 } snapshot) continue;
-            foreach (var window in snapshot.Windows)
-            {
-                var label = !string.IsNullOrEmpty(window.GroupLabel)
-                    ? $"{tool.ToolName} · {window.GroupLabel} · {window.Label}"
-                    : $"{tool.ToolName} · {window.Label}";
-                var key = $"{tool.ToolName}:{window.Key}";
-                newOptions.Add(label);
-                newKeys.Add(key);
-            }
+            newOptions.Add(tool.ToolName);
+            newKeys.Add(tool.ToolName);
         }
 
         var selectedIndex = newKeys.FindIndex(k => StatusTargetMatcher.Matches(k, _statusTarget));

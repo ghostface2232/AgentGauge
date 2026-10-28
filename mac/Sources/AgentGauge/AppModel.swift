@@ -111,7 +111,8 @@ final class AppModel {
             Keys.showApiCost: false,
         ])
         showPercentInMenuBar = defaults.bool(forKey: Keys.showPercent)
-        statusTarget = defaults.string(forKey: Keys.statusTarget) ?? ""
+        // An older build stored one window ("codex:weekly"); the menu bar now follows a tool.
+        statusTarget = StatusTarget.normalize(defaults.string(forKey: Keys.statusTarget))
         displayBasis = DisplayBasis(rawValue: defaults.string(forKey: Keys.displayBasis) ?? "") ?? .used
         viewMode = UsageViewMode(rawValue: defaults.string(forKey: Keys.viewMode) ?? "") ?? .bar
         showSparkline = defaults.bool(forKey: Keys.showSparkline)

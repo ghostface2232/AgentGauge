@@ -296,29 +296,14 @@ private struct DisplaySettings: View {
             Section {
                 Toggle(L10n.get("Settings_ShowPercent"), isOn: $model.showPercentInMenuBar)
                 let activeStates = model.states.filter { !model.hiddenTools.contains($0.tool) }
-                let hasMatchingTarget = !model.statusTarget.isEmpty && activeStates.contains { state in
-                    let parts = model.statusTarget.split(separator: ":", maxSplits: 1)
-                    guard parts.count == 2 else { return false }
-                    let toolRaw = String(parts[0])
-                    let windowKey = String(parts[1])
-                    let toolMatches = state.tool.rawValue.caseInsensitiveCompare(toolRaw) == .orderedSame ||
-                                      state.tool.displayName.caseInsensitiveCompare(toolRaw) == .orderedSame
-                    guard toolMatches, let windows = state.snapshot?.windows else { return false }
-                    return windows.contains { $0.key.caseInsensitiveCompare(windowKey) == .orderedSame }
-                }
+                let targetStates = activeStates.filter { $0.snapshot != nil }
+                let targetTool = StatusTarget.tool(from: model.statusTarget)
+                let hasMatchingTarget = targetTool.map { tool in targetStates.contains { $0.tool == tool } } ?? false
+                // One entry per tool: its logo ring already carries the 5-hour and weekly arcs.
                 Picker(L10n.get("Settings_StatusTarget"), selection: $model.statusTarget) {
                     Text(L10n.get("StatusTarget_All")).tag("")
-                    ForEach(activeStates) { state in
-                        if let windows = state.snapshot?.windows, !windows.isEmpty {
-                            ForEach(windows, id: \.key) { window in
-                                let label = if let group = window.groupLabel, !group.isEmpty {
-                                    "\(state.tool.displayName) · \(group) · \(window.label)"
-                                } else {
-                                    "\(state.tool.displayName) · \(window.label)"
-                                }
-                                Text(label).tag("\(state.tool.rawValue):\(window.key)")
-                            }
-                        }
+                    ForEach(targetStates) { state in
+                        Text(state.tool.displayName).tag(state.tool.rawValue)
                     }
                     if !model.statusTarget.isEmpty && model.statusTarget != "all" && !hasMatchingTarget {
                         Text(L10n.get("StatusTarget_Unavailable")).tag(model.statusTarget)

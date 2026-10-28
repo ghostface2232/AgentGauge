@@ -60,7 +60,7 @@ public sealed class UsageViewModelTests
     }
 
     [Fact]
-    public void StatusTargetSelectsSpecificWindowOrFallsBack()
+    public void StatusTargetSelectsToolRingOrFallsBackToOverall()
     {
         var viewModel = new UsageViewModel();
         var snapshotClaude = new UsageSnapshot
@@ -87,35 +87,33 @@ public sealed class UsageViewModelTests
             ]
         };
 
-        // When status target is not set (empty), StatusUsageRatio is HighestUsageRatio (0.90)
         viewModel.Apply(state);
-        Assert.Equal(0.90, viewModel.HighestUsageRatio);
+        Assert.Null(viewModel.StatusRing);
         Assert.Equal(0.90, viewModel.StatusUsageRatio);
 
-        // Target Codex weekly (0.70)
-        viewModel.SetStatusTarget("Codex:weekly");
-        Assert.Equal(0.70, viewModel.StatusUsageRatio);
-        Assert.Equal("Codex · 주간 70% (Claude Code 90% · Codex 70%)", viewModel.TrayTooltipSummary);
-
-        // Target Claude weekly (0.20)
-        viewModel.SetStatusTarget("Claude Code:weekly");
-        Assert.Equal(0.20, viewModel.StatusUsageRatio);
-
-        // Target ClaudeCode:weekly (ToolKind enum alias)
-        viewModel.SetStatusTarget("ClaudeCode:weekly");
-        Assert.Equal(0.20, viewModel.StatusUsageRatio);
-
-        // Target claude:FiveHour (case-insensitive / macOS rawValue alias)
-        viewModel.SetStatusTarget("claude:FiveHour");
+        viewModel.SetStatusTarget("Codex");
+        var ring = Assert.IsType<StatusRingState>(viewModel.StatusRing);
+        Assert.Equal(ToolKind.Codex, ring.Kind);
+        Assert.Equal(0.30, ring.Short?.UsedRatio);
+        Assert.Equal(0.70, ring.Long?.UsedRatio);
+        Assert.Equal("Codex · 5시간 30% · 주간 70% (Claude Code 90% · Codex 70%)", viewModel.TrayTooltipSummary);
+        // The classic gauge, shown again if the target is cleared, keeps the overall level.
         Assert.Equal(0.90, viewModel.StatusUsageRatio);
 
-        // Unknown target falls back to HighestUsageRatio (0.90)
-        viewModel.SetStatusTarget("Unknown:unknown");
-        Assert.Equal(0.90, viewModel.StatusUsageRatio);
+        // A window target from an older build, the ToolKind alias, and the macOS raw value
+        // all name the same tool.
+        foreach (var alias in new[] { "Claude Code:weekly", "ClaudeCode", "claude:FiveHour" })
+        {
+            viewModel.SetStatusTarget(alias);
+            Assert.Equal(ToolKind.ClaudeCode, viewModel.StatusRing?.Kind);
+        }
 
-        // Reset to all/empty falls back to HighestUsageRatio (0.90)
+        viewModel.SetStatusTarget("Unknown");
+        Assert.Null(viewModel.StatusRing);
+        Assert.Equal("Claude Code 90% · Codex 70%", viewModel.TrayTooltipSummary);
+
         viewModel.SetStatusTarget("");
-        Assert.Equal(0.90, viewModel.StatusUsageRatio);
+        Assert.Null(viewModel.StatusRing);
     }
 
     [Fact]

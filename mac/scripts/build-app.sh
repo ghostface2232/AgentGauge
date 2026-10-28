@@ -57,6 +57,13 @@ for icon in gauge_icon gauge_icon_70 gauge_icon_90; do
     fi
 done
 
+# Tool logos for the menu bar ring (a chosen tool's logo inside its 5-hour/weekly arcs).
+# Shared with the Windows tray; a missing logo draws the ring alone.
+if [[ -d "$ROOT/../Assets/ToolLogos" ]]; then
+    mkdir -p "$APP/Contents/Resources/ToolLogos"
+    cp "$ROOT/../Assets/ToolLogos/"*.svg "$APP/Contents/Resources/ToolLogos/"
+fi
+
 # App icon from the Windows icon, best effort: a missing icon must not fail the build.
 ICON_SOURCE="$ROOT/../Assets/gauge_appicon.ico"
 if [[ -f "$ICON_SOURCE" ]] && command -v iconutil >/dev/null; then

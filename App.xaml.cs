@@ -183,7 +183,8 @@ public partial class App : Application
         _displayBasisSettingsStore = new DisplayBasisSettingsStore();
         _displayBasis = _displayBasisSettingsStore.Load();
         _statusTargetSettingsStore = new StatusTargetSettingsStore();
-        _statusTarget = _statusTargetSettingsStore.Load();
+        // An older build stored one window ("Codex:weekly"); the tray now follows a whole tool.
+        _statusTarget = StatusTargetMatcher.ToolPart(_statusTargetSettingsStore.Load());
         _sparklineSettingsStore = new SparklineSettingsStore();
         _showSparkline = _sparklineSettingsStore.Load();
         _paceModelSettingsStore = new WeeklyPaceModelSettingsStore();
@@ -356,8 +357,9 @@ public partial class App : Application
         if (_viewModel is not null)
         {
             UpdateTrayTooltip();
-            // Recolor the tray icon by the selected status target or highest usage ratio.
+            // Recolor the classic gauge by the highest usage ratio, or draw the chosen tool's ring.
             _trayIcon?.UpdateUsageLevel(_viewModel.StatusUsageRatio);
+            _trayIcon?.UpdateStatusRing(_viewModel.StatusRing, _displayBasis);
         }
         var visibleTools = state.Tools
             .Where(t => t.HasData && (_toolRegistry is null || ToolCatalog.All.Any(d => d.DisplayName == t.ToolName && _toolRegistry.IsActive(d.Kind))))
@@ -579,6 +581,8 @@ public partial class App : Application
         // Rows re-derive their percent in place; the card height is unchanged, so no
         // re-measure is needed.
         _viewModel?.SetDisplayBasis(basis);
+        // The tray ring's arcs fill by the same basis as the bars.
+        _trayIcon?.UpdateStatusRing(_viewModel?.StatusRing, basis);
     }
 
     private void OnGlobalStatusTargetChanged(object? sender, string target)
@@ -594,6 +598,7 @@ public partial class App : Application
         {
             UpdateTrayTooltip();
             _trayIcon?.UpdateUsageLevel(_viewModel.StatusUsageRatio);
+            _trayIcon?.UpdateStatusRing(_viewModel.StatusRing, _displayBasis);
         }
     }
 

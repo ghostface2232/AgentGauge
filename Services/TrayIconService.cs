@@ -81,6 +81,14 @@ public sealed class TrayIconService : IDisposable
     // theme to pick the icon asset; survives theme switches.
     private string _levelSuffix = string.Empty;
 
+    // The chosen tool's ring, or null for the classic overall gauge. While set, the level
+    // suffix is still tracked so clearing the target falls back to the right gauge variant.
+    private StatusRingState? _ring;
+    private UsageDisplayBasis _ringBasis;
+    private readonly TrayRingIconRenderer _ringRenderer = new();
+    // Inputs of the ring icon on screen, so an unchanged refresh causes no GDI churn.
+    private (StatusRingState Ring, UsageDisplayBasis Basis, int Px, bool Dark)? _ringDrawn;
+
     // Held so we can dispose the previous GDI icon handle when swapping icons.
     private Icon? _currentIcon;
     // ICO sources carry their size frames; DPI does not change this source-cache key.
@@ -244,10 +252,60 @@ public sealed class TrayIconService : IDisposable
         }
 
         _levelSuffix = suffix;
-        if (LoadThemedIcon() is { } icon)
+        if (_ring is null && LoadThemedIcon() is { } icon)
         {
             UpdateIcon(icon);
         }
+    }
+
+    /// <summary>
+    /// Shows the chosen tool's logo ring, or — for null — returns to the classic gauge that
+    /// <see cref="UpdateUsageLevel"/> drives. Redraws only when what the icon shows changed.
+    /// </summary>
+    public void UpdateStatusRing(StatusRingState? ring, UsageDisplayBasis basis)
+    {
+        var wasRing = _ring is not null;
+        _ring = ring;
+        _ringBasis = basis;
+        if (ring is null)
+        {
+            _ringDrawn = null;
+            if (wasRing && LoadThemedIcon() is { } icon) UpdateIcon(icon);
+            return;
+        }
+
+        RefreshRingIcon();
+    }
+
+    private void RefreshRingIcon()
+    {
+        if (_ring is null) return;
+        var px = TrayIconPixelSize();
+        var dark = IsTaskbarDarkTheme();
+        var inputs = (_ring, _ringBasis, px, dark);
+        if (_ringDrawn == inputs) return;
+        try
+        {
+            UpdateIcon(_ringRenderer.Render(_ring, px, dark, _ringBasis));
+            _ringDrawn = inputs;
+        }
+        catch (Exception ex) when (ex is ArgumentException or ExternalException or InvalidOperationException)
+        {
+            DiagnosticsLog.Write("tray", $"Tray ring icon could not be drawn: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The tray's small-icon size at the taskbar's DPI. Read per draw, because the ring is
+    /// rendered at exact pixels and a DPI change would otherwise leave it scaled.
+    /// </summary>
+    private static int TrayIconPixelSize()
+    {
+        var taskbar = NativeMethods.FindWindow("Shell_TrayWnd", null);
+        var dpi = taskbar != IntPtr.Zero ? NativeMethods.GetDpiForWindow(taskbar) : 0;
+        if (dpi == 0) dpi = NativeMethods.GetDpiForSystem();
+        var size = NativeMethods.GetSystemMetricsForDpi(NativeMethods.SM_CXSMICON, dpi);
+        return size > 0 ? size : 16;
     }
 
     private static string SuffixForRatio(double ratio)
@@ -347,7 +405,11 @@ public sealed class TrayIconService : IDisposable
                 return;
             }
 
-            if (LoadThemedIcon() is { } icon)
+            if (_ring is not null)
+            {
+                RefreshRingIcon();
+            }
+            else if (LoadThemedIcon() is { } icon)
             {
                 UpdateIcon(icon);
             }
@@ -443,6 +505,7 @@ public sealed class TrayIconService : IDisposable
         if (_currentIcon is not null && !_iconCache.ContainsValue(_currentIcon)) _currentIcon.Dispose();
         foreach (var icon in _iconCache.Values) icon.Dispose();
         _iconCache.Clear();
+        _ringRenderer.Dispose();
         _currentIcon = null;
     }
 
@@ -460,6 +523,19 @@ public sealed class TrayIconService : IDisposable
     private static class NativeMethods
     {
         public const uint MONITOR_DEFAULTTONEAREST = 0x2;
+        public const int SM_CXSMICON = 49;
+
+        [DllImport("user32.dll", EntryPoint = "FindWindowW", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForSystem();
+
+        [DllImport("user32.dll")]
+        public static extern int GetSystemMetricsForDpi(int nIndex, uint dpi);
         public const uint SWP_NOSIZE = 0x0001;
         public const uint SWP_NOZORDER = 0x0004;
         public const uint SWP_NOACTIVATE = 0x0010;

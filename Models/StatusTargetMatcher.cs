@@ -1,35 +1,46 @@
 namespace Gauge.Models;
 
 /// <summary>
-/// Helpers for matching status bar / tray icon target strings across tools and windows.
+/// Helpers for matching status bar / tray icon target strings across tools.
 /// Handles cross-platform differences, legacy aliases ("Claude Code" vs "Claude"),
 /// and case-insensitivity.
 /// </summary>
 public static class StatusTargetMatcher
 {
+    /// <summary>
+    /// The tool a persisted target names. Targets used to name one window
+    /// ("Codex:weekly"); the tray now shows a tool's 5-hour and weekly windows together, so
+    /// such a value is read as its tool rather than discarded.
+    /// </summary>
+    public static string ToolPart(string? target)
+    {
+        if (IsOverall(target)) return string.Empty;
+        var colon = target!.IndexOf(':');
+        return colon < 0 ? target : target[..colon];
+    }
+
+    public static bool IsOverall(string? target)
+        => string.IsNullOrEmpty(target) || string.Equals(target, "all", StringComparison.OrdinalIgnoreCase);
+
     public static bool Matches(string candidateTarget, string requestedTarget)
     {
-        var overallRequested = string.IsNullOrEmpty(requestedTarget)
-            || string.Equals(requestedTarget, "all", StringComparison.OrdinalIgnoreCase);
-        if (string.IsNullOrEmpty(candidateTarget) && overallRequested)
+        var candidate = ToolPart(candidateTarget);
+        var requested = ToolPart(requestedTarget);
+        if (candidate.Length == 0 || requested.Length == 0)
         {
-            return true;
+            return candidate.Length == 0 && requested.Length == 0;
         }
 
-        if (string.IsNullOrEmpty(candidateTarget) || overallRequested)
-        {
-            return false;
-        }
+        return ToolsMatch(candidate, requested);
+    }
 
-        var candidateParts = candidateTarget.Split(':', 2);
-        var requestedParts = requestedTarget.Split(':', 2);
-        if (candidateParts.Length != 2 || requestedParts.Length != 2)
-        {
-            return false;
-        }
-
-        return ToolsMatch(candidateParts[0], requestedParts[0])
-            && string.Equals(candidateParts[1], requestedParts[1], StringComparison.OrdinalIgnoreCase);
+    /// <summary>The catalog entry a target or tool name refers to, under any of its aliases.</summary>
+    public static ToolDescriptor? Descriptor(string tool)
+    {
+        var current = ToolCatalog.CurrentDisplayName(tool);
+        return ToolCatalog.All.FirstOrDefault(d =>
+            string.Equals(d.DisplayName, current, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(d.Kind.ToString(), tool, StringComparison.OrdinalIgnoreCase));
     }
 
     public static bool ToolsMatch(string toolA, string toolB)
@@ -46,13 +57,8 @@ public static class StatusTargetMatcher
             return true;
         }
 
-        var descA = ToolCatalog.All.FirstOrDefault(d =>
-            string.Equals(d.DisplayName, currentA, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(d.Kind.ToString(), toolA, StringComparison.OrdinalIgnoreCase));
-        var descB = ToolCatalog.All.FirstOrDefault(d =>
-            string.Equals(d.DisplayName, currentB, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(d.Kind.ToString(), toolB, StringComparison.OrdinalIgnoreCase));
-
+        var descA = Descriptor(toolA);
+        var descB = Descriptor(toolB);
         return descA != null && descB != null && descA.Kind == descB.Kind;
     }
 }
