@@ -138,17 +138,25 @@ public actor CLILocator: CLILocating {
             return Self.newestClaudeBinary(
                 in: homeDirectory.appending(path: "Library/Application Support/Claude/claude-code"))
         case "codex":
-            let roots = ["/Applications", homeDirectory.appending(path: "Applications").path]
-            let bundles = roots.flatMap { root in ["Codex.app", "ChatGPT.app"].map { "\(root)/\($0)" } }
-            return Self.firstExecutable("codex", in: bundles.map { "\($0)/Contents/Resources" })
+            return Self.bundledCodexBinary(
+                inApplications: ["/Applications", homeDirectory.appending(path: "Applications").path])
         default:
             return nil
         }
     }
 
-    /// The desktop app unpacks its CLI per version (`claude-code/<version>/…`) and can keep an
-    /// older one beside the current, so the highest version wins; within a version the binary
-    /// sits directly, one build-hash folder down, or inside a `claude.app` wrapper.
+    /// The Codex desktop app installs as `ChatGPT.app` (bundle id `com.openai.codex`) and keeps
+    /// its CLI at `Contents/Resources/codex-cli/bin/codex`, beside the `rg` it expects in
+    /// `codex-cli/codex-path`. `Codex.app` and a bare `Resources/codex` cover other packagings.
+    static func bundledCodexBinary(inApplications roots: [String]) -> URL? {
+        let bundles = roots.flatMap { root in ["ChatGPT.app", "Codex.app"].map { "\(root)/\($0)/Contents/Resources" } }
+        return firstExecutable("codex", in: bundles.flatMap { ["\($0)/codex-cli/bin", $0] })
+    }
+
+    /// The desktop app unpacks its CLI per version (`claude-code/<version>/<build hash>/…`) and
+    /// can keep an older one beside the current, so the highest version wins. The binary sits in
+    /// a `claude.app` wrapper (`claude.app/Contents/MacOS/claude`, observed with 2.1.309) either
+    /// one build-hash folder down or directly in the version folder, or bare in either place.
     static func newestClaudeBinary(in root: URL) -> URL? {
         let fileManager = FileManager.default
         guard let versions = try? fileManager.contentsOfDirectory(atPath: root.path) else { return nil }
@@ -157,10 +165,11 @@ public actor CLILocator: CLILocating {
             .sorted { $0.compare($1, options: .numeric) == .orderedDescending }
         for version in ordered {
             let directory = root.appending(path: version)
-            var candidates = [directory.path, directory.appending(path: "claude.app/Contents/MacOS").path]
+            var folders = [directory]
             if let builds = try? fileManager.contentsOfDirectory(atPath: directory.path) {
-                candidates += builds.sorted().map { directory.appending(path: $0).path }
+                folders += builds.sorted().map { directory.appending(path: $0) }
             }
+            let candidates = folders.flatMap { [$0.appending(path: "claude.app/Contents/MacOS").path, $0.path] }
             if let found = firstExecutable("claude", in: candidates) { return found }
         }
         return nil
@@ -169,7 +178,12 @@ public actor CLILocator: CLILocating {
     private static func firstExecutable(_ name: String, in directories: [String]) -> URL? {
         for directory in directories {
             let candidate = URL(fileURLWithPath: directory, isDirectory: true).appending(path: name)
-            if FileManager.default.isExecutableFile(atPath: candidate.path) { return candidate }
+            // isExecutableFile is also true for a searchable directory of the same name.
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+               !isDirectory.boolValue, FileManager.default.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
         }
         return nil
     }

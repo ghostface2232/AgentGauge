@@ -27,9 +27,30 @@ final class CLILocatorTests: XCTestCase {
         XCTAssertEqual(CLILocator.newestClaudeBinary(in: root)?.path, newest.path)
     }
 
+    func testClaudeDesktopBinaryInsideAppWrapperUnderBuildFolder() throws {
+        // The layout the Claude desktop app writes (2.1.309).
+        try executable("2.1.308/c17a819afb40/claude.app/Contents/MacOS/claude")
+        let wrapped = try executable("2.1.309/5af865b9901c/claude.app/Contents/MacOS/claude")
+        XCTAssertEqual(CLILocator.newestClaudeBinary(in: root)?.path, wrapped.path)
+    }
+
     func testClaudeDesktopBinaryInsideAppWrapper() throws {
         let wrapped = try executable("2.1.309/claude.app/Contents/MacOS/claude")
         XCTAssertEqual(CLILocator.newestClaudeBinary(in: root)?.path, wrapped.path)
+    }
+
+    func testCodexBinaryInsideChatGPTApp() throws {
+        // The layout the Codex desktop app (ChatGPT.app, com.openai.codex) ships.
+        let binary = try executable("Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex")
+        try executable("Applications/ChatGPT.app/Contents/Resources/codex-cli/codex-path/rg")
+        let roots = [root.appending(path: "System").path, root.appending(path: "Applications").path]
+        XCTAssertEqual(CLILocator.bundledCodexBinary(inApplications: roots)?.path, binary.path)
+    }
+
+    func testCodexBinaryIgnoresDirectoryOfTheSameName() throws {
+        try FileManager.default.createDirectory(
+            at: root.appending(path: "Applications/Codex.app/Contents/Resources/codex"), withIntermediateDirectories: true)
+        XCTAssertNil(CLILocator.bundledCodexBinary(inApplications: [root.appending(path: "Applications").path]))
     }
 
     func testClaudeDesktopBinarySkipsVersionWithoutExecutable() throws {
