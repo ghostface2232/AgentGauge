@@ -71,6 +71,14 @@ final class CodexParserTests: XCTestCase {
         XCTAssertNil(payload.resetCredits)
     }
 
+    func testCodexProTiersUseMarketedNames() throws {
+        let cases = ["prolite": "Pro 100", "pro": "Pro 200", "promax": "Pro 500", "PROMAX": "Pro 500", "plus": "Plus"]
+        for (raw, expected) in cases {
+            let payload = try CodexUsageParser.payload(from: Data(#"{ "plan_type": "\#(raw)", "rate_limit": {} }"#.utf8))
+            XCTAssertEqual(payload.plan, expected, raw)
+        }
+    }
+
     func testBothWindowsAdditionalLimitsAndCredits() throws {
         let json = """
         { "plan_type": "pro",
@@ -84,7 +92,7 @@ final class CodexParserTests: XCTestCase {
           "rate_limit_reset_credits": { "available_count": 2, "applicable_available_count": 0 } }
         """
         let payload = try CodexUsageParser.payload(from: Data(json.utf8))
-        XCTAssertEqual(payload.plan, "Pro")
+        XCTAssertEqual(payload.plan, "Pro 200")
         XCTAssertEqual(payload.windows.map(\.id), ["fiveHour", "weekly", "codex-additional-gpt-reserve-18000"])
         XCTAssertEqual(payload.windows[2].groupLabel, "Luna Reserve")
         XCTAssertEqual(payload.resetCredits, 2)

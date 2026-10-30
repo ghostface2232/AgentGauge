@@ -110,6 +110,11 @@ public protocol CLILocating: Sendable {
 /// Finds the official CLIs. An app launched from Finder or at login does not inherit the
 /// shell's PATH, so the usual install locations are checked first and the user's login
 /// shell PATH (where nvm/asdf/Homebrew put things) is asked once as a fallback.
+///
+/// Last comes the copy a desktop app ships, so a desktop-only install can still sign in and
+/// run the delegated refresh: the Claude desktop app unpacks the real `claude` binary under
+/// its Application Support folder, and the Codex app bundles `codex` and shares
+/// `~/.codex/auth.json` with the CLI. The desktop apps' own token stores are never read.
 public actor CLILocator: CLILocating {
     private let runner: any ProcessRunning
     private let homeDirectory: URL
@@ -123,7 +128,42 @@ public actor CLILocator: CLILocating {
 
     public func locate(_ name: String) async -> URL? {
         if let found = Self.firstExecutable(name, in: wellKnownDirectories()) { return found }
-        return Self.firstExecutable(name, in: await shellPath())
+        if let found = Self.firstExecutable(name, in: await shellPath()) { return found }
+        return bundledExecutable(name)
+    }
+
+    private func bundledExecutable(_ name: String) -> URL? {
+        switch name {
+        case "claude":
+            return Self.newestClaudeBinary(
+                in: homeDirectory.appending(path: "Library/Application Support/Claude/claude-code"))
+        case "codex":
+            let roots = ["/Applications", homeDirectory.appending(path: "Applications").path]
+            let bundles = roots.flatMap { root in ["Codex.app", "ChatGPT.app"].map { "\(root)/\($0)" } }
+            return Self.firstExecutable("codex", in: bundles.map { "\($0)/Contents/Resources" })
+        default:
+            return nil
+        }
+    }
+
+    /// The desktop app unpacks its CLI per version (`claude-code/<version>/…`) and can keep an
+    /// older one beside the current, so the highest version wins; within a version the binary
+    /// sits directly, one build-hash folder down, or inside a `claude.app` wrapper.
+    static func newestClaudeBinary(in root: URL) -> URL? {
+        let fileManager = FileManager.default
+        guard let versions = try? fileManager.contentsOfDirectory(atPath: root.path) else { return nil }
+        let ordered = versions
+            .filter { $0.first?.isNumber == true }
+            .sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+        for version in ordered {
+            let directory = root.appending(path: version)
+            var candidates = [directory.path, directory.appending(path: "claude.app/Contents/MacOS").path]
+            if let builds = try? fileManager.contentsOfDirectory(atPath: directory.path) {
+                candidates += builds.sorted().map { directory.appending(path: $0).path }
+            }
+            if let found = firstExecutable("claude", in: candidates) { return found }
+        }
+        return nil
     }
 
     private static func firstExecutable(_ name: String, in directories: [String]) -> URL? {

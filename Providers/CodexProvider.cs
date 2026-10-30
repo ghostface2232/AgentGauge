@@ -43,10 +43,14 @@ public sealed class CodexProvider : UsageProviderBase
         RetryBackoff = new BackoffPolicy(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(30)),
     };
 
+    // The Pro tiers are shown by their marketed monthly price. The API names them
+    // prolite/pro/promax (the Codex CLI's PlanType enum, 0.166), which read as internal ids.
     private static readonly IReadOnlyDictionary<string, string> KnownPlans = new Dictionary<string, string>
     {
         ["plus"] = "Plus",
-        ["pro"] = "Pro",
+        ["prolite"] = "Pro 100",
+        ["pro"] = "Pro 200",
+        ["promax"] = "Pro 500",
         ["free"] = "Free",
         ["go"] = "Go",
         ["business"] = "Business",

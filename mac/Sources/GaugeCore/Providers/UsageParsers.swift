@@ -67,8 +67,11 @@ public enum ClaudeUsageParser {
 /// (`{ used_percent, reset_at: epoch seconds, limit_window_seconds }`), optional
 /// `additional_rate_limits[]`, and `rate_limit_reset_credits`.
 public enum CodexUsageParser {
+    /// The Pro tiers are shown by their marketed monthly price. The API names them
+    /// prolite/pro/promax (the Codex CLI's PlanType enum, 0.166), which read as internal ids.
     static let knownPlans: [String: String] = [
-        "plus": "Plus", "pro": "Pro", "free": "Free", "go": "Go",
+        "plus": "Plus", "prolite": "Pro 100", "pro": "Pro 200", "promax": "Pro 500",
+        "free": "Free", "go": "Go",
         "business": "Business", "team": "Team", "enterprise": "Enterprise",
     ]
 

@@ -179,12 +179,21 @@ private struct SettingsTabBar: View {
         Button {
             selection = tab
         } label: {
+            // Every tab keeps the width of its selected look (semibold title, filled symbol)
+            // whether or not it is selected. The toolbar sizes its item once, so a tab that
+            // grew on selection squeezed its neighbours, and a Korean "일반" truncated to "…".
             HStack(spacing: 5) {
-                Image(systemName: tab.symbol)
-                    .font(.system(size: 12, weight: .medium))
-                    .symbolVariant(tab == selection ? .fill : .none)
-                Text(tab.title)
-                    .font(.system(size: 12, weight: tab == selection ? .semibold : .regular))
+                ZStack {
+                    Image(systemName: tab.symbol).symbolVariant(.fill).hidden()
+                    Image(systemName: tab.symbol).symbolVariant(tab == selection ? .fill : .none)
+                }
+                .font(.system(size: 12, weight: .medium))
+                ZStack {
+                    Text(tab.title).font(.system(size: 12, weight: .semibold)).hidden()
+                    Text(tab.title).font(.system(size: 12, weight: tab == selection ? .semibold : .regular))
+                }
+                .lineLimit(1)
+                .fixedSize()
             }
             .foregroundStyle(tab == selection ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
             .padding(.horizontal, 11)

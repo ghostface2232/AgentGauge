@@ -28,7 +28,7 @@ public sealed class CodexProviderTests
         """;
         var snapshot = await Snapshot(json, Available("codex-token", "acct"));
 
-        Assert.Equal("Pro", snapshot.Plan);
+        Assert.Equal("Pro 200", snapshot.Plan);
         Assert.Equal(2, snapshot.Windows.Count);
 
         var fiveHour = Assert.Single(snapshot.Windows, w => w.Type == UsageWindowType.FiveHour);
@@ -195,6 +195,19 @@ public sealed class CodexProviderTests
             """{ "rate_limit": { "primary_window": { "used_percent": 250 } } }""", Available("t"));
         var window = Assert.Single(snapshot.Windows);
         Assert.Equal(1.0, window.UsedRatio, 3);
+    }
+
+    [Theory]
+    [InlineData("prolite", "Pro 100")]
+    [InlineData("pro", "Pro 200")]
+    [InlineData("promax", "Pro 500")]
+    [InlineData("PROMAX", "Pro 500")]
+    [InlineData("plus", "Plus")]
+    public async Task MapsProTiersToMarketedNames(string planType, string expected)
+    {
+        var snapshot = await Snapshot($$"""{ "plan_type": "{{planType}}", "rate_limit": {} }""", Available("t"));
+
+        Assert.Equal(expected, snapshot.Plan);
     }
 
     [Fact]
