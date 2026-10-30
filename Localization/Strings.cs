@@ -169,9 +169,9 @@ internal static class Strings
         ["Notif_ResetMessage"] = ["한도가 초기화되어 현재 {0:0}% 남았습니다.", "Reset — {0:0}% now available", "利用枠が{0:0}%にリセットされました"],
 
         // ── Authentication state messages ──────────────────────────────────
-        ["Auth_CliNotFound"]  = ["{0} CLI를 찾을 수 없습니다. CLI를 설치한 뒤 `{1}`를 실행하세요.",
-                                 "{0} CLI not found. Install the CLI, then run `{1}`.",
-                                 "{0} CLIが見つかりません。CLIをインストールして `{1}` を実行してください。"], // {0}=command {1}="command args"
+        ["Auth_CliNotFound"]  = ["{0} CLI를 찾을 수 없습니다. CLI나 데스크톱 앱을 설치한 뒤 `{1}`를 실행하세요.",
+                                 "{0} CLI not found. Install the CLI or the desktop app, then run `{1}`.",
+                                 "{0} CLIが見つかりません。CLIまたはデスクトップアプリをインストールして `{1}` を実行してください。"], // {0}=command {1}="command args"
         ["Auth_LoginInBrowser"] = ["브라우저 또는 CLI 창에서 로그인을 완료하세요.",
                                  "Complete the sign-in in your browser or the CLI window.",
                                  "ブラウザまたはCLIウィンドウでログインを完了してください。"],
