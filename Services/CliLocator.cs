@@ -93,8 +93,11 @@ public sealed class CliLocator : ICliLocator
     }
 
     /// <summary>
-    /// The desktop app unpacks its CLI to <c>claude-code\&lt;version&gt;\&lt;build hash&gt;\claude.exe</c>
-    /// and can keep an older version beside the current one, so the highest version wins.
+    /// The desktop app downloads its CLI on first use of its Code tab to
+    /// <c>claude-code\&lt;version&gt;\&lt;build hash&gt;\claude.exe</c> and can keep an older version
+    /// beside the current one, so the highest version wins. It writes a <c>.verified</c> marker
+    /// after the binary, so a build still downloading is passed over for an older complete one;
+    /// an unmarked binary is used only when no build carries the marker.
     /// </summary>
     internal static string? FindNewestClaudeBinary(string root)
     {
@@ -103,16 +106,19 @@ public sealed class CliLocator : ICliLocator
             .Select(dir => (dir, version: Version.TryParse(Path.GetFileName(dir), out var v) ? v : null))
             .Where(x => x.version is not null)
             .OrderByDescending(x => x.version);
+        string? unverified = null;
         foreach (var (dir, _) in versions)
         {
-            var direct = Path.Combine(dir, "claude.exe");
-            if (File.Exists(direct)) return direct;
-            var nested = Directory.EnumerateDirectories(dir)
-                .Select(build => Path.Combine(build, "claude.exe"))
-                .FirstOrDefault(File.Exists);
-            if (nested is not null) return nested;
+            var builds = new[] { dir }.Concat(Directory.EnumerateDirectories(dir).Order(StringComparer.Ordinal));
+            foreach (var build in builds)
+            {
+                var binary = Path.Combine(build, "claude.exe");
+                if (!File.Exists(binary)) continue;
+                if (File.Exists(Path.Combine(build, ".verified"))) return binary;
+                unverified ??= binary;
+            }
         }
-        return null;
+        return unverified;
     }
 
     private static string? FindCodexDesktopCli()
