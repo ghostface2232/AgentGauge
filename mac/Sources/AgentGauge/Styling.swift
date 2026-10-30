@@ -55,6 +55,10 @@ extension View {
         #endif
     }
 
+    /// Before macOS 26 the `.quaternary` hierarchical style resolves to an opaque near-white on
+    /// the menu bar panel; the AppKit fill colour stays translucent and adapts to light/dark.
+    private static var legacyCardFill: Color { Color(nsColor: .quaternarySystemFill) }
+
     /// On macOS 26 the card shape is concentric with the panel window, as system panels nest
     /// their modules; a fixed radius reads rounder than the window around it.
     @ViewBuilder
@@ -64,10 +68,10 @@ extension View {
             background(.quaternary, in: ConcentricRectangle(
                 corners: .concentric(minimum: .fixed(Metrics.cardCornerRadius)), isUniform: true))
         } else {
-            background(.quaternary, in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius, style: .continuous))
+            background(Self.legacyCardFill, in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius, style: .continuous))
         }
         #else
-        background(.quaternary, in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius, style: .continuous))
+        background(Self.legacyCardFill, in: RoundedRectangle(cornerRadius: Metrics.cardCornerRadius, style: .continuous))
         #endif
     }
 }
