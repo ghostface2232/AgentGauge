@@ -1,3 +1,4 @@
+import CommonCrypto
 import Foundation
 import SQLite3
 import XCTest
@@ -193,6 +194,110 @@ final class CursorCredentialTests: XCTestCase {
 
         let read = await CursorCredentialSource(databaseURL: databaseURL).read(interactive: false)
         XCTAssertEqual(read, .invalid(.unreadable))
+    }
+
+    // Cursor 3.27+ stores the token as an Electron Safe Storage envelope.
+
+    private final class FakeCursorKeychain: KeychainReading, @unchecked Sendable {
+        var result: KeychainPasswordResult
+        var promptingReads = 0
+        var silentReads = 0
+        init(_ result: KeychainPasswordResult) { self.result = result }
+        func newestItem(service: String) async -> KeychainItem? { nil }
+        func password(service: String, account: String?) async -> KeychainPasswordResult {
+            promptingReads += 1
+            return result
+        }
+        func passwordWithoutPrompt(service: String, account: String?) async -> KeychainPasswordResult {
+            silentReads += 1
+            return result
+        }
+    }
+
+    private let safeStoragePassword = Data("keychain-password".utf8)
+
+    /// Encrypts the way Chromium's macOS os_crypt does, mirroring what Cursor writes.
+    private func envelope(for token: String, password: Data) throws -> String {
+        let key = try XCTUnwrap(CursorSafeStorage.deriveKey(password))
+        let plain = Data(token.utf8)
+        var output = Data(count: plain.count + kCCBlockSizeAES128)
+        let capacity = output.count
+        var produced = 0
+        let iv = Data(repeating: 0x20, count: kCCBlockSizeAES128)
+        let status = output.withUnsafeMutableBytes { out in
+            plain.withUnsafeBytes { input in
+                key.withUnsafeBytes { keyBytes in
+                    iv.withUnsafeBytes { ivBytes in
+                        CCCrypt(CCOperation(kCCEncrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
+                                keyBytes.baseAddress, kCCKeySizeAES128, ivBytes.baseAddress,
+                                input.baseAddress, plain.count, out.baseAddress, capacity, &produced)
+                    }
+                }
+            }
+        }
+        XCTAssertEqual(Int(status), Int(kCCSuccess))
+        return CursorSafeStorage.envelopePrefix + (Data("v10".utf8) + output.prefix(produced)).base64EncodedString()
+    }
+
+    private func read(stored: String, keychain: FakeCursorKeychain, interactive: Bool) async throws -> CredentialRead {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appending(path: "state.vscdb")
+        try createItemTable(at: databaseURL, rows: ["cursorAuth/accessToken": stored])
+        let source = CursorCredentialSource(databaseURL: databaseURL, keychain: keychain,
+                                            now: { Date(timeIntervalSince1970: 1_790_000_000) })
+        return await source.read(interactive: interactive)
+    }
+
+    func testDecryptsAnEncryptedTokenWithoutPromptingInTheBackground() async throws {
+        let token = makeJWT(["sub": "github|user_42", "exp": 1_800_000_000])
+        let keychain = FakeCursorKeychain(.data(safeStoragePassword))
+
+        let read = try await read(stored: envelope(for: token, password: safeStoragePassword), keychain: keychain, interactive: false)
+
+        guard case .available(let credential) = read else { return XCTFail("expected a credential, got \(read)") }
+        XCTAssertEqual(credential.accessToken, token)
+        XCTAssertEqual(credential.accountID, "user_42")
+        XCTAssertEqual(keychain.silentReads, 1)
+        XCTAssertEqual(keychain.promptingReads, 0)
+    }
+
+    func testAUserInitiatedReadIsTheOnlyOneAllowedToPrompt() async throws {
+        let token = makeJWT(["sub": "github|user_42", "exp": 1_800_000_000])
+        let keychain = FakeCursorKeychain(.data(safeStoragePassword))
+
+        _ = try await read(stored: envelope(for: token, password: safeStoragePassword), keychain: keychain, interactive: true)
+
+        XCTAssertEqual(keychain.promptingReads, 1)
+        XCTAssertEqual(keychain.silentReads, 0)
+    }
+
+    func testAPlainTokenNeverTouchesTheKeychain() async throws {
+        let keychain = FakeCursorKeychain(.data(safeStoragePassword))
+
+        let read = try await read(stored: makeJWT(["sub": "github|user_42"]), keychain: keychain, interactive: true)
+
+        guard case .available = read else { return XCTFail("expected a credential, got \(read)") }
+        XCTAssertEqual(keychain.promptingReads + keychain.silentReads, 0)
+    }
+
+    func testDeniedMissingAndWrongPasswordsAreDistinguished() async throws {
+        let envelope = try envelope(for: makeJWT(["sub": "github|user_42"]), password: safeStoragePassword)
+
+        let denied = try await read(stored: envelope, keychain: FakeCursorKeychain(.denied), interactive: false)
+        XCTAssertEqual(denied, .invalid(.keychainDenied))
+
+        let missing = try await read(stored: envelope, keychain: FakeCursorKeychain(.notFound), interactive: true)
+        XCTAssertEqual(missing, .invalid(.unreadable))
+
+        let wrong = try await read(stored: envelope, keychain: FakeCursorKeychain(.data(Data("other".utf8))), interactive: true)
+        XCTAssertEqual(wrong, .invalid(.unreadable))
+    }
+
+    func testMalformedEnvelopesAreUnreadable() {
+        XCTAssertNil(CursorSafeStorage.decrypt(CursorSafeStorage.envelopePrefix + "not base64!", password: safeStoragePassword))
+        XCTAssertNil(CursorSafeStorage.decrypt(CursorSafeStorage.envelopePrefix + Data("v11abc".utf8).base64EncodedString(), password: safeStoragePassword))
+        XCTAssertNil(CursorSafeStorage.decrypt(CursorSafeStorage.envelopePrefix + Data("v10".utf8).base64EncodedString(), password: safeStoragePassword))
     }
 
     private func createItemTable(at url: URL, rows: [String: String]) throws {
