@@ -67,8 +67,17 @@ internal sealed partial class TrayRingIconRenderer : IDisposable
 
             // GDI+ angles run clockwise from 3 o'clock. Top arc: from 9 o'clock over the top;
             // bottom arc: from 9 o'clock under the bottom, so both fill left to right.
-            DrawArc(g, bounds, 180f + gap / 2, span, ring.Short, stroke, cap, foreground, darkTaskbar, basis);
-            DrawArc(g, bounds, 180f - gap / 2, -span, ring.Long, stroke, cap, foreground, darkTaskbar, basis);
+            if ((ring.Short is null) != (ring.Long is null))
+            {
+                // A tool reporting one window (a weekly-only plan, a billing cycle) gets the
+                // whole ring rather than a half ring beside an empty track.
+                DrawArc(g, bounds, 180f + gap / 2, 360f - gap, ring.Short ?? ring.Long, stroke, cap, foreground, darkTaskbar, basis);
+            }
+            else
+            {
+                DrawArc(g, bounds, 180f + gap / 2, span, ring.Short, stroke, cap, foreground, darkTaskbar, basis);
+                DrawArc(g, bounds, 180f - gap / 2, -span, ring.Long, stroke, cap, foreground, darkTaskbar, basis);
+            }
 
             var inner = radius - stroke / 2 - Math.Max(1f, px * LogoPaddingShare);
             if (Logo(ring.Kind) is { } logo && inner > 2)

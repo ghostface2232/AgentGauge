@@ -201,12 +201,18 @@ struct MenuBarLabel: View {
                 context.setStrokeColor(NSColor.black.withAlphaComponent(alpha).cgColor)
                 context.strokePath()
             }
-            for (window, start, direction) in [(ring.short, 180 - Ring.gapDegrees / 2, CGFloat(-1)),
-                                               (ring.long, 180 + Ring.gapDegrees / 2, CGFloat(1))] {
-                arc(start: start, sweep: direction * span, alpha: Ring.trackAlpha)
+            // A tool reporting one window (a weekly-only plan, a billing cycle) gets the whole
+            // ring rather than a half ring beside an empty track.
+            let arcs: [(UsageWindow?, CGFloat, CGFloat)] = if (ring.short == nil) != (ring.long == nil) {
+                [(ring.short ?? ring.long, 180 - Ring.gapDegrees / 2, -(360 - Ring.gapDegrees))]
+            } else {
+                [(ring.short, 180 - Ring.gapDegrees / 2, -span), (ring.long, 180 + Ring.gapDegrees / 2, span)]
+            }
+            for (window, start, sweep) in arcs {
+                arc(start: start, sweep: sweep, alpha: Ring.trackAlpha)
                 if let window, window.usedRatio.isFinite {
                     let fill = CGFloat(basis.fraction(for: window.usedRatio))
-                    if fill > 0 { arc(start: start, sweep: direction * span * fill, alpha: 1) }
+                    if fill > 0 { arc(start: start, sweep: sweep * fill, alpha: 1) }
                 }
             }
 

@@ -229,7 +229,9 @@ public sealed class CliCredentialSource : ICredentialSource
         if (string.IsNullOrWhiteSpace(subscriptionType)) return null;
         return subscriptionType.ToLowerInvariant() switch
         {
-            "max" when rateLimitTier?.Contains("20x", StringComparison.OrdinalIgnoreCase) == true => "Max 20x",
+            // Anthropic folded the 20x Max tier into Ultra, which has no 5-hour window.
+            "max" when rateLimitTier?.Contains("20x", StringComparison.OrdinalIgnoreCase) == true
+                || rateLimitTier?.Contains("ultra", StringComparison.OrdinalIgnoreCase) == true => "Ultra",
             "max" when rateLimitTier?.Contains("5x", StringComparison.OrdinalIgnoreCase) == true => "Max 5x",
             "max" => "Max",
             "pro" => "Pro",
