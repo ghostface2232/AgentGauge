@@ -44,7 +44,7 @@ public sealed class SparklineSettingsStoreTests : IDisposable
     [Fact]
     public void SavingLeavesOtherKeysIntact()
     {
-        WriteSettings("""{ "EnabledTools": ["Cursor"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge", "DisplayBasis": "remaining" }""");
+        WriteSettings("""{ "EnabledTools": ["Antigravity"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge", "DisplayBasis": "remaining" }""");
 
         new SparklineSettingsStore(() => _dir).Save(false);
 
@@ -53,7 +53,7 @@ public sealed class SparklineSettingsStoreTests : IDisposable
         Assert.Equal(UsageDisplayBasis.Remaining, new DisplayBasisSettingsStore(() => _dir).Load());
         Assert.False(new NotificationSettingsStore(() => _dir).Load().Enabled);
         Assert.Equal(AppLanguage.Japanese, LanguageService.InitializeFromSettings(_dir));
-        Assert.Equal(new[] { ToolKind.Cursor }, new ToolRegistryStore(() => _dir).Load());
+        Assert.Equal(new[] { ToolKind.Antigravity }, new ToolRegistryStore(() => _dir).Load());
     }
 
     private void WriteSettings(string json)

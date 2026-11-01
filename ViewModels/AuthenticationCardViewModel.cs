@@ -78,7 +78,7 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
 
     /// <summary>
     /// True when the tool has a CLI login (Claude/Codex) so the card shows a login
-    /// button. App-login tools (e.g. Cursor) hide it and rely on the status message,
+    /// button. App-login tools (e.g. Antigravity) hide it and rely on the status message,
     /// which already tells the user to sign in.
     /// </summary>
     public bool SupportsCliLogin => _descriptor.LoginKind == LoginKind.CliCommand;

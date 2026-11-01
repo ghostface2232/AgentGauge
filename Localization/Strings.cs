@@ -209,14 +209,8 @@ internal static class Strings
         ["Cred_CodexExpired"] = ["Codex 로그인이 만료되었습니다. 다시 로그인하세요.", "Your Codex sign-in expired. Please sign in again.", "Codexのログイン有効期限が切れました。再度ログインしてください。"],
         ["Cred_ReadFailed"]   = ["자격증명 파일을 읽을 수 없습니다. CLI에서 다시 로그인하세요.", "Couldn't read the credential file. Sign in again from the CLI.", "資格情報ファイルを読み取れません。CLIで再度ログインしてください。"],
         ["Cred_CliInUse"]     = ["공식 CLI 로그인 정보를 사용 중입니다.", "Using the official CLI sign-in.", "公式CLIのログイン情報を使用中です。"],
-        ["Cred_CursorReadFailed"] = ["Cursor 로그인 정보를 읽을 수 없습니다. Cursor 앱에서 다시 로그인하세요.", "Couldn't read the Cursor sign-in. Sign in again in the Cursor app.", "Cursorのログイン情報を読み取れません。Cursorアプリで再度ログインしてください。"],
-        ["Cred_CursorMissing"] = ["Cursor 로그인 정보가 없습니다.", "No Cursor sign-in found.", "Cursorのログイン情報がありません。"],
-        ["Cred_CursorParseFailed"] = ["Cursor 로그인 토큰을 해석할 수 없습니다. Cursor 앱에서 다시 로그인하세요.", "Couldn't parse the Cursor sign-in token. Sign in again in the Cursor app.", "Cursorのログイントークンを解析できません。Cursorアプリで再度ログインしてください。"],
-        ["Cred_CursorExpired"] = ["Cursor 로그인이 만료되었습니다. Cursor 앱에서 다시 로그인하세요.", "Your Cursor sign-in expired. Sign in again in the Cursor app.", "Cursorのログイン有効期限が切れました。Cursorアプリで再度ログインしてください。"],
-        ["Cred_CursorInUse"]  = ["Cursor 앱 로그인 정보를 사용 중입니다.", "Using the Cursor app sign-in.", "Cursorアプリのログイン情報を使用中です。"],
         ["Cred_CopilotInUse"] = ["GitHub 로그인 정보를 사용 중입니다.", "Using the GitHub sign-in.", "GitHubのログイン情報を使用中です。"],
 
         // ── Tool guidance (resolved lazily; see ToolCatalog) ───────────────
-        ["Guidance_Cursor"]   = ["Cursor 앱에서 로그인하세요.", "Sign in from the Cursor app.", "Cursorアプリでログインしてください。"],
     };
 }

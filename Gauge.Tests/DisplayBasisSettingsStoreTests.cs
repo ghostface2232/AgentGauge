@@ -44,7 +44,7 @@ public sealed class DisplayBasisSettingsStoreTests : IDisposable
     [Fact]
     public void SavingLeavesOtherKeysIntact()
     {
-        WriteSettings("""{ "EnabledTools": ["Cursor"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge" }""");
+        WriteSettings("""{ "EnabledTools": ["Antigravity"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge" }""");
 
         new DisplayBasisSettingsStore(() => _dir).Save(UsageDisplayBasis.Remaining);
 
@@ -52,7 +52,7 @@ public sealed class DisplayBasisSettingsStoreTests : IDisposable
         Assert.Equal(UsageViewMode.Gauge, new ViewModeSettingsStore(() => _dir).Load());
         Assert.False(new NotificationSettingsStore(() => _dir).Load().Enabled);
         Assert.Equal(AppLanguage.Japanese, LanguageService.InitializeFromSettings(_dir));
-        Assert.Equal(new[] { ToolKind.Cursor }, new ToolRegistryStore(() => _dir).Load());
+        Assert.Equal(new[] { ToolKind.Antigravity }, new ToolRegistryStore(() => _dir).Load());
     }
 
     private void WriteSettings(string json)

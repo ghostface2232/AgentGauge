@@ -57,7 +57,7 @@ public sealed class WeeklyPaceModelSettingsStoreTests : IDisposable
     [Fact]
     public void SavingLeavesOtherKeysIntact()
     {
-        WriteSettings("""{ "EnabledTools": ["Cursor"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge", "DisplayBasis": "remaining", "ShowSparkline": false }""");
+        WriteSettings("""{ "EnabledTools": ["Antigravity"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge", "DisplayBasis": "remaining", "ShowSparkline": false }""");
 
         new WeeklyPaceModelSettingsStore(() => _dir).Save(WeeklyPaceModel.WorkDays);
 
@@ -67,7 +67,7 @@ public sealed class WeeklyPaceModelSettingsStoreTests : IDisposable
         Assert.False(new SparklineSettingsStore(() => _dir).Load());
         Assert.False(new NotificationSettingsStore(() => _dir).Load().Enabled);
         Assert.Equal(AppLanguage.Japanese, LanguageService.InitializeFromSettings(_dir));
-        Assert.Equal(new[] { ToolKind.Cursor }, new ToolRegistryStore(() => _dir).Load());
+        Assert.Equal(new[] { ToolKind.Antigravity }, new ToolRegistryStore(() => _dir).Load());
     }
 
     private void WriteSettings(string json)

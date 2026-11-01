@@ -15,7 +15,7 @@ These previously-untestable areas now have small production seams and are covere
 | Foreground-lock restore | `IForegroundLockTimeout` isolates the system setting. A locked/corrupt settings file, a failed baseline write, or an unreadable timeout prevents zeroing; hard-kill recovery and reuse of an existing persisted baseline are covered. | `ForegroundLockGuardTests` |
 | Tool visibility save failures | Locked settings leave visibility and polling unchanged. The settings card rolls back both switch directions, reports one failure, and retries successfully after unlocking. | `ToolVisibilityTests`, `SettingsViewModelTests` |
 
-What else is covered: provider JSON-schema tolerance (Claude/Codex/Cursor/Copilot/
+What else is covered: provider JSON-schema tolerance (Claude/Codex/Copilot/
 Antigravity), credential parsing and auth expiry, the cold-start half of 429
 (propagation + 401/403 → auth), the Claude throttle/cache and account-switch
 invalidation (`ProviderCredentialSwitchTests`), coordinator cache merge (cold-start

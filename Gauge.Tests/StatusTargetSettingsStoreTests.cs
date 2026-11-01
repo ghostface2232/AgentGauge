@@ -36,12 +36,12 @@ public sealed class StatusTargetSettingsStoreTests : IDisposable
     [Fact]
     public void SavingLeavesOtherKeysIntact()
     {
-        WriteSettings("""{ "EnabledTools": ["Cursor"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge" }""");
+        WriteSettings("""{ "EnabledTools": ["Antigravity"], "Language": "ja", "NotificationsEnabled": false, "ViewMode": "gauge" }""");
 
         new StatusTargetSettingsStore(() => _dir).Save("ClaudeCode:fiveHour");
 
         var loaded = AppSettingsFile.Load(_dir);
-        Assert.Equal(["Cursor"], loaded.EnabledTools);
+        Assert.Equal(["Antigravity"], loaded.EnabledTools);
         Assert.Equal("ja", loaded.Language);
         Assert.False(loaded.NotificationsEnabled);
         Assert.Equal("gauge", loaded.ViewMode);

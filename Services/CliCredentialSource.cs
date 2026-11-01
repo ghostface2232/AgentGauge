@@ -42,7 +42,7 @@ public sealed class CliCredentialSource : ICredentialSource
         {
             ToolKind.ClaudeCode => await ReadClaudeAsync(cancellationToken),
             ToolKind.Codex => await ReadCodexAsync(cancellationToken),
-            // Tools this source does not own (e.g. Antigravity, Cursor) are handled by
+            // Tools this source does not own (e.g. Antigravity, GitHub Copilot) are handled by
             // their dedicated sources in the chain. Report Missing so we don't shadow them.
             _ => new CredentialReadResult { Tool = tool, Status = CredentialReadStatus.Missing, Message = Loc.Get("Cred_Missing") },
         };

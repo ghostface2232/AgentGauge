@@ -83,18 +83,6 @@ public static class ToolCatalog
         LoginArguments = "login",
     };
 
-    public static readonly ToolDescriptor Cursor = new()
-    {
-        Kind = ToolKind.Cursor,
-        DisplayName = "Cursor",
-        StatusPageUrl = new("https://status.cursor.com/"),
-        // No CLI login: the user signs into the Cursor app; Gauge reads its local token.
-        LoginCommand = "",
-        LoginArguments = "",
-        LoginKind = LoginKind.GuidanceOnly,
-        LoginGuidance = "Guidance_Cursor",
-    };
-
     public static readonly ToolDescriptor Antigravity = new()
     {
         Kind = ToolKind.Antigravity,
@@ -119,7 +107,7 @@ public static class ToolCatalog
     };
 
     /// <summary>Declaration order is the order tools are shown in the UI.</summary>
-    public static readonly IReadOnlyList<ToolDescriptor> All = new[] { ClaudeCode, Codex, Cursor, Antigravity, GitHubCopilot };
+    public static readonly IReadOnlyList<ToolDescriptor> All = new[] { ClaudeCode, Codex, Antigravity, GitHubCopilot };
 
     private static readonly IReadOnlyDictionary<ToolKind, ToolDescriptor> ByKind =
         All.ToDictionary(descriptor => descriptor.Kind);

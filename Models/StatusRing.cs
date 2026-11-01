@@ -25,7 +25,7 @@ public static class StatusRingSelection
     /// first family that has a 5-hour or weekly window (Antigravity reports only
     /// family-scoped windows). Scoped extras — Claude's Fable weekly, Antigravity's Gemini 4
     /// Argon, Codex's named model limits — therefore never reach the ring. A tool billed per
-    /// cycle (Cursor, GitHub Copilot) has no rolling windows, so its most-used billing-cycle
+    /// cycle (GitHub Copilot) has no rolling windows, so its most-used billing-cycle
     /// window fills the long arc and the short arc stays empty.
     /// </summary>
     public static (UsageWindow? Short, UsageWindow? Long) Select(IReadOnlyList<UsageWindow> windows)

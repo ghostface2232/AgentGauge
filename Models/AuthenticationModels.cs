@@ -4,7 +4,6 @@ public enum ToolKind
 {
     ClaudeCode,
     Codex,
-    Cursor,
     // Antigravity reads its rich 5h/weekly quota from the IDE's local language server
     // (attach), or from an engine Gauge launches itself when the IDE is closed (delegate).
     Antigravity,

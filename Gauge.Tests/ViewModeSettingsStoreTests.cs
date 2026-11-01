@@ -44,14 +44,14 @@ public sealed class ViewModeSettingsStoreTests : IDisposable
     [Fact]
     public void SavingLeavesOtherKeysIntact()
     {
-        WriteSettings("""{ "EnabledTools": ["Cursor"], "Language": "ja", "NotificationsEnabled": false }""");
+        WriteSettings("""{ "EnabledTools": ["Antigravity"], "Language": "ja", "NotificationsEnabled": false }""");
 
         new ViewModeSettingsStore(() => _dir).Save(UsageViewMode.Gauge);
 
         Assert.Equal(UsageViewMode.Gauge, new ViewModeSettingsStore(() => _dir).Load());
         Assert.False(new NotificationSettingsStore(() => _dir).Load().Enabled);
         Assert.Equal(AppLanguage.Japanese, LanguageService.InitializeFromSettings(_dir));
-        Assert.Equal(new[] { ToolKind.Cursor }, new ToolRegistryStore(() => _dir).Load());
+        Assert.Equal(new[] { ToolKind.Antigravity }, new ToolRegistryStore(() => _dir).Load());
     }
 
     private void WriteSettings(string json)

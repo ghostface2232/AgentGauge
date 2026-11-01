@@ -528,12 +528,12 @@ public sealed class ApiCostScannerTests : IDisposable
             Tools =
             [
                 new CachedUsage { ToolName = "Claude", Snapshot = new UsageSnapshot { ToolName = "Claude", Windows = [] } },
-                new CachedUsage { ToolName = "Cursor", Snapshot = new UsageSnapshot { ToolName = "Cursor", Windows = [] } },
+                new CachedUsage { ToolName = "GitHub Copilot", Snapshot = new UsageSnapshot { ToolName = "GitHub Copilot", Windows = [] } },
             ],
         });
 
         Assert.Equal("≈ $3.00", vm.Cards.Single(c => c.ToolName == "Claude").ApiCostText);
-        Assert.False(vm.Cards.Single(c => c.ToolName == "Cursor").HasApiCost);
+        Assert.False(vm.Cards.Single(c => c.ToolName == "GitHub Copilot").HasApiCost);
 
         vm.SetApiCosts([]);
         Assert.All(vm.Cards, c => Assert.False(c.HasApiCost));

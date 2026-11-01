@@ -27,7 +27,7 @@ public sealed class UsageEndpointException(HttpStatusCode statusCode, TimeSpan? 
 /// </summary>
 public sealed record UsageFetchPolicy
 {
-    /// <summary>No throttling, no provider-side cache serving (Cursor, GitHub Copilot).</summary>
+    /// <summary>No throttling, no provider-side cache serving (GitHub Copilot).</summary>
     public static UsageFetchPolicy None { get; } = new();
 
     /// <summary>
@@ -54,7 +54,7 @@ public sealed record UsageFetchPolicy
 }
 
 /// <summary>
-/// Shared skeleton for the HTTP usage providers (Claude, Codex, Cursor, GitHub
+/// Shared skeleton for the HTTP usage providers (Claude, Codex, GitHub
 /// Copilot). It owns everything that is the same for each of them — reading the
 /// CLI-local credential, the delegated refresh of an expired token, the
 /// 401/403 → refresh → single retry recovery, the empty "not signed in" snapshot, and
@@ -249,7 +249,7 @@ public abstract class UsageProviderBase : IUsageProvider
     /// Build the snapshot with <see cref="Snapshot"/> so its capture time is consistent.</summary>
     protected abstract Task<UsageSnapshot> FetchSnapshotAsync(ToolCredential credential, CancellationToken cancellationToken);
 
-    /// <summary>Whether the credential can authenticate a call (Cursor also needs the user id).</summary>
+    /// <summary>Whether the credential can authenticate a call (a provider may need more than the token).</summary>
     protected virtual bool HasUsableCredential(ToolCredential credential)
         => credential.AccessToken is { Length: > 0 };
 

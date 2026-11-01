@@ -23,13 +23,13 @@ public sealed class ToolRegistryStoreTests : IDisposable
     [Fact]
     public void UnknownToolNamesAreFilteredAndValidOnesKept()
     {
-        WriteSettings("""{ "EnabledTools": ["ClaudeCode", "Bogus", "Cursor"] }""");
+        WriteSettings("""{ "EnabledTools": ["ClaudeCode", "Bogus", "Cursor", "Antigravity"] }""");
 
         var loaded = new ToolRegistryStore(() => _dir).Load();
 
         Assert.Equal(2, loaded.Count);
         Assert.Contains(ToolKind.ClaudeCode, loaded);
-        Assert.Contains(ToolKind.Cursor, loaded);
+        Assert.Contains(ToolKind.Antigravity, loaded);
         Assert.DoesNotContain(ToolKind.Codex, loaded);
     }
 

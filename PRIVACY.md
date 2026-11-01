@@ -7,14 +7,14 @@
 ---
 
 ## 1. Summary
-AgentGauge is a Windows tray app that displays usage limits for developer tools such as Claude Code, Codex, Cursor, Antigravity, and GitHub Copilot. **AgentGauge does not collect or store personal information, and does not transmit any data to the developer.** AgentGauge operates no servers of its own and contains no analytics or tracking. All processing happens locally on the user's PC.
+AgentGauge is a Windows tray app that displays usage limits for developer tools such as Claude Code, Codex, Antigravity, and GitHub Copilot. **AgentGauge does not collect or store personal information, and does not transmit any data to the developer.** AgentGauge operates no servers of its own and contains no analytics or tracking. All processing happens locally on the user's PC.
 
 ## 2. Information Accessed and Processed
 AgentGauge accesses the following information **read-only on the user's device** solely to display usage. This information is never sent to the developer or any third party.
 
 | Information | Source | Purpose |
 | --- | --- | --- |
-| OAuth tokens | Local files managed by each CLI (`%USERPROFILE%\.claude\.credentials.json`, `%USERPROFILE%\.codex\auth.json`, Cursor `state.vscdb`) | Authenticate requests to each tool's official usage API |
+| OAuth tokens | Local files managed by each CLI (`%USERPROFILE%\.claude\.credentials.json`, `%USERPROFILE%\.codex\auth.json`) | Authenticate requests to each tool's official usage API |
 | GitHub OAuth token (Copilot) | The `gh` CLI (`gh auth token`), or a `github-copilot` `apps.json`/`hosts.json` file under `%LOCALAPPDATA%` or `~\.config` (written by Copilot editor integrations) | Authenticate the request to GitHub's Copilot quota endpoint |
 | Usage data | Responses from each tool's official API, or — for Antigravity — from the app's local engine over a loopback (127.0.0.1) connection | Display limits and usage in the tray popover |
 | Token counts from local session logs (**only when "Show API-equivalent cost" is turned on; off by default**) | Claude Code's transcripts (`%USERPROFILE%\.claude\projects\**\*.jsonl` and `%USERPROFILE%\.config\claude\projects`, or under `CLAUDE_CONFIG_DIR` instead) and Codex's session rollouts (`%USERPROFILE%\.codex\sessions`, `archived_sessions`, or under `CODEX_HOME`) | Estimate this month's cost at public API list prices beside each card's plan label |
@@ -32,13 +32,12 @@ AgentGauge communicates only with the following external endpoints. All of them 
 | --- | --- | --- |
 | `api.anthropic.com` | Fetch Claude Code usage | User's Anthropic OAuth token |
 | `chatgpt.com` | Fetch Codex usage | User's OpenAI OAuth token |
-| `cursor.com` | Fetch Cursor usage | User's Cursor session token |
 | `api.github.com` (`/copilot_internal/user`) | Fetch GitHub Copilot usage (only when Copilot is registered) | User's GitHub OAuth token |
-| `status.anthropic.com` / `status.claude.com`, `status.openai.com`, `status.cursor.com`, `www.githubstatus.com` | Read public service health every 15 minutes for registered tools | None (unauthenticated public GET; no token or cookie attached) |
+| `status.anthropic.com` / `status.claude.com`, `status.openai.com`, `www.githubstatus.com` | Read public service health every 15 minutes for registered tools | None (unauthenticated public GET; no token or cookie attached) |
 | `api.github.com` (`/repos/.../releases/latest`) | Check for app updates | None (public release info only; no token attached) |
 | `github.com` / `objects.githubusercontent.com` | Download the release installer, only when the user clicks Update | None (public file; no token attached) |
 
-Tokens sent to each service, and the resulting data handling, are governed by that service's privacy policy (Anthropic, OpenAI, Cursor, GitHub).
+Tokens sent to each service, and the resulting data handling, are governed by that service's privacy policy (Anthropic, OpenAI, GitHub).
 
 For Antigravity, AgentGauge itself makes **no external network call**: it talks only to the Antigravity engine on the local loopback address (127.0.0.1), which never leaves the device. That engine — part of Antigravity, whether the app's own or one AgentGauge briefly launches — may in turn contact Antigravity's first-party cloud to fetch quota, exactly as it does for the Antigravity app; that traffic is the engine's own and is governed by Antigravity's privacy policy, not the developer's.
 

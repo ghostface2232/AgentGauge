@@ -305,7 +305,7 @@ public sealed class UsageViewModelTests
         var viewModel = new UsageViewModel();
         viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.10)));
 
-        viewModel.SetRefreshing(new[] { "Codex", "Cursor" }); // Cursor has no card → ignored
+        viewModel.SetRefreshing(new[] { "Codex", "Bogus" }); // Bogus has no card → ignored
 
         Assert.False(viewModel.Cards.Single(c => c.ToolName == "Claude").IsRefreshing);
         Assert.True(viewModel.Cards.Single(c => c.ToolName == "Codex").IsRefreshing);

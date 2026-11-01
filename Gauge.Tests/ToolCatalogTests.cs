@@ -8,7 +8,7 @@ public sealed class ToolCatalogTests
     [Theory]
     [InlineData(ToolKind.ClaudeCode, "Claude", "claude", "/login")]
     [InlineData(ToolKind.Codex, "Codex", "codex", "login")]
-    [InlineData(ToolKind.Cursor, "Cursor", "", "")]
+    [InlineData(ToolKind.GitHubCopilot, "GitHub Copilot", "gh", "auth login")]
     public void DescriptorCarriesNameAndLoginCommand(ToolKind kind, string name, string command, string arguments)
     {
         var descriptor = ToolCatalog.For(kind);
@@ -36,7 +36,7 @@ public sealed class ToolCatalogTests
     [Theory]
     [InlineData(ToolKind.ClaudeCode)]
     [InlineData(ToolKind.Codex)]
-    [InlineData(ToolKind.Cursor)]
+    [InlineData(ToolKind.GitHubCopilot)]
     public void AuthenticationStateUsesDescriptorName(ToolKind kind)
     {
         var provider = new CliAuthenticationProvider(
