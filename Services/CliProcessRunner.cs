@@ -19,6 +19,18 @@ public interface ICliProcessRunner
 
 public sealed class CliProcessRunner : ICliProcessRunner
 {
+    /// <summary>
+    /// The folder every CLI starts in: the user's profile rather than whatever folder Gauge
+    /// inherited, so the CLI never picks up project files (or a planted binary) from there.
+    /// </summary>
+    internal static string NeutralWorkingDirectory { get; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    /// <summary>
+    /// cmd.exe by full path: a bare name makes CreateProcess search the working directory
+    /// before the system folder.
+    /// </summary>
+    internal static string CommandInterpreter { get; } = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+
     public async Task<CliProcessResult> RunVisibleAsync(
         string executable, string arguments, TimeSpan timeout, CancellationToken cancellationToken)
     {
@@ -31,6 +43,7 @@ public sealed class CliProcessRunner : ICliProcessRunner
             UseShellExecute = true,
             CreateNoWindow = false,
             WindowStyle = ProcessWindowStyle.Normal,
+            WorkingDirectory = NeutralWorkingDirectory,
         }) ?? throw new InvalidOperationException("CLI 로그인 프로세스를 시작할 수 없습니다.");
 
         using var timeoutCts = new CancellationTokenSource(timeout);
@@ -64,6 +77,7 @@ public sealed class CliProcessRunner : ICliProcessRunner
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = NeutralWorkingDirectory,
         };
 
         // A .cmd/.bat shim (e.g. npm's claude.cmd) is not a PE image, so it can't be
@@ -74,7 +88,7 @@ public sealed class CliProcessRunner : ICliProcessRunner
         if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
         {
-            startInfo.FileName = "cmd.exe";
+            startInfo.FileName = CommandInterpreter;
             startInfo.Arguments = $"/d /s /c \"\"{executable}\" {arguments}\"";
         }
         else

@@ -30,11 +30,7 @@ public sealed class CliLocator : ICliLocator
     {
         var extensions = new[] { ".exe", ".cmd", ".bat", "" };
         var candidates = new List<string>();
-        var path = Environment.GetEnvironmentVariable("PATH");
-        if (!string.IsNullOrWhiteSpace(path))
-        {
-            candidates.AddRange(path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        }
+        candidates.AddRange(PathDirectories(Environment.GetEnvironmentVariable("PATH")));
 
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
@@ -56,6 +52,22 @@ public sealed class CliLocator : ICliLocator
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// The PATH entries that name one fixed folder. A relative entry such as <c>.</c> or
+    /// <c>bin</c> would resolve against the process's working directory, so a binary planted
+    /// in whatever folder Gauge happened to start from could be located and then run with the
+    /// user's rights.
+    /// </summary>
+    internal static IEnumerable<string> PathDirectories(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) yield break;
+        foreach (var entry in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var directory = entry.Trim('"');
+            if (Path.IsPathFullyQualified(directory)) yield return directory;
+        }
     }
 
     private static string? FindBundled(string commandName)
