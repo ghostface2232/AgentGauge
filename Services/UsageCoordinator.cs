@@ -24,7 +24,7 @@ public enum RefreshReason
 /// Drives usage refreshes and owns the cache.
 ///
 /// - A one-minute scheduler tick refreshes only providers whose own cadence is due:
-///   Codex every 3 minutes, Claude/Cursor every 5, Antigravity every 10, and Copilot
+///   Codex every 3 minutes, Claude every 5, Antigravity every 10, and Copilot
 ///   every 15. Due providers still run in parallel and remain failure-isolated.
 /// - Opening the popover or requesting a manual refresh calls <see cref="RefreshAsync"/>,
 ///   debounced: if a
@@ -394,7 +394,7 @@ public sealed class UsageCoordinator : IDisposable
     internal static TimeSpan PeriodicIntervalFor(ToolKind tool) => tool switch
     {
         ToolKind.Codex => TimeSpan.FromMinutes(3),
-        ToolKind.ClaudeCode or ToolKind.Cursor => TimeSpan.FromMinutes(5),
+        ToolKind.ClaudeCode => TimeSpan.FromMinutes(5),
         ToolKind.Antigravity => TimeSpan.FromMinutes(10),
         ToolKind.GitHubCopilot => TimeSpan.FromMinutes(15),
         _ => TimeSpan.FromMinutes(5),

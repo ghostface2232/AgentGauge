@@ -13,7 +13,7 @@ public sealed class UsageCycleBoundaryTests
     private static readonly DateTimeOffset Reset = Now.AddHours(2);
 
     // The magnitude of a decrease decides nothing while the reset instant stands still:
-    // Cursor's headline percent comes from a precedence chain that can change shape between
+    // A provider's headline percent comes from a precedence chain that can change shape between
     // polls, so even a collapse there is a recalculation and the row keeps its history.
     [Theory]
     [InlineData(.421, .419)]

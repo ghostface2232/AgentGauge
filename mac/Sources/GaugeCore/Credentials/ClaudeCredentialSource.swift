@@ -24,6 +24,13 @@ public protocol KeychainReading: Sendable {
     func newestItem(service: String) async -> KeychainItem?
     /// The secret itself. For an item another app created, macOS asks the user first.
     func password(service: String, account: String?) async -> KeychainPasswordResult
+    /// Like `password`, but never shows the access prompt: an item this app is not already
+    /// trusted for reads as `.denied`. For polls that no user action asked for.
+    func passwordWithoutPrompt(service: String, account: String?) async -> KeychainPasswordResult
+}
+
+extension KeychainReading {
+    public func passwordWithoutPrompt(service: String, account: String?) async -> KeychainPasswordResult { .denied }
 }
 
 /// Read-only access to the login keychain through the Security framework.
@@ -47,6 +54,14 @@ public struct SystemKeychain: KeychainReading {
     }
 
     public func password(service: String, account: String?) async -> KeychainPasswordResult {
+        await read(service: service, account: account, allowPrompt: true)
+    }
+
+    public func passwordWithoutPrompt(service: String, account: String?) async -> KeychainPasswordResult {
+        await read(service: service, account: account, allowPrompt: false)
+    }
+
+    private func read(service: String, account: String?, allowPrompt: Bool) async -> KeychainPasswordResult {
         // The access prompt blocks this call until the user answers, so it runs off the
         // cooperative pool rather than stalling a Swift concurrency thread for that long.
         await withCheckedContinuation { continuation in
@@ -58,6 +73,7 @@ public struct SystemKeychain: KeychainReading {
                     kSecReturnData as String: true,
                 ]
                 if let account { query[kSecAttrAccount as String] = account }
+                if !allowPrompt { query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail }
                 var result: CFTypeRef?
                 let status = SecItemCopyMatching(query as CFDictionary, &result)
                 switch status {

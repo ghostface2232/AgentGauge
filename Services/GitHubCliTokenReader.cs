@@ -39,6 +39,7 @@ public sealed class GitHubCliTokenReader : IGitHubCliTokenReader
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = CliProcessRunner.NeutralWorkingDirectory,
         };
 
         // `--hostname github.com` pins the account even when gh has several. A .cmd/.bat shim
@@ -49,7 +50,7 @@ public sealed class GitHubCliTokenReader : IGitHubCliTokenReader
         if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
         {
-            startInfo.FileName = "cmd.exe";
+            startInfo.FileName = CliProcessRunner.CommandInterpreter;
             startInfo.Arguments = $"/d /s /c \"\"{executable}\" {args}\"";
         }
         else

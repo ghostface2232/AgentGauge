@@ -110,7 +110,7 @@
 
             <!-- Compact account card. Header carries the tool name and a disconnect
                  (remove) button; the body shows the CLI login button for Claude/Codex
-                 or sign-in guidance for app-login tools (Antigravity/Cursor). -->
+                 or sign-in guidance for app-login tools (Antigravity). -->
             <DataTemplate x:Key="AuthCardTemplate">
                 <Border Padding="12" CornerRadius="8"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"

@@ -123,14 +123,14 @@ public sealed class NotificationSettingsStoreTests : IDisposable
     [Fact]
     public void SavingLeavesOtherKeysIntact()
     {
-        WriteSettings("""{ "EnabledTools": ["Cursor"], "Language": "ja" }""");
+        WriteSettings("""{ "EnabledTools": ["Antigravity"], "Language": "ja" }""");
 
         new NotificationSettingsStore(() => _dir).Save(NotificationPreferences.Default with { Resets = false });
 
         // The notifications flags persisted, and the sibling keys survived the round-trip.
         Assert.False(new NotificationSettingsStore(() => _dir).Load().Resets);
         Assert.Equal(AppLanguage.Japanese, LanguageService.InitializeFromSettings(_dir));
-        Assert.Equal(new[] { ToolKind.Cursor }, new ToolRegistryStore(() => _dir).Load());
+        Assert.Equal(new[] { ToolKind.Antigravity }, new ToolRegistryStore(() => _dir).Load());
     }
 
     [Theory]

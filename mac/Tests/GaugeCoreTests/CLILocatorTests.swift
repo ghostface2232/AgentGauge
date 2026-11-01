@@ -39,6 +39,22 @@ final class CLILocatorTests: XCTestCase {
         XCTAssertEqual(CLILocator.newestClaudeBinary(in: root)?.path, wrapped.path)
     }
 
+    func testPathEntriesThatDependOnTheWorkingDirectoryAreIgnored() {
+        XCTAssertEqual(CLILocator.absoluteDirectories([".", "bin", "../up", "", "~/tools", "/opt/tools", "/usr/bin"]),
+                       ["/opt/tools", "/usr/bin"])
+    }
+
+    func testLocatorNeverReturnsABinaryFoundThroughARelativeDirectory() async throws {
+        let planted = try executable("planted/claude")
+        let previous = FileManager.default.currentDirectoryPath
+        defer { FileManager.default.changeCurrentDirectoryPath(previous) }
+        FileManager.default.changeCurrentDirectoryPath(planted.deletingLastPathComponent().path)
+
+        let environment = await CLILocator(homeDirectory: root).environment(for: URL(fileURLWithPath: "/usr/bin/true"))
+
+        XCTAssertFalse(environment["PATH", default: ""].split(separator: ":").contains { !$0.hasPrefix("/") })
+    }
+
     func testCodexBinaryInsideChatGPTApp() throws {
         // The layout the Codex desktop app (ChatGPT.app, com.openai.codex) ships.
         let binary = try executable("Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex")

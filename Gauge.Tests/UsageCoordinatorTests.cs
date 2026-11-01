@@ -31,7 +31,6 @@ public sealed class UsageCoordinatorTests
     [Theory]
     [InlineData(ToolKind.Codex, 3)]
     [InlineData(ToolKind.ClaudeCode, 5)]
-    [InlineData(ToolKind.Cursor, 5)]
     [InlineData(ToolKind.Antigravity, 10)]
     [InlineData(ToolKind.GitHubCopilot, 15)]
     public void BackgroundCadenceMatchesProviderCostAndWindowShape(ToolKind tool, int minutes)
@@ -268,7 +267,6 @@ public sealed class UsageCoordinatorTests
     [InlineData(ToolKind.Antigravity, 2)]
     [InlineData(ToolKind.Codex, 0)]
     [InlineData(ToolKind.ClaudeCode, 0)]
-    [InlineData(ToolKind.Cursor, 0)]
     [InlineData(ToolKind.GitHubCopilot, 0)]
     public void OnlyProcessSpawningProvidersHaveAPopoverOpenCostFloor(ToolKind tool, int minutes)
     {

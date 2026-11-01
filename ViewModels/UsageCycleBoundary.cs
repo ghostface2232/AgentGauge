@@ -43,8 +43,7 @@ public static class UsageCycleBoundary
             // their ratios sit, so the size of a decrease decides nothing here. Every
             // provider reports an absolute reset from its payload, and a large unexplained
             // decrease under an unchanged one is the provider recomputing its own headline
-            // percent — Cursor picks that percent from a precedence chain whose shape can
-            // change between polls (see CursorProvider.ParsePlanPercentUsed).
+            // percent, which can shift between polls.
             return newReset > oldReset + MinimumResetAdvance
                 && current.UsedRatio < previous.UsedRatio;
         }

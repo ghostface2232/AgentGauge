@@ -21,6 +21,17 @@ public sealed class CliLocatorTests : IDisposable
     }
 
     [Fact]
+    public void PathEntriesThatDependOnTheWorkingDirectoryAreIgnored()
+    {
+        var fixedDirectory = Path.Combine(_root, "tools");
+        var path = string.Join(Path.PathSeparator, ".", "bin", @"..\up", @"\rooted-on-current-drive", "C:drive-relative", $"\"{fixedDirectory}\"", "");
+
+        Assert.Equal([fixedDirectory], CliLocator.PathDirectories(path));
+        Assert.Empty(CliLocator.PathDirectories(null));
+        Assert.Empty(CliLocator.PathDirectories("  "));
+    }
+
+    [Fact]
     public void ClaudeDesktopBinaryPicksHighestVersionNotLexicalOrder()
     {
         Touch("2.1.99", "aaaa", "claude.exe");

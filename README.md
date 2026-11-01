@@ -17,7 +17,7 @@ It reads each tool's official usage endpoints using local, read-only credentials
 
 ## Features
 
-- **Accurate rate-limit quotas**: Shows live usage windows reported directly by official APIs, including Claude's 5-hour session and model-scoped weekly limits (such as Fable), Codex's 5-hour and weekly windows, Cursor's billing-cycle limits, GitHub Copilot's monthly metered allowances, and Antigravity's plan-enabled model families (Gemini and Claude/GPT).
+- **Accurate rate-limit quotas**: Shows live usage windows reported directly by official APIs, including Claude's 5-hour session and model-scoped weekly limits (such as Fable), Codex's 5-hour and weekly windows, Cursor's billing-cycle limits (macOS only), GitHub Copilot's monthly metered allowances, and Antigravity's plan-enabled model families (Gemini and Claude/GPT).
 - **Flexible display styles**: Switch between horizontal **bars** and circular **gauges** in Settings. Progress bars/gauges and the tray/menu bar icon change color as limits fill up (warning at 70%, critical at 90%).
 - **Pace tracking & run-out projections**: An unobtrusive warning appears when usage runs ahead of an even pace. Weekly pace curves can be adjusted to every day, workdays only (Mon–Fri), or an automatic curve based on your personal weekday rhythm.
 - **Sparklines & burn rates**: Glanceable sparklines trace recent quota trends, complemented by measured burn-rate projections for when active windows will run out.
@@ -25,7 +25,7 @@ It reads each tool's official usage endpoints using local, read-only credentials
 - **Native OS integration**:
   - **macOS**: Native menu bar app with Liquid Glass styling on macOS 26+ (standard look on macOS 14/15), needle-gauge status icon, and system notifications.
   - **Windows**: WinUI 3 popover styled after the Windows 11 Quick Settings panel, docking smoothly to the taskbar notification area.
-- **Tool management**: Enable or hide tools from Settings (Claude Code and Codex are shown by default; enable Cursor, Antigravity, or GitHub Copilot anytime).
+- **Tool management**: Enable or hide tools from Settings (Claude Code and Codex are shown by default; enable Cursor (macOS only), Antigravity, or GitHub Copilot anytime).
 - **Background refresh**: Automatically polls usage every few minutes and immediately upon opening the popover.
 - **Launch at startup & theme options**: Configurable start-on-boot, light/dark mode support, and internal scrolling for tall tool lists.
 - **Multilingual**: Available in English, Korean, and Japanese — automatically matching your system display language.
@@ -38,7 +38,7 @@ It reads each tool's official usage endpoints using local, read-only credentials
 | **macOS** | macOS 14 Sonoma or later (Apple silicon and Intel supported) |
 | **Windows** | Windows 10 version 2004 (build 19041) or later, or Windows 11 (x64) |
 
-You will also need the tools you wish to monitor installed and signed in on your system (the Claude Code CLI, Codex CLI, Cursor app, Antigravity app, and/or GitHub CLI for Copilot).
+You will also need the tools you wish to monitor installed and signed in on your system (the Claude Code CLI, Codex CLI, Cursor app (macOS only), Antigravity app, and/or GitHub CLI for Copilot).
 
 
 ## Installation
@@ -66,11 +66,11 @@ AgentGauge never issues, stores, or transmits your credentials to external serve
 | --- | --- | --- | --- |
 | **Claude Code** | Login Keychain (`Claude Code-credentials`) or `~/.claude/.credentials.json` | `%USERPROFILE%\.claude\.credentials.json` | `claude /login` |
 | **Codex** | `$CODEX_HOME/auth.json` or `~/.codex/auth.json` | `%CODEX_HOME%\auth.json` or `%USERPROFILE%\.codex\auth.json` | `codex login` |
-| **Cursor** | `~/Library/Application Support/Cursor/.../state.vscdb` (read-only) | `%APPDATA%\Cursor\User\globalStorage\state.vscdb` (read-only) | Sign in via the Cursor app |
+| **Cursor** | `~/Library/Application Support/Cursor/.../state.vscdb` (read-only) Not supported on Windows | Sign in via the Cursor app |
 | **Antigravity** | None read: fetched via local loopback engine | None read: fetched via local loopback engine | Sign in via the Antigravity app |
 | **GitHub Copilot** | `gh auth token`, or fallback config files (`~/.config/github-copilot/`) | `gh auth token`, or fallback config files (`%LOCALAPPDATA%\github-copilot\`) | `gh auth login` |
 
-- **Cursor**: AgentGauge reads its session token directly from Cursor's local state database in read-only mode — no secondary CLI login is required.
+- **Cursor** (macOS only): AgentGauge reads its session token directly from Cursor's local state database in read-only mode — no secondary CLI login is required. Cursor 3.27+ stores that token encrypted, so macOS asks once for access to the "Cursor Safe Storage" Keychain item. The Windows app does not support Cursor.
 - **Antigravity**: AgentGauge reads no credential files. Quotas are fetched over an authenticated local loopback (`127.0.0.1`) connection to Antigravity's language server (either the currently running instance, or a short-lived process launched to inspect current quota).
 - **Token Freshness**: When a CLI token expires after prolonged inactivity, AgentGauge triggers the CLI's own non-interactive background refresh commands (`claude mcp list`, `codex doctor`) so the official CLI renews its token safely.
 

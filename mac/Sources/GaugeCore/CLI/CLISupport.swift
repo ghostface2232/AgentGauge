@@ -29,6 +29,9 @@ public struct SystemProcessRunner: ProcessRunning {
             process.executableURL = executable
             process.arguments = arguments
             process.environment = environment
+            // The user's home rather than the inherited folder, so a CLI never picks up project
+            // files (or a planted binary) from wherever AgentGauge was started.
+            process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
             process.standardInput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             let pipe: Pipe? = captureOutput ? Pipe() : nil
@@ -175,8 +178,16 @@ public actor CLILocator: CLILocating {
         return nil
     }
 
+    /// PATH entries that name one fixed folder. A relative entry (`.`, `bin`, an empty one)
+    /// resolves against the process's working directory, so a binary planted in whatever
+    /// folder AgentGauge started from could be located, or found by `env` when a CLI starts
+    /// `node`, and run with the user's rights.
+    static func absoluteDirectories(_ directories: [String]) -> [String] {
+        directories.filter { $0.hasPrefix("/") }
+    }
+
     private static func firstExecutable(_ name: String, in directories: [String]) -> URL? {
-        for directory in directories {
+        for directory in absoluteDirectories(directories) {
             let candidate = URL(fileURLWithPath: directory, isDirectory: true).appending(path: name)
             // isExecutableFile is also true for a searchable directory of the same name.
             var isDirectory: ObjCBool = false
@@ -196,7 +207,7 @@ public actor CLILocator: CLILocating {
         path += (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         path += ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
         var seen = Set<String>()
-        environment["PATH"] = path.filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: ":")
+        environment["PATH"] = Self.absoluteDirectories(path).filter { seen.insert($0).inserted }.joined(separator: ":")
         return environment
     }
 

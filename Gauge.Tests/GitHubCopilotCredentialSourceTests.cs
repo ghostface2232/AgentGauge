@@ -50,7 +50,7 @@ public sealed class GitHubCopilotCredentialSourceTests
     public async Task IgnoresOtherTools()
     {
         var source = new GitHubCopilotCredentialSource(new FakeReader("gho_x"));
-        var result = await source.ReadAsync(ToolKind.Cursor);
+        var result = await source.ReadAsync(ToolKind.ClaudeCode);
         Assert.Equal(CredentialReadStatus.Missing, result.Status);
     }
 

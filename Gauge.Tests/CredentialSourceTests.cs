@@ -93,7 +93,7 @@ public sealed class CredentialSourceTests : IDisposable
         var claude = await source.ReadAsync(ToolKind.ClaudeCode);
 
         Assert.Equal("acct", codex.Credential?.AccountId);
-        Assert.Equal("Max 20x", claude.Credential?.Plan);
+        Assert.Equal("Ultra", claude.Credential?.Plan);
         Assert.Equal(CredentialOwner.CliLocal, claude.Credential?.Owner);
     }
 

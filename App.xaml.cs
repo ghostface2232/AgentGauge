@@ -116,13 +116,12 @@ public partial class App : Application
         // defaults to Claude Code + Codex; persisted to %APPDATA%\Gauge\settings.json.
         _toolRegistry = new ToolRegistry(new ToolRegistryStore());
         var cliCredentials = new CliCredentialSource();
-        var cursorCredentials = new CursorCredentialSource();
         // GitHub Copilot's token isn't a single fixed file: it reads from the gh CLI
         // (`gh auth token`) or a github-copilot apps.json/hosts.json file, whichever the
         // machine has — so the same build works across Windows setups, not just one.
         var githubCopilotCredentials = new GitHubCopilotCredentialSource();
         var credentials = new CredentialSourceChain(
-            new ICredentialSource[] { cliCredentials, cursorCredentials, githubCopilotCredentials });
+            new ICredentialSource[] { cliCredentials, githubCopilotCredentials });
         var locator = new CliLocator();
         var processRunner = new CliProcessRunner();
         // Let the providers recover an expired local token after boot by nudging the official
@@ -141,7 +140,7 @@ public partial class App : Application
         var codexTokenRefresher = new DelegatedTokenRefresher(
             "codex", "doctor", TimeSpan.FromSeconds(30), locator, processRunner);
         // Read auth state through the full credential chain (not just the CLI source)
-        // so non-CLI tools like Cursor report their real logged-in state on the card.
+        // so non-CLI tools like GitHub Copilot report their real logged-in state on the card.
         // Antigravity's sign-in is owned by the IDE's OAuth with no Gauge-readable credential,
         // so its card state can't come from the credential chain like the CLI tools' do.
         var authentication = ToolCatalog.All
@@ -162,7 +161,6 @@ public partial class App : Application
             {
                 new ClaudeProvider(_httpClient, credentials, claudeTokenRefresher),
                 new CodexProvider(_httpClient, credentials, codexTokenRefresher),
-                new CursorProvider(_httpClient, credentials),
                 _antigravityProvider,
                 new GitHubCopilotProvider(_httpClient, credentials),
             },

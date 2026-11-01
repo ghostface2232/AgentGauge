@@ -37,7 +37,7 @@ public sealed class ProviderStatusServiceTests
     public async Task PollsEnabledServicesOnlyRetainsStaleStatusAndClearsOnRecovery()
     {
         var time = new Clock();
-        var enabled = new HashSet<ToolKind> { ToolKind.Codex, ToolKind.Cursor, ToolKind.Antigravity };
+        var enabled = new HashSet<ToolKind> { ToolKind.Codex, ToolKind.GitHubCopilot, ToolKind.Antigravity };
         var handler = new Handler();
         using var http = new HttpClient(handler);
         using var service = new ProviderStatusService(http, enabled.Contains, time);
@@ -53,7 +53,7 @@ public sealed class ProviderStatusServiceTests
         handler.FailCodex = true;
         await service.RefreshAsync();
         Assert.Equal(codex with { LastCheckFailed = true }, Assert.Single(statuses, s => s.Tool == ToolKind.Codex));
-        Assert.False(Assert.Single(statuses, s => s.Tool == ToolKind.Cursor).LastCheckFailed);
+        Assert.False(Assert.Single(statuses, s => s.Tool == ToolKind.GitHubCopilot).LastCheckFailed);
         time.Advance(ProviderStatusService.PollInterval);
         handler.FailCodex = false;
         handler.Indicator = "none";

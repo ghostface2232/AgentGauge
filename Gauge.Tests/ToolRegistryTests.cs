@@ -12,7 +12,7 @@ public sealed class ToolRegistryTests
 
         Assert.True(registry.IsEnabled(ToolKind.ClaudeCode));
         Assert.True(registry.IsEnabled(ToolKind.Codex));
-        Assert.False(registry.IsEnabled(ToolKind.Cursor));
+        Assert.False(registry.IsEnabled(ToolKind.Antigravity));
     }
 
     [Fact]
@@ -21,7 +21,7 @@ public sealed class ToolRegistryTests
         var registry = new ToolRegistry(new InMemoryStore());
 
         Assert.Equal(new[] { ToolKind.ClaudeCode, ToolKind.Codex }, registry.Enabled);
-        Assert.Equal(new[] { ToolKind.Cursor, ToolKind.Antigravity, ToolKind.GitHubCopilot }, registry.Available);
+        Assert.Equal(new[] { ToolKind.Antigravity, ToolKind.GitHubCopilot }, registry.Available);
     }
 
     [Fact]
@@ -31,13 +31,13 @@ public sealed class ToolRegistryTests
         var changed = 0;
         registry.Changed += (_, _) => changed++;
 
-        Assert.True(registry.Add(ToolKind.Cursor));
-        Assert.True(registry.IsEnabled(ToolKind.Cursor));
-        Assert.DoesNotContain(ToolKind.Cursor, registry.Available);
+        Assert.True(registry.Add(ToolKind.Antigravity));
+        Assert.True(registry.IsEnabled(ToolKind.Antigravity));
+        Assert.DoesNotContain(ToolKind.Antigravity, registry.Available);
         Assert.Equal(1, changed);
 
         // Adding again is a no-op (no event, returns false).
-        Assert.False(registry.Add(ToolKind.Cursor));
+        Assert.False(registry.Add(ToolKind.Antigravity));
         Assert.Equal(1, changed);
     }
 
@@ -127,11 +127,11 @@ public sealed class ToolRegistryTests
         // Three enabled tools; reorder only the two the main screen shows (a subset).
         var store = new InMemoryStore();
         var registry = new ToolRegistry(store);
-        registry.Add(ToolKind.Cursor); // order: Claude, Codex, Cursor
+        registry.Add(ToolKind.Antigravity); // order: Claude, Codex, Antigravity
 
-        // Swap Claude and Cursor; Codex is not in the subset, so it stays in its slot (index 1).
-        Assert.True(registry.ReorderEnabled(new[] { ToolKind.Cursor, ToolKind.ClaudeCode }));
-        Assert.Equal(new[] { ToolKind.Cursor, ToolKind.Codex, ToolKind.ClaudeCode }, registry.Enabled);
+        // Swap Claude and Antigravity; Codex is not in the subset, so it stays in its slot (index 1).
+        Assert.True(registry.ReorderEnabled(new[] { ToolKind.Antigravity, ToolKind.ClaudeCode }));
+        Assert.Equal(new[] { ToolKind.Antigravity, ToolKind.Codex, ToolKind.ClaudeCode }, registry.Enabled);
     }
 
     [Fact]
@@ -139,12 +139,12 @@ public sealed class ToolRegistryTests
     {
         var store = new InMemoryStore();
         var first = new ToolRegistry(store);
-        first.Add(ToolKind.Cursor);
+        first.Add(ToolKind.Antigravity);
         first.Remove(ToolKind.Codex);
 
         var second = new ToolRegistry(store);
         Assert.True(second.IsEnabled(ToolKind.ClaudeCode));
-        Assert.True(second.IsEnabled(ToolKind.Cursor));
+        Assert.True(second.IsEnabled(ToolKind.Antigravity));
         Assert.False(second.IsEnabled(ToolKind.Codex));
     }
 
@@ -161,10 +161,10 @@ public sealed class ToolRegistryTests
             Assert.Contains(ToolKind.ClaudeCode, initial);
             Assert.Contains(ToolKind.Codex, initial);
 
-            store.Save(new[] { ToolKind.ClaudeCode, ToolKind.Cursor });
+            store.Save(new[] { ToolKind.ClaudeCode, ToolKind.Antigravity });
             var reloaded = store.Load();
             Assert.Contains(ToolKind.ClaudeCode, reloaded);
-            Assert.Contains(ToolKind.Cursor, reloaded);
+            Assert.Contains(ToolKind.Antigravity, reloaded);
             Assert.DoesNotContain(ToolKind.Codex, reloaded);
         }
         finally
@@ -182,9 +182,9 @@ public sealed class ToolRegistryTests
         var registry = new ToolRegistry(new InMemoryStore());
         var snapshot = registry.Enabled;
 
-        registry.Add(ToolKind.Cursor);
+        registry.Add(ToolKind.Antigravity);
         registry.Remove(ToolKind.Codex);
-        registry.ReorderEnabled(new[] { ToolKind.Cursor, ToolKind.ClaudeCode });
+        registry.ReorderEnabled(new[] { ToolKind.Antigravity, ToolKind.ClaudeCode });
 
         Assert.Equal(new[] { ToolKind.ClaudeCode, ToolKind.Codex }, snapshot);
     }
@@ -205,16 +205,16 @@ public sealed class ToolRegistryTests
                 {
                     Assert.True(Enum.IsDefined(kind));
                 }
-                _ = registry.IsEnabled(ToolKind.Cursor);
+                _ = registry.IsEnabled(ToolKind.Antigravity);
                 _ = registry.Available;
             }
         });
 
         for (var i = 0; i < 2000; i++)
         {
-            registry.Add(ToolKind.Cursor);
-            registry.ReorderEnabled(new[] { ToolKind.Cursor, ToolKind.ClaudeCode });
-            registry.Remove(ToolKind.Cursor);
+            registry.Add(ToolKind.Antigravity);
+            registry.ReorderEnabled(new[] { ToolKind.Antigravity, ToolKind.ClaudeCode });
+            registry.Remove(ToolKind.Antigravity);
         }
 
         stop.Cancel();

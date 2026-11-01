@@ -312,7 +312,8 @@ struct PopoverView: View {
                         } else {
                             Image(systemName: update.hasFailedInstall ? "exclamationmark.circle.fill" : "arrow.down.circle.fill")
                         }
-                        Text(update.isAvailable ? L10n.get("Update_Apply") : (update.statusText ?? ""))
+                        Text(update.isAvailable ? L10n.get("Update_Apply")
+                             : update.hasFailedInstall ? L10n.get("Update_Failed") : (update.statusText ?? ""))
                             .lineLimit(1)
                     }
                 }

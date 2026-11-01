@@ -120,7 +120,7 @@ final class CredentialParsingTests: XCTestCase {
             return XCTFail("expected a credential")
         }
         XCTAssertEqual(credential.accessToken, "tok")
-        XCTAssertEqual(credential.plan, "Max 20x")
+        XCTAssertEqual(credential.plan, "Ultra")
     }
 
     func testClaudeExpiredAndMalformed() {

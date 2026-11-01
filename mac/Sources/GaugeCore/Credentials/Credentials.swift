@@ -131,7 +131,8 @@ public enum CredentialParsing {
         guard let type = ProviderText.normalize(subscriptionType)?.lowercased() else { return nil }
         let tier = rateLimitTier?.lowercased() ?? ""
         switch type {
-        case "max" where tier.contains("20x"): return "Max 20x"
+        // Anthropic folded the 20x Max tier into Ultra, which has no 5-hour window.
+        case "max" where tier.contains("20x") || tier.contains("ultra"): return "Ultra"
         case "max" where tier.contains("5x"): return "Max 5x"
         case "max": return "Max"
         case "pro": return "Pro"

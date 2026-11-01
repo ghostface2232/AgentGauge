@@ -57,7 +57,7 @@ enum Strings {
         "Empty_NoTools": ["표시 중인 도구가 없습니다.", "No tools are shown.", "表示中のツールがありません。"],
         "Action_Refresh": ["새로 고침", "Refresh", "更新"],
         "Action_Settings": ["설정…", "Settings…", "設定…"],
-        "Action_Quit": ["AgentGauge 종료", "Quit AgentGauge", "AgentGaugeを終了"],
+        "Action_Quit": ["종료하기", "Quit", "終了"],
         "Action_SignIn": ["로그인…", "Sign In…", "ログイン…"],
         "Action_TryAgain": ["다시 시도", "Try Again", "再試行"],
         "Ax_Used": ["{0}, {1}퍼센트 사용, {2}", "{0}, {1} percent used, {2}", "{0}、{1}パーセント使用、{2}"],

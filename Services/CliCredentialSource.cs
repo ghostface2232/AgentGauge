@@ -42,7 +42,7 @@ public sealed class CliCredentialSource : ICredentialSource
         {
             ToolKind.ClaudeCode => await ReadClaudeAsync(cancellationToken),
             ToolKind.Codex => await ReadCodexAsync(cancellationToken),
-            // Tools this source does not own (e.g. Antigravity, Cursor) are handled by
+            // Tools this source does not own (e.g. Antigravity, GitHub Copilot) are handled by
             // their dedicated sources in the chain. Report Missing so we don't shadow them.
             _ => new CredentialReadResult { Tool = tool, Status = CredentialReadStatus.Missing, Message = Loc.Get("Cred_Missing") },
         };
@@ -229,7 +229,9 @@ public sealed class CliCredentialSource : ICredentialSource
         if (string.IsNullOrWhiteSpace(subscriptionType)) return null;
         return subscriptionType.ToLowerInvariant() switch
         {
-            "max" when rateLimitTier?.Contains("20x", StringComparison.OrdinalIgnoreCase) == true => "Max 20x",
+            // Anthropic folded the 20x Max tier into Ultra, which has no 5-hour window.
+            "max" when rateLimitTier?.Contains("20x", StringComparison.OrdinalIgnoreCase) == true
+                || rateLimitTier?.Contains("ultra", StringComparison.OrdinalIgnoreCase) == true => "Ultra",
             "max" when rateLimitTier?.Contains("5x", StringComparison.OrdinalIgnoreCase) == true => "Max 5x",
             "max" => "Max",
             "pro" => "Pro",
