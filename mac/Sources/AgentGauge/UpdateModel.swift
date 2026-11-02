@@ -95,8 +95,8 @@ final class UpdateModel {
     /// Turning automatic installs on applies now: check, and install whatever is found.
     func checkAndInstall() {
         guard service != nil, PreviewRenderer.directoryArgument() == nil else { return }
-        // A check already running will install what it finds.
-        if isQuietChecking { installWhenFound = true; return }
+        // A check already running (quiet or a manual click) will install what it finds.
+        if isQuietChecking || phase == .checking { installWhenFound = true; return }
         guard !isBusy else { return }
         if case .available(let release) = phase {
             install(release)
@@ -123,10 +123,13 @@ final class UpdateModel {
         phase = .checking
         Task {
             switch await service.check() {
-            case .available(let release): phase = .available(release)
+            case .available(let release):
+                phase = .available(release)
+                if installWhenFound { installWhenFound = false; self.install(release) }
             case .upToDate: phase = .upToDate
             case .failed: phase = .checkFailed
             }
+            installWhenFound = false
         }
     }
 
