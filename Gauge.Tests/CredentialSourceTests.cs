@@ -148,6 +148,33 @@ public sealed class CredentialSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task ClaudeProfilePlanOverridesStaleCredentialPlan()
+    {
+        // After an upgrade the credentials file keeps the old tier until the token rotates,
+        // while the profile the CLI caches in ~/.claude.json already names the new one.
+        Write(".claude/.credentials.json",
+            """{"claudeAiOauth":{"accessToken":"t","subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}""");
+        Write(".claude.json",
+            """{"oauthAccount":{"organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}""");
+
+        var result = await Source().ReadAsync(ToolKind.ClaudeCode);
+
+        Assert.Equal("Ultra", result.Credential?.Plan);
+    }
+
+    [Fact]
+    public async Task ClaudeCredentialPlanIsUsedWhenProfileIsUnreadable()
+    {
+        Write(".claude/.credentials.json",
+            """{"claudeAiOauth":{"accessToken":"t","subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}""");
+        Write(".claude.json", "{ not json");
+
+        var result = await Source().ReadAsync(ToolKind.ClaudeCode);
+
+        Assert.Equal("Max 5x", result.Credential?.Plan);
+    }
+
+    [Fact]
     public async Task CodexWithoutAccessTokenIsInvalid()
     {
         Write(".codex/auth.json", """{"tokens":{}}""");
