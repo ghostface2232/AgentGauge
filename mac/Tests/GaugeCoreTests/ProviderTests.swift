@@ -246,6 +246,34 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         XCTAssertEqual(credential.plan, "Pro")
     }
 
+    func testProfilePlanOverridesTheStaleCredentialPlan() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let keychain = FakeKeychain()
+        keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+        keychain.result = .data(Data(#"{"claudeAiOauth":{"accessToken":"tok","subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}"#.utf8))
+        let source = ClaudeCredentialSource(keychain: keychain, environment: [:], homeDirectory: home)
+        let profile = home.appending(path: ".claude.json")
+
+        guard case .available(let before) = await source.read(interactive: false) else { return XCTFail("expected a credential") }
+        XCTAssertEqual(before.plan, "Max 5x")
+
+        try Data(#"{"oauthAccount":{"organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}"#.utf8).write(to: profile)
+        guard case .available(let after) = await source.read(interactive: false) else { return XCTFail("expected a credential") }
+        XCTAssertEqual(after.plan, "Ultra")
+        XCTAssertEqual(keychain.passwordReads, 1, "the profile is applied on top of the cached secret")
+
+        try Data("{ not json".utf8).write(to: profile)
+        guard case .available(let broken) = await source.read(interactive: false) else { return XCTFail("expected a credential") }
+        XCTAssertEqual(broken.plan, "Max 5x")
+    }
+
+    func testProfilePlanIgnoresTeamAndEnterpriseAccounts() {
+        let team = Data(#"{"oauthAccount":{"organizationType":"claude_team"}}"#.utf8)
+        XCTAssertNil(CredentialParsing.claudeProfilePlan(from: team))
+    }
+
     final class Clock: @unchecked Sendable {
         let lock = NSLock()
         var current: Date

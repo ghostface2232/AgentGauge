@@ -186,6 +186,7 @@ public actor ClaudeCredentialSource: CredentialSource {
 
     private let keychain: any KeychainReading
     private let fileURL: URL
+    private let profileURL: URL
     private let now: @Sendable () -> Date
     private var cachedItem: KeychainItem?
     private var cachedRead: CredentialRead?
@@ -205,10 +206,25 @@ public actor ClaudeCredentialSource: CredentialSource {
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? homeDirectory.appending(path: ".claude", directoryHint: .isDirectory)
         fileURL = configDirectory.appending(path: ".credentials.json")
+        // Claude Code keeps the profile inside the config directory when CLAUDE_CONFIG_DIR is
+        // set, and in the home directory otherwise.
+        profileURL = (ProviderText.normalize(environment["CLAUDE_CONFIG_DIR"]) != nil ? configDirectory : homeDirectory)
+            .appending(path: ".claude.json")
         self.now = now
     }
 
     public func read(interactive: Bool) async -> CredentialRead {
+        let result = await readCredential(interactive: interactive)
+        // Applied after the cached read, not inside it: the profile moves without the
+        // keychain item's modification date doing so.
+        guard case .available(var credential) = result,
+              let data = try? Data(contentsOf: profileURL),
+              let plan = CredentialParsing.claudeProfilePlan(from: data) else { return result }
+        credential.plan = plan
+        return .available(credential)
+    }
+
+    private func readCredential(interactive: Bool) async -> CredentialRead {
         if let item = await keychain.newestItem(service: Self.keychainService) {
             return await readKeychain(item, interactive: interactive)
         }

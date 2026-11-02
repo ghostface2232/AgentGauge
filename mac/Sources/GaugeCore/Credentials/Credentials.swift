@@ -127,6 +127,22 @@ public enum CredentialParsing {
         return .available(ToolCredential(accessToken: token, accountID: userID, expiresAt: expiresAt))
     }
 
+    /// The plan from the profile Claude Code caches in `~/.claude.json` (`oauthAccount`).
+    /// The credential document only rewrites `subscriptionType`/`rateLimitTier` when the access
+    /// token next rotates, so after a plan change it keeps naming the old plan for hours while
+    /// the usage windows already follow the new one; the profile is refetched from the server
+    /// and moves first. Only personal Max/Pro accounts are read, and anything else (or an
+    /// unreadable document) returns nil so the caller keeps the credential's own plan.
+    public static func claudeProfilePlan(from data: Data) -> String? {
+        guard let root = try? JSONObject.parse(data),
+              let account = root.object("oauthAccount"),
+              let type = account.string("organizationType")?.lowercased(),
+              type.hasPrefix("claude_") else { return nil }
+        let subscription = String(type.dropFirst("claude_".count))
+        guard subscription == "max" || subscription == "pro" else { return nil }
+        return claudePlan(subscriptionType: subscription, rateLimitTier: account.string("organizationRateLimitTier"))
+    }
+
     public static func claudePlan(subscriptionType: String?, rateLimitTier: String?) -> String? {
         guard let type = ProviderText.normalize(subscriptionType)?.lowercased() else { return nil }
         let tier = rateLimitTier?.lowercased() ?? ""
