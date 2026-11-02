@@ -19,7 +19,9 @@ struct AgentGaugeApp: App {
         _model = State(initialValue: model)
         let update = UpdateModel()
         _update = State(initialValue: update)
-        update.checkInBackground()
+        // The relaunch after an update (--updated) only checks, so a release that fails to bump
+        // its version cannot reinstall itself in a loop.
+        update.checkInBackground(installIfAvailable: model.autoUpdate && !CommandLine.arguments.contains("--updated"))
         // The updater relaunches with --updated; say that it landed, since a menu bar app has
         // no window that would otherwise show the new version.
         if CommandLine.arguments.contains("--updated") {

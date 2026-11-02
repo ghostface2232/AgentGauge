@@ -3,8 +3,8 @@ import GaugeCore
 import Observation
 
 /// The update control in Settings (and the panel footer's prompt): one action that checks
-/// GitHub Releases and, once a newer build is found, applies it. Checking happens quietly at
-/// launch; installing is always a deliberate click.
+/// GitHub Releases and, once a newer build is found, applies it. The launch check is quiet and
+/// installs by itself (except on the relaunch after an update); the button is the manual path.
 @MainActor
 @Observable
 final class UpdateModel {
@@ -40,7 +40,12 @@ final class UpdateModel {
         return false
     }
 
-    var isBusy: Bool { [.checking, .downloading, .installing].contains(phase) }
+    /// A quiet check leaves `phase` alone (it says nothing unless it finds something), so it is
+    /// tracked separately; without it a click or the auto-update switch would overlap it.
+    private(set) var isQuietChecking = false
+    @ObservationIgnored private var installWhenFound = false
+
+    var isBusy: Bool { isQuietChecking || [.checking, .downloading, .installing].contains(phase) }
 
     /// A failed install started from the panel says why there, too, rather than the prompt
     /// simply vanishing; clicking it checks again.
@@ -64,12 +69,41 @@ final class UpdateModel {
         }
     }
 
-    /// The quiet launch check: says nothing unless an update is found.
-    func checkInBackground() {
-        guard let service, phase == .idle, PreviewRenderer.directoryArgument() == nil else { return }
+    /// The quiet launch check: says nothing unless an update is found. With `installIfAvailable`
+    /// a found update is installed at once, which is how the first launch after login updates
+    /// itself.
+    func checkInBackground(installIfAvailable: Bool = false) {
+        guard phase == .idle, !isQuietChecking, PreviewRenderer.directoryArgument() == nil else { return }
+        installWhenFound = installIfAvailable
+        runQuietCheck()
+    }
+
+    private func runQuietCheck() {
+        guard let service else { return }
+        isQuietChecking = true
         Task {
-            if case .available(let release) = await service.check() { phase = .available(release) }
+            let result = await service.check()
+            isQuietChecking = false
+            let install = installWhenFound
+            installWhenFound = false
+            guard case .available(let release) = result else { return }
+            phase = .available(release)
+            if install { self.install(release) }
         }
+    }
+
+    /// Turning automatic installs on applies now: check, and install whatever is found.
+    func checkAndInstall() {
+        guard service != nil, PreviewRenderer.directoryArgument() == nil else { return }
+        // A check already running (quiet or a manual click) will install what it finds.
+        if isQuietChecking || phase == .checking { installWhenFound = true; return }
+        guard !isBusy else { return }
+        if case .available(let release) = phase {
+            install(release)
+            return
+        }
+        installWhenFound = true
+        runQuietCheck()
     }
 
     func performAction() {
@@ -89,10 +123,13 @@ final class UpdateModel {
         phase = .checking
         Task {
             switch await service.check() {
-            case .available(let release): phase = .available(release)
+            case .available(let release):
+                phase = .available(release)
+                if installWhenFound { installWhenFound = false; self.install(release) }
             case .upToDate: phase = .upToDate
             case .failed: phase = .checkFailed
             }
+            installWhenFound = false
         }
     }
 

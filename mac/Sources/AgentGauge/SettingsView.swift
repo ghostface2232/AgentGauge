@@ -372,8 +372,10 @@ private struct AccountSettings: View {
 
 private struct AboutSettings: View {
     @Environment(UpdateModel.self) private var update
+    @Environment(AppModel.self) private var model
 
     var body: some View {
+        @Bindable var model = model
         Form {
             Section {
                 LabeledContent(L10n.get("Settings_Version")) {
@@ -392,6 +394,13 @@ private struct AboutSettings: View {
                     Text(status)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                Toggle(isOn: $model.autoUpdate) {
+                    Text(L10n.get("Settings_AutoUpdate"))
+                    Text(L10n.get("Settings_AutoUpdateHelp"))
+                }
+                .onChange(of: model.autoUpdate) { _, enabled in
+                    if enabled { update.checkAndInstall() }
                 }
             }
         }

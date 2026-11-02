@@ -861,6 +861,21 @@
                                           ItemsSource="{Binding Global.LanguageOptions}"
                                           SelectedIndex="{Binding Global.LanguageIndex, Mode=TwoWay}" />
                             </Grid>
+                            <Border Height="1" Margin="0,2"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+                            <!-- Launch-time update check installs a newer release by itself.
+                                 On by default; off leaves the footer button as the only path. -->
+                            <Grid MinHeight="48" ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                           Text="{loc:Localize Key=Settings_AutoUpdate}"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <ToggleSwitch Style="{StaticResource EdgeAlignedToggleSwitchStyle}" Grid.Column="1"
+                                              IsOn="{Binding Global.AutoUpdate, Mode=TwoWay}" />
+                            </Grid>
                         </StackPanel>
                     </Border>
                     <TextBlock Margin="4,12,0,0" Text="{loc:Localize Key=Settings_GroupDisplay}"

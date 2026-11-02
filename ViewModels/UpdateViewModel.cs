@@ -14,6 +14,8 @@ public sealed partial class UpdateViewModel : ObservableObject
 {
     private readonly UpdateService _service;
     private GitHubRelease? _available;
+    private bool _quietChecking;
+    private bool _installWhenFound;
 
     public UpdateViewModel(UpdateService service)
     {
@@ -54,14 +56,42 @@ public sealed partial class UpdateViewModel : ObservableObject
 
     partial void OnStatusTextChanged(string value) => OnPropertyChanged(nameof(Tooltip));
 
-    /// <summary>Quiet check at launch; leaves the status blank unless an update is found.</summary>
-    public async Task CheckInBackgroundAsync()
+    /// <summary>
+    /// Quiet check at launch; leaves the status blank unless an update is found. With
+    /// <paramref name="installIfAvailable"/> a found update is applied straight away, which is
+    /// how the first launch after logon updates itself.
+    /// </summary>
+    public async Task CheckInBackgroundAsync(bool installIfAvailable = false)
     {
-        if (IsBusy) return;
-        ApplyResult(await _service.CheckAsync(), quiet: true);
+        // A request that arrives while a check is already running (the switch turned on mid-check)
+        // is remembered and honoured when that check ends, instead of being dropped.
+        if (installIfAvailable) _installWhenFound = true;
+        if (IsBusy || _quietChecking) return;
+
+        _quietChecking = true;
+        try
+        {
+            ApplyResult(await _service.CheckAsync(), quiet: true);
+        }
+        finally
+        {
+            _quietChecking = false;
+        }
+        await InstallIfRequestedAsync();
     }
 
-    private Task RunActionAsync() => IsUpdateAvailable ? UpdateAsync() : CheckAsync();
+    private async Task InstallIfRequestedAsync()
+    {
+        if (!_installWhenFound || IsBusy) return;
+        _installWhenFound = false;
+        if (IsUpdateAvailable) await UpdateAsync();
+    }
+
+    private Task RunActionAsync()
+    {
+        if (_quietChecking) return Task.CompletedTask;
+        return IsUpdateAvailable ? UpdateAsync() : CheckAsync();
+    }
 
     private async Task CheckAsync()
     {
@@ -75,6 +105,7 @@ public sealed partial class UpdateViewModel : ObservableObject
         {
             IsBusy = false;
         }
+        await InstallIfRequestedAsync();
     }
 
     private void ApplyResult(UpdateCheckResult result, bool quiet)
@@ -101,6 +132,7 @@ public sealed partial class UpdateViewModel : ObservableObject
     {
         if (_available is null) return;
 
+        _installWhenFound = false;
         IsBusy = true;
         StatusText = Loc.Get("Update_Downloading");
         if (await _service.DownloadAndLaunchAsync(_available))

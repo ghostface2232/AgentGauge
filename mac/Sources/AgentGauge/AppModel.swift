@@ -51,6 +51,11 @@ final class AppModel {
         }
     }
 
+    /// On by default: the launch check installs a newer release by itself.
+    var autoUpdate: Bool {
+        didSet { defaults.set(autoUpdate, forKey: Keys.autoUpdate) }
+    }
+
     /// Public service health per shown tool (only the polled ones appear).
     private(set) var serviceStatuses: [ToolKind: ProviderStatus] = [:]
     /// This month's API-equivalent estimate per tool, while the option is on.
@@ -109,6 +114,7 @@ final class AppModel {
             Keys.notifyResets: true,
             Keys.showSparkline: true,
             Keys.showApiCost: false,
+            Keys.autoUpdate: true,
         ])
         showPercentInMenuBar = defaults.bool(forKey: Keys.showPercent)
         // An older build stored one window ("codex:weekly"); the menu bar now follows a tool.
@@ -118,6 +124,7 @@ final class AppModel {
         showSparkline = defaults.bool(forKey: Keys.showSparkline)
         paceModel = WeeklyPaceModel(rawValue: defaults.string(forKey: Keys.paceModel) ?? "") ?? .uniform
         showApiCost = defaults.bool(forKey: Keys.showApiCost)
+        autoUpdate = defaults.bool(forKey: Keys.autoUpdate)
         notifyThresholds = defaults.bool(forKey: Keys.notifyThresholds)
         notifyResets = defaults.bool(forKey: Keys.notifyResets)
         hiddenTools = Self.loadHiddenTools(defaults)
@@ -453,6 +460,7 @@ final class AppModel {
         static let showSparkline = "showSparkline"
         static let paceModel = "weeklyPaceModel"
         static let showApiCost = "showApiCost"
+        static let autoUpdate = "autoUpdate"
         static let notifyThresholds = "notifyThresholds"
         static let notifyResets = "notifyResets"
         static let hiddenTools = "hiddenTools"

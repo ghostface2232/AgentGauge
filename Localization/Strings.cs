@@ -60,6 +60,7 @@ internal static class Strings
         // API-equivalent cost: the month's tokens from the CLIs' local session logs priced
         // at public API list rates. An estimate beside the plan label, never a bill; the
         // "+" form marks a floor because some model had no known rate.
+        ["Settings_AutoUpdate"]   = ["업데이트 자동 설치",   "Install updates automatically", "更新を自動でインストール"],
         ["Settings_ApiCost"]      = ["API 환산 비용 표시",  "Show API-equivalent cost", "API換算コストを表示"],
         ["ApiCost_Value"]         = ["≈ ${0}",             "≈ ${0}",            "≈ ${0}"],
         ["ApiCost_ValueFloor"]    = ["≈ ${0}+",            "≈ ${0}+",           "≈ ${0}+"],
