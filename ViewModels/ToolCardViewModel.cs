@@ -57,13 +57,14 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// <summary>One row per window the tool exposes, in provider order.</summary>
     public ObservableCollection<UsageWindowRowViewModel> Windows { get; } = new();
 
-    /// <summary>
-    /// The same windows grouped into family rows for the gauge layout (so a divider can sit
-    /// between families). Each group's rows are shared instances from <see cref="Windows"/>.
-    /// </summary>
     /// <summary>Gauges per row in the gauge layout; matches the two-up width of the popover.</summary>
     private const int GaugeColumns = 2;
 
+    /// <summary>
+    /// The same windows packed into rows of <see cref="GaugeColumns"/> for the gauge layout (a divider
+    /// sits where a row boundary meets a family change). Each row's items are shared instances
+    /// from <see cref="Windows"/>.
+    /// </summary>
     public ObservableCollection<GaugeGroupViewModel> GaugeGroups { get; } = new();
 
     /// <summary>
