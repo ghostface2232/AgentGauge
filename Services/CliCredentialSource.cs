@@ -74,9 +74,45 @@ public sealed class CliCredentialSource : ICredentialSource
                 Source = Source,
                 AccessToken = token,
                 ExpiresAt = expiresAt,
-                Plan = MapClaudePlan(oauth.GetStringOrNull("subscriptionType"), oauth.GetStringOrNull("rateLimitTier")),
+                Plan = ReadClaudeProfilePlan()
+                    ?? MapClaudePlan(oauth.GetStringOrNull("subscriptionType"), oauth.GetStringOrNull("rateLimitTier")),
             });
         });
+    }
+
+    /// <summary>
+    /// The plan from the profile the CLI caches in <c>~/.claude.json</c> (<c>oauthAccount</c>).
+    /// The credentials file only rewrites <c>subscriptionType</c>/<c>rateLimitTier</c> when the
+    /// access token next rotates, so after a plan change it keeps naming the old plan for
+    /// hours while the usage windows already follow the new one; the profile is refetched
+    /// from the server and moves first. Only personal Max/Pro accounts are read here, and any
+    /// failure falls back to the credentials file's own values.
+    /// </summary>
+    private string? ReadClaudeProfilePlan()
+    {
+        try
+        {
+            using var stream = File.OpenRead(Path.Combine(_userProfile(), ".claude.json"));
+            using var document = JsonDocument.Parse(stream);
+            if (document.RootElement.GetObjectOrNull("oauthAccount") is not { } account
+                || account.GetStringOrNull("organizationType") is not { } type
+                || !type.StartsWith("claude_", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var subscription = type["claude_".Length..];
+            if (!subscription.Equals("max", StringComparison.OrdinalIgnoreCase)
+                && !subscription.Equals("pro", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+            return MapClaudePlan(subscription, account.GetStringOrNull("organizationRateLimitTier"));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
     }
 
     private Task<CredentialReadResult> ReadCodexAsync(CancellationToken cancellationToken)

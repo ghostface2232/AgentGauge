@@ -70,8 +70,10 @@ internal sealed partial class TrayRingIconRenderer : IDisposable
             if ((ring.Short is null) != (ring.Long is null))
             {
                 // A tool reporting one window (a weekly-only plan, a billing cycle) gets the
-                // whole ring rather than a half ring beside an empty track.
-                DrawArc(g, bounds, 180f + gap / 2, 360f - gap, ring.Short ?? ring.Long, stroke, cap, foreground, darkTaskbar, basis);
+                // whole ring rather than a half ring beside an empty track. It is a plain
+                // gauge: the opening sits at 6 o'clock and the fill runs clockwise from its
+                // left edge.
+                DrawArc(g, bounds, 90f + gap / 2, 360f - gap, ring.Short ?? ring.Long, stroke, cap, foreground, darkTaskbar, basis);
             }
             else
             {

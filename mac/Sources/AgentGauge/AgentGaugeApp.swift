@@ -202,9 +202,10 @@ struct MenuBarLabel: View {
                 context.strokePath()
             }
             // A tool reporting one window (a weekly-only plan, a billing cycle) gets the whole
-            // ring rather than a half ring beside an empty track.
+            // ring rather than a half ring beside an empty track. It is a plain gauge: it
+            // has its opening at 6 o'clock and fills clockwise from the opening's left edge.
             let arcs: [(UsageWindow?, CGFloat, CGFloat)] = if (ring.short == nil) != (ring.long == nil) {
-                [(ring.short ?? ring.long, 180 - Ring.gapDegrees / 2, -(360 - Ring.gapDegrees))]
+                [(ring.short ?? ring.long, -90 - Ring.gapDegrees / 2, -(360 - Ring.gapDegrees))]
             } else {
                 [(ring.short, 180 - Ring.gapDegrees / 2, -span), (ring.long, 180 + Ring.gapDegrees / 2, span)]
             }
