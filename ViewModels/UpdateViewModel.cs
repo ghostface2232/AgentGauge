@@ -54,11 +54,19 @@ public sealed partial class UpdateViewModel : ObservableObject
 
     partial void OnStatusTextChanged(string value) => OnPropertyChanged(nameof(Tooltip));
 
-    /// <summary>Quiet check at launch; leaves the status blank unless an update is found.</summary>
-    public async Task CheckInBackgroundAsync()
+    /// <summary>
+    /// Quiet check at launch; leaves the status blank unless an update is found. With
+    /// <paramref name="installIfAvailable"/> a found update is applied straight away, which is
+    /// how the first launch after logon updates itself.
+    /// </summary>
+    public async Task CheckInBackgroundAsync(bool installIfAvailable = false)
     {
         if (IsBusy) return;
         ApplyResult(await _service.CheckAsync(), quiet: true);
+        if (installIfAvailable && IsUpdateAvailable && !IsBusy)
+        {
+            await UpdateAsync();
+        }
     }
 
     private Task RunActionAsync() => IsUpdateAvailable ? UpdateAsync() : CheckAsync();

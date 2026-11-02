@@ -32,6 +32,10 @@ extension Strings {
 
         // Updates
         "Settings_About": ["정보", "About", "情報"],
+        "Settings_AutoUpdate": ["업데이트 자동 설치", "Install updates automatically", "アップデートを自動でインストール"],
+        "Settings_AutoUpdateHelp": ["로그인 후 처음 실행될 때 새 버전이 있으면 스스로 설치하고 다시 시작합니다.",
+                                    "Installs a newer version and restarts when AgentGauge first launches after login.",
+                                    "ログイン後の初回起動時に新しいバージョンがあれば自動でインストールして再起動します。"],
         "Update_Apply": ["업데이트", "Update", "アップデート"],
         "Update_Check": ["업데이트 확인", "Check for Updates", "アップデートを確認"],
         "Update_Checking": ["업데이트 확인 중…", "Checking for updates…", "アップデートを確認中…"],

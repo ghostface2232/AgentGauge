@@ -3,8 +3,8 @@ import GaugeCore
 import Observation
 
 /// The update control in Settings (and the panel footer's prompt): one action that checks
-/// GitHub Releases and, once a newer build is found, applies it. Checking happens quietly at
-/// launch; installing is always a deliberate click.
+/// GitHub Releases and, once a newer build is found, applies it. The launch check is quiet and
+/// installs by itself (except on the relaunch after an update); the button is the manual path.
 @MainActor
 @Observable
 final class UpdateModel {
@@ -64,11 +64,30 @@ final class UpdateModel {
         }
     }
 
-    /// The quiet launch check: says nothing unless an update is found.
-    func checkInBackground() {
+    /// The quiet launch check: says nothing unless an update is found. With `installIfAvailable`
+    /// a found update is installed at once, which is how the first launch after login updates
+    /// itself.
+    func checkInBackground(installIfAvailable: Bool = false) {
         guard let service, phase == .idle, PreviewRenderer.directoryArgument() == nil else { return }
         Task {
-            if case .available(let release) = await service.check() { phase = .available(release) }
+            guard case .available(let release) = await service.check() else { return }
+            phase = .available(release)
+            if installIfAvailable { install(release) }
+        }
+    }
+
+    /// Turning automatic installs on applies now: check, and install whatever is found.
+    func checkAndInstall() {
+        guard let service, !isBusy, PreviewRenderer.directoryArgument() == nil else { return }
+        if case .available(let release) = phase {
+            install(release)
+            return
+        }
+        Task {
+            if case .available(let release) = await service.check() {
+                phase = .available(release)
+                install(release)
+            }
         }
     }
 

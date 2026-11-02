@@ -40,6 +40,7 @@ public partial class App : Application
     private SparklineSettingsStore? _sparklineSettingsStore;
     private WeeklyPaceModelSettingsStore? _paceModelSettingsStore;
     private ApiCostSettingsStore? _apiCostSettingsStore;
+    private AutoUpdateSettingsStore? _autoUpdateSettingsStore;
     private ApiCostService? _apiCostService;
     // The last values known to have reached settings.json. A save that the file refuses
     // reverts its surface to the value here, never to a fresh read: an unreadable
@@ -58,6 +59,7 @@ public partial class App : Application
     private bool _showSparkline = true;
     private WeeklyPaceModel _paceModel = WeeklyPaceModel.Uniform;
     private bool _showApiCost;
+    private bool _autoUpdate = true;
     private UpdateService? _updateService;
     private HttpClient? _httpClient;
     private AntigravityProvider? _antigravityProvider;
@@ -189,8 +191,10 @@ public partial class App : Application
         _paceModel = _paceModelSettingsStore.Load();
         _apiCostSettingsStore = new ApiCostSettingsStore();
         _showApiCost = _apiCostSettingsStore.Load();
+        _autoUpdateSettingsStore = new AutoUpdateSettingsStore();
+        _autoUpdate = _autoUpdateSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(
-            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline, _paceModel, _showApiCost, _statusTarget);
+            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline, _paceModel, _showApiCost, _statusTarget, _autoUpdate);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
@@ -199,6 +203,7 @@ public partial class App : Application
         globalSettings.SparklineToggleRequested += OnGlobalSparklineToggled;
         globalSettings.PaceModelChangeRequested += OnGlobalPaceModelChanged;
         globalSettings.ApiCostToggleRequested += OnGlobalApiCostToggled;
+        globalSettings.AutoUpdateToggleRequested += OnGlobalAutoUpdateToggled;
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
 
         _updateService = new UpdateService();
@@ -208,9 +213,13 @@ public partial class App : Application
         _settingsViewModel.Update.ExitRequested += OnUpdateExitRequested;
         _popover.BindSettingsViewModel(_settingsViewModel);
         _ = _settingsViewModel.RefreshAsync();
-        // Quietly check GitHub Releases on launch so the settings card can surface
-        // an available update; applying it stays a deliberate one-click action.
-        _ = _settingsViewModel.Update.CheckInBackgroundAsync();
+        // Check GitHub Releases once per launch and install a newer release on the spot. The
+        // relaunches that follow an update or a language switch (and the demo switches) only
+        // check: the installer relaunches with --updated, so skipping there keeps a release
+        // that fails to bump its version from reinstalling itself in a loop.
+        var launchArgs = Environment.GetCommandLineArgs();
+        var autoUpdate = _autoUpdate && !launchArgs.Any(arg => AutoUpdateSkipFlags.Contains(arg, StringComparer.OrdinalIgnoreCase));
+        _ = _settingsViewModel.Update.CheckInBackgroundAsync(installIfAvailable: autoUpdate);
 
         // History is additive analytics beside the last-known cache: live readings are
         // appended so trend/ETA features have data; a broken history DB never blocks startup.
@@ -529,6 +538,7 @@ public partial class App : Application
                 dto.ShowSparkline = _showSparkline;
                 dto.WeeklyPaceModel = WeeklyPaceModelSettingsStore.Serialize(_paceModel);
                 dto.ShowApiCost = _showApiCost;
+                dto.AutoUpdate = _autoUpdate;
                 if (_notificationPreferencesRead)
                 {
                     dto.NotificationsEnabled = _notificationPreferences.Enabled;
@@ -611,6 +621,21 @@ public partial class App : Application
         // The sparkline sits inside the existing primary row, so hiding it changes no
         // card height and no re-measure is needed.
         _viewModel?.SetShowSparkline(show);
+    }
+
+    private void OnGlobalAutoUpdateToggled(object? sender, bool enabled)
+    {
+        if (!ReportSettingsWrite(_autoUpdateSettingsStore?.TrySave(enabled) == true))
+        {
+            _settingsViewModel?.Global.SetAutoUpdate(_autoUpdate);
+            return;
+        }
+        _autoUpdate = enabled;
+        // Turning it on applies at once instead of waiting for the next launch.
+        if (enabled && _settingsViewModel is not null)
+        {
+            _ = _settingsViewModel.Update.CheckInBackgroundAsync(installIfAvailable: true);
+        }
     }
 
     private void OnGlobalApiCostToggled(object? sender, bool show)
@@ -749,6 +774,9 @@ public partial class App : Application
             await coordinator.RefreshAsync(RefreshReason.SystemResumed);
         }
     }
+
+    private static readonly string[] AutoUpdateSkipFlags =
+        ["--updated", "--language-changed", "--popover-demo", "--notification-demo"];
 
     private void OnTrayExitRequested(object? sender, EventArgs e) => ShutdownAndExit();
 

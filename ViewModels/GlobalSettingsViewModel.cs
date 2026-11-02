@@ -29,7 +29,8 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         bool showSparkline = true,
         WeeklyPaceModel paceModel = WeeklyPaceModel.Uniform,
         bool showApiCost = false,
-        string statusTarget = "")
+        string statusTarget = "",
+        bool autoUpdate = true)
     {
         SyncFromSystem(notifications, startOnBoot);
         _suspendSideEffects = true;
@@ -39,6 +40,7 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         ShowSparkline = showSparkline;
         PaceModelIndex = (int)paceModel;
         ShowApiCost = showApiCost;
+        AutoUpdate = autoUpdate;
         LanguageIndex = (int)Loc.Current;
         UpdateStatusTargetOptions([]);
         _suspendSideEffects = false;
@@ -67,6 +69,9 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
 
     /// <summary>Raised when the user flips the API-cost toggle (not on a programmatic sync).</summary>
     public event EventHandler<bool>? ApiCostToggleRequested;
+
+    /// <summary>Raised when the user flips the automatic-update toggle (not on a programmatic sync).</summary>
+    public event EventHandler<bool>? AutoUpdateToggleRequested;
 
     /// <summary>Raised when the user picks a different UI language (not on a programmatic sync).</summary>
     public event EventHandler<AppLanguage>? LanguageChangeRequested;
@@ -137,6 +142,7 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     /// persisted result like every other setting here.
     /// </summary>
     [ObservableProperty] public partial bool ShowApiCost { get; set; }
+    [ObservableProperty] public partial bool AutoUpdate { get; set; }
 
     /// <summary>
     /// Selected UI language as a ComboBox index matching the <see cref="AppLanguage"/> enum
@@ -268,6 +274,12 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         ApiCostToggleRequested?.Invoke(this, value);
     }
 
+    partial void OnAutoUpdateChanged(bool value)
+    {
+        if (_suspendSideEffects) return;
+        AutoUpdateToggleRequested?.Invoke(this, value);
+    }
+
     partial void OnLanguageIndexChanged(int value)
     {
         if (_suspendSideEffects) return;
@@ -326,6 +338,14 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     {
         _suspendSideEffects = true;
         ShowApiCost = show;
+        _suspendSideEffects = false;
+    }
+
+    /// <summary>Reflects the persisted automatic-update state without raising a new request.</summary>
+    public void SetAutoUpdate(bool enabled)
+    {
+        _suspendSideEffects = true;
+        AutoUpdate = enabled;
         _suspendSideEffects = false;
     }
 
