@@ -39,6 +39,8 @@ struct GaugeTile: View {
     let details: RowDetails
     let basis: DisplayBasis
     let showsGroup: Bool
+    /// A sibling in the row has a group heading; keep its line so the rings stay level.
+    var reservesHeading = false
 
     var body: some View {
         let percent = basis.percent(for: window.usedRatio)
@@ -48,6 +50,9 @@ struct GaugeTile: View {
                     Text(verbatim: group)
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
+                } else if reservesHeading {
+                    Text(verbatim: " ")
+                        .font(.caption.weight(.semibold))
                 }
                 Text(WindowLabels.label(for: window))
                     .font(.caption)
@@ -85,26 +90,28 @@ struct GaugeTile: View {
     }
 }
 
-/// Gauge mode for one card: each model family is its own row of gauges, divided like bar mode.
+/// Gauge mode for one card: windows flow into even rows across model families, with a divider
+/// where a family starts on a fresh row.
 struct GaugeGroupsView: View {
     let groups: [GaugeCore.WindowGroup]
     let basis: DisplayBasis
     let details: (UsageWindow) -> RowDetails
 
-    /// Even columns sized to the card's largest group (two or three), shared by every group so
-    /// gauges line up across the dividers and a row of two spreads over the full width.
-    private var columns: [GridItem] {
-        let count = min(max(groups.map(\.windows.count).max() ?? 1, 2), 3)
-        return Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: count)
+    /// Two or three columns by the largest group, so a family of three fills a row.
+    private var columns: Int {
+        min(max(groups.map(\.windows.count).max() ?? 1, 2), 3)
     }
 
     var body: some View {
+        let count = columns
+        let grid = Array(repeating: GridItem(.flexible(), spacing: 8, alignment: .top), count: count)
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                if index > 0 { Divider() }
-                LazyVGrid(columns: columns, alignment: .center, spacing: 10) {
-                    ForEach(group.windows) { window in
-                        GaugeTile(window: window, details: details(window), basis: basis, showsGroup: group.label != nil)
+            ForEach(Array(GaugeLayout.rows(groups, columns: count).enumerated()), id: \.element.id) { index, row in
+                if row.showsDivider { Divider() }
+                LazyVGrid(columns: grid, alignment: .center, spacing: 10) {
+                    ForEach(row.windows) { window in
+                        GaugeTile(window: window, details: details(window), basis: basis,
+                                  showsGroup: true, reservesHeading: row.hasGroupHeading)
                     }
                 }
             }

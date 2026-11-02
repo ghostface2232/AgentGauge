@@ -1,0 +1,72 @@
+{
+  "features" : [
+    "refractivity",
+    "specular-location"
+  ],
+  "fill" : {
+    "linear-gradient" : [
+      "extended-gray:0.95856,1.00000",
+      "srgb:0.89878,0.89878,0.89878,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.15149,0.15149,0.15149,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : "system-light"
+            }
+          ],
+          "glass" : true,
+          "image-name" : "AgentGauge_icon_source.svg",
+          "name" : "AgentGauge_icon_source",
+          "opacity-specializations" : [
+            {
+              "value" : 0.9
+            },
+            {
+              "appearance" : "dark",
+              "value" : 0.95
+            }
+          ],
+          "position" : {
+            "scale" : 0.94,
+            "translation-in-points" : [
+              -0.00091999999995096,
+              -37
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "refractivity" : {
+        "depth" : 0.605546875,
+        "enabled" : true,
+        "strength" : 0
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : "inside",
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.4
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

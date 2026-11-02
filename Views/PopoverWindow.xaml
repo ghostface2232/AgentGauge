@@ -560,10 +560,10 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
 
-                                        <!-- Gauge layout: gauges grouped into family rows with a
-                                             divider between families (Gemini | Claude/GPT), mirroring
-                                             the bar layout. Ungrouped tools render as one row. Each
-                                             row is a 2-up grid that wraps for >2 windows. -->
+                                        <!-- Gauge layout: gauges packed two to a row across
+                                             families (a lone Fable gauge sits beside the account-wide
+                                             one), with a divider only where a row boundary coincides
+                                             with a family change (Gemini | Claude/GPT). -->
                                         <ItemsControl
                                             ItemsSource="{Binding GaugeGroups}"
                                             Visibility="{Binding IsGaugeMode, Converter={StaticResource BoolToVis}}">
@@ -589,9 +589,9 @@
                                                                             HorizontalAlignment="Center"
                                                                             Opacity="0.9"
                                                                             FontSize="12"
-                                                                            Text="{Binding FamilyLabel}"
+                                                                            Text="{Binding FamilyLine}"
                                                                             Style="{StaticResource BodyStrongTextBlockStyle}"
-                                                                            Visibility="{Binding HasFamilyLabel, Converter={StaticResource BoolToVis}}" />
+                                                                            Visibility="{Binding ShowFamilyLine, Converter={StaticResource BoolToVis}}" />
                                                                         <!-- Window label (5시간 / 주간). -->
                                                                         <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                             HorizontalAlignment="Center"

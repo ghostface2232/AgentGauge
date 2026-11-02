@@ -51,11 +51,27 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasFamilyLabel))]
+    [NotifyPropertyChangedFor(nameof(ShowFamilyLine))]
+    [NotifyPropertyChangedFor(nameof(FamilyLine))]
     [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string FamilyLabel { get; set; }
 
     /// <summary>True when this window belongs to a model family (controls the gauge label).</summary>
     public bool HasFamilyLabel => !string.IsNullOrEmpty(FamilyLabel);
+
+    /// <summary>
+    /// Set on a gauge without a family that shares a row with one that has it, so the rings keep
+    /// the same height; the gauge then draws a blank line where the family name would be.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowFamilyLine))]
+    [NotifyPropertyChangedFor(nameof(FamilyLine))]
+    public partial bool ReservesFamilyLine { get; set; }
+
+    public bool ShowFamilyLine => HasFamilyLabel || ReservesFamilyLine;
+
+    /// <summary>Family name for the gauge's top line, or a no-break space holding its height.</summary>
+    public string FamilyLine => HasFamilyLabel ? FamilyLabel : "\u00A0";
 
     /// <summary>
     /// Family heading shown above this row, set only on the first row of each group (e.g.

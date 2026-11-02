@@ -35,6 +35,34 @@ public enum WindowGrouping {
     }
 }
 
+/// One row of the gauge layout.
+public struct GaugeRow: Sendable, Equatable, Identifiable {
+    public let windows: [UsageWindow]
+    /// True when this row has a window with a group heading, so a sibling without one reserves
+    /// the heading's line and the rings stay level.
+    public let hasGroupHeading: Bool
+    /// True when the group changes exactly at the boundary with the row above.
+    public let showsDivider: Bool
+
+    public var id: String { windows.first?.key ?? "" }
+}
+
+public enum GaugeLayout {
+    /// Packs the windows into rows of `columns`, flowing across groups so a lone scoped window
+    /// (Fable) sits beside the account-wide one instead of leaving the row above half empty.
+    public static func rows(_ groups: [WindowGroup], columns: Int) -> [GaugeRow] {
+        let columns = max(columns, 1)
+        let tiles = groups.flatMap { group in group.windows.map { (window: $0, group: group.label) } }
+        return stride(from: 0, to: tiles.count, by: columns).map { start in
+            let slice = Array(tiles[start..<min(start + columns, tiles.count)])
+            let divider = start > 0 && tiles[start - 1].group != tiles[start].group
+            return GaugeRow(windows: slice.map(\.window),
+                            hasGroupHeading: slice.contains { $0.group != nil },
+                            showsDivider: divider)
+        }
+    }
+}
+
 /// What the menu bar item shows: a tool's logo ring (`ring`), whose arcs carry its 5-hour and
 /// weekly windows. The chosen tool's, or — for "auto" — whichever tool has used the most of
 /// its quota right now, so the state is glanceable without opening the panel.

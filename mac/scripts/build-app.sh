@@ -64,9 +64,30 @@ if [[ -d "$ROOT/../Assets/ToolLogos" ]]; then
     cp "$ROOT/../Assets/ToolLogos/"*.svg "$APP/Contents/Resources/ToolLogos/"
 fi
 
-# App icon from the Windows icon, best effort: a missing icon must not fail the build.
+# App icon. macOS 26 draws a legacy .icns (full-bleed art, no Icon Composer asset) on a gray
+# plate inside the standard squircle, which showed as a hollow border in System Settings. The
+# layered Assets/AgentGauge.icon is compiled by actool into Assets.car (plus a matching .icns
+# for older systems); CFBundleIconName points the system at it.
+ICON_DONE=0
+if [[ -d "$ROOT/../Assets/AgentGauge.icon" ]] && xcrun --find actool >/dev/null 2>&1; then
+    ICON_OUT="$(mktemp -d)"
+    if xcrun actool "$ROOT/../Assets/AgentGauge.icon" --compile "$ICON_OUT" --platform macosx \
+        --minimum-deployment-target "$MIN_OS" --app-icon AgentGauge \
+        --output-partial-info-plist "$ICON_OUT/partial.plist" >/dev/null 2>&1 \
+        && [[ -f "$ICON_OUT/Assets.car" && -f "$ICON_OUT/AgentGauge.icns" ]]; then
+        cp "$ICON_OUT/Assets.car" "$ICON_OUT/AgentGauge.icns" "$APP/Contents/Resources/"
+        plutil -replace CFBundleIconFile -string AgentGauge "$APP/Contents/Info.plist"
+        plutil -replace CFBundleIconName -string AgentGauge "$APP/Contents/Info.plist"
+        ICON_DONE=1
+    else
+        echo "warning: actool could not compile AgentGauge.icon; using the legacy icon"
+    fi
+    rm -rf "$ICON_OUT"
+fi
+
+# Fallback: the Windows icon as a legacy .icns, best effort; a missing icon must not fail the build.
 ICON_SOURCE="$ROOT/../Assets/gauge_appicon.ico"
-if [[ -f "$ICON_SOURCE" ]] && command -v iconutil >/dev/null; then
+if (( ICON_DONE == 0 )) && [[ -f "$ICON_SOURCE" ]] && command -v iconutil >/dev/null; then
     WORK="$(mktemp -d)"
     if sips -s format png "$ICON_SOURCE" --out "$WORK/source.png" >/dev/null 2>&1; then
         SIZE="$(sips -g pixelWidth "$WORK/source.png" | awk '/pixelWidth/ { print $2 }')"
