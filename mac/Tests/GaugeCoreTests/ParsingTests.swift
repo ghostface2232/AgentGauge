@@ -194,6 +194,21 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(groups[0].windows.map(\.type), [.fiveHour, .weekly])
     }
 
+    func testGaugeRowsFillAcrossGroups() {
+        let weekly = UsageWindow(type: .weekly, usedRatio: 0.05)
+        let fable = UsageWindow(type: .weekly, providerID: "fable", groupLabel: "Fable", usedRatio: 0)
+        let rows = GaugeLayout.rows(WindowGrouping.groups([weekly, fable]), columns: 2)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].windows.count, 2)
+        XCTAssertTrue(rows[0].hasGroupHeading)
+        XCTAssertFalse(rows[0].showsDivider)
+
+        let five = UsageWindow(type: .fiveHour, usedRatio: 0.1)
+        let split = GaugeLayout.rows(WindowGrouping.groups([five, weekly, fable]), columns: 2)
+        XCTAssertEqual(split.map(\.windows.count), [2, 1])
+        XCTAssertEqual(split.map(\.showsDivider), [false, true])
+    }
+
     func testDisplayBasis() {
         XCTAssertEqual(DisplayBasis.used.percent(for: 0.42), 42)
         XCTAssertEqual(DisplayBasis.remaining.percent(for: 0.42), 58)

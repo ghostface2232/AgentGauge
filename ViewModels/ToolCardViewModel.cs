@@ -61,6 +61,9 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// The same windows grouped into family rows for the gauge layout (so a divider can sit
     /// between families). Each group's rows are shared instances from <see cref="Windows"/>.
     /// </summary>
+    /// <summary>Gauges per row in the gauge layout; matches the two-up width of the popover.</summary>
+    private const int GaugeColumns = 2;
+
     public ObservableCollection<GaugeGroupViewModel> GaugeGroups { get; } = new();
 
     /// <summary>
@@ -390,30 +393,27 @@ public sealed partial class ToolCardViewModel : ObservableObject
         }
     }
 
-    // Groups the (already display-ordered) windows into family rows for the gauge layout:
-    // one group per family for grouped tools, a single group for ungrouped ones. The group
-    // and row containers are reconciled in place (membership is stable across refreshes), and
-    // the rows are the same instances as Windows, so their values update without a rebuild.
+    // Packs the (already display-ordered) windows into rows of GaugeColumns for the gauge layout.
+    // Rows are filled across families, so a lone scoped window (Fable) sits beside the account-wide
+    // one instead of leaving the row above it half empty; a divider is drawn only where a row
+    // boundary happens to coincide with a family change. The row containers are reconciled in
+    // place (keyed by their first window), and the items are the same instances as Windows, so
+    // their values update without a rebuild.
     private void RebuildGaugeGroups(IReadOnlyList<UsageWindow> ordered)
     {
         var grouped = ordered.Any(w => !string.IsNullOrEmpty(w.GroupLabel));
 
-        var keysInOrder = new List<string>();
-        var rowsByKey = new Dictionary<string, List<UsageWindowRowViewModel>>();
+        var placed = new List<(UsageWindowRowViewModel Row, string Family)>();
         foreach (var window in ordered)
         {
-            var key = grouped ? window.GroupLabel ?? string.Empty : string.Empty;
-            if (!rowsByKey.TryGetValue(key, out var rows))
-            {
-                rows = new List<UsageWindowRowViewModel>();
-                rowsByKey[key] = rows;
-                keysInOrder.Add(key);
-            }
             if (Windows.FirstOrDefault(r => r.Key == window.Key) is { } row)
             {
-                rows.Add(row);
+                placed.Add((row, grouped ? window.GroupLabel ?? string.Empty : string.Empty));
             }
         }
+
+        var bands = placed.Chunk(GaugeColumns).ToList();
+        var keysInOrder = bands.Select(b => b[0].Row.Key).ToList();
 
         for (var i = GaugeGroups.Count - 1; i >= 0; i--)
         {
@@ -423,17 +423,27 @@ public sealed partial class ToolCardViewModel : ObservableObject
             }
         }
 
-        for (var index = 0; index < keysInOrder.Count; index++)
+        for (var index = 0; index < bands.Count; index++)
         {
             var key = keysInOrder[index];
-            var group = GaugeGroups.FirstOrDefault(g => g.Key == key);
-            if (group is null)
+            var band = GaugeGroups.FirstOrDefault(g => g.Key == key);
+            if (band is null)
             {
-                group = new GaugeGroupViewModel(key);
-                GaugeGroups.Insert(Math.Min(index, GaugeGroups.Count), group);
+                band = new GaugeGroupViewModel(key);
+                GaugeGroups.Insert(Math.Min(index, GaugeGroups.Count), band);
             }
-            group.ShowDivider = index > 0;
-            ReconcileRows(group.Rows, rowsByKey[key]);
+            else if (GaugeGroups.IndexOf(band) != index)
+            {
+                GaugeGroups.Move(GaugeGroups.IndexOf(band), Math.Min(index, GaugeGroups.Count - 1));
+            }
+            band.ShowDivider = index > 0 && bands[index - 1][^1].Family != bands[index][0].Family;
+            ReconcileRows(band.Rows, bands[index].Select(p => p.Row).ToList());
+
+            var anyFamily = bands[index].Any(p => p.Row.HasFamilyLabel);
+            foreach (var (row, _) in bands[index])
+            {
+                row.ReservesFamilyLine = anyFamily && !row.HasFamilyLabel;
+            }
         }
     }
 

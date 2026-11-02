@@ -131,8 +131,8 @@ public sealed class ToolCardViewModelTests
             Window("3p-weekly", "Claude/GPT", UsageWindowType.Weekly),
             Window("3p-5h", "Claude/GPT", UsageWindowType.FiveHour)));
 
-        Assert.Equal(new[] { "Gemini", "Claude/GPT" }, card.GaugeGroups.Select(g => g.Key));
-        // Divider sits above the second family only.
+        Assert.Equal(new[] { "gemini-5h", "3p-5h" }, card.GaugeGroups.Select(g => g.Key));
+        // The family change lands on a row boundary, so the divider sits above the second row.
         Assert.Equal(new[] { false, true }, card.GaugeGroups.Select(g => g.ShowDivider));
         // Each family's gauges are ordered 5h-then-weekly, same as the bar layout.
         Assert.Equal(new[] { "gemini-5h", "gemini-weekly" }, card.GaugeGroups[0].Rows.Select(r => r.Key));
@@ -175,9 +175,24 @@ public sealed class ToolCardViewModelTests
         Assert.Equal("Fable", card.Windows[2].GroupHeader);
         Assert.True(card.Windows[2].ShowGroupDivider);
 
-        Assert.Equal(new[] { "", "Fable" }, card.GaugeGroups.Select(g => g.Key));
+        Assert.Equal(new[] { "FiveHour", "claude-weekly-scoped-fable" }, card.GaugeGroups.Select(g => g.Key));
         Assert.False(card.GaugeGroups[0].ShowDivider);
         Assert.True(card.GaugeGroups[1].ShowDivider);
+    }
+
+    [Fact]
+    public void GaugeRowsFillEmptySlotsAcrossFamilies()
+    {
+        var card = new ToolCardViewModel(Cached("Claude",
+            Window(null, null, UsageWindowType.Weekly),
+            Window("claude-weekly-scoped-fable", "Fable", UsageWindowType.Weekly)));
+
+        var row = Assert.Single(card.GaugeGroups);
+        Assert.False(row.ShowDivider);
+        Assert.Equal(new[] { "Weekly", "claude-weekly-scoped-fable" }, row.Rows.Select(r => r.Key));
+        // The ungrouped gauge keeps a blank family line so both rings sit at the same height.
+        Assert.True(row.Rows[0].ShowFamilyLine);
+        Assert.False(row.Rows[0].HasFamilyLabel);
     }
 
     [Theory]
