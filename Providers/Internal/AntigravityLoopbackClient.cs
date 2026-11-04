@@ -73,10 +73,11 @@ internal sealed class AntigravityLoopbackClient : IDisposable
                     return new AntigravityReading(quota, plan);
                 }
             }
-            catch (Exception ex) when (ex is HttpRequestException or IOException)
+            catch (Exception ex) when (IsPortFailure(ex, cancellationToken))
             {
-                // Plaintext HTTP port (or a port that closed) — the TLS handshake fails here, so
-                // move on to the next candidate rather than treating it as a real failure.
+                // Plaintext HTTP port (or a port that closed, or one too slow to answer) — the TLS
+                // handshake fails here, so move on to the next candidate rather than treating it
+                // as a real failure.
             }
         }
 
@@ -92,11 +93,20 @@ internal sealed class AntigravityLoopbackClient : IDisposable
                 ? AntigravityUserStatus.ParsePlan(response.Body)
                 : null;
         }
-        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        catch (Exception ex) when (IsPortFailure(ex, cancellationToken))
         {
             return null; // The plan is a best-effort label; never fail the read because of it.
         }
     }
+
+    /// <summary>
+    /// A request timeout surfaces as a cancelled operation, not an HttpRequestException. Letting
+    /// one through would skip the remaining ports and the delegate engine, and a slow plan call
+    /// would discard a quota already read. Only a cancellation the caller asked for propagates.
+    /// </summary>
+    internal static bool IsPortFailure(Exception ex, CancellationToken cancellationToken)
+        => ex is HttpRequestException or IOException
+            || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested);
 
     private async Task<string?> QueryQuotaAsync(int port, string csrfToken, CancellationToken cancellationToken)
     {

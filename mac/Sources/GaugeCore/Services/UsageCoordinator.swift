@@ -21,6 +21,8 @@ public struct ToolState: Sendable, Equatable, Identifiable {
     /// long its indicator spins without a wall-clock change stretching or cutting it. Set only
     /// when a read starts: cache re-emits and repeated requests never extend it.
     public var refreshStartedAt: TimeInterval?
+    /// True until this run has read the tool successfully: `snapshot` came from the disk cache.
+    public var isRehydrated = false
 
     public var id: ToolKind { tool }
 
@@ -46,29 +48,43 @@ public enum RefreshReason: Sendable {
         }
     }
 
-    var isDebounced: Bool { self == .popoverOpened || self == .systemResumed }
+    /// The requests that can pile up: repeated clicks, or a wake-then-unlock pair. Explicit
+    /// clicks are in here too, because they pierce a rate-limit cooldown; without the debounce
+    /// each click would be another real attempt against a throttling endpoint. A tool change
+    /// is not, so its card appears or disappears right away.
+    var isDebounced: Bool { self == .popoverOpened || self == .manual || self == .systemResumed }
 }
 
 /// Schedules and isolates provider reads. A one-minute tick refreshes only providers whose
 /// own cadence is due, stretched by `AdaptiveRefreshPolicy` while nobody looks; opening the
-/// popover forces a read of every shown provider, debounced to one per 10 seconds and held
-/// back by each tool's cost floor (`ToolKind.forcedRefreshFloor`); a failure keeps the last
-/// good snapshot and never blocks another provider.
+/// popover or the refresh button forces a read of every shown provider, debounced to one per
+/// 10 seconds (the popover open also held back by each tool's cost floor,
+/// `ToolKind.forcedRefreshFloor`); a failure keeps the last good snapshot and never blocks
+/// another provider, and a read that hangs is given up on at `fetchDeadline`.
 public actor UsageCoordinator {
     public typealias Listener = @Sendable ([ToolState]) -> Void
 
     static let debounce: TimeInterval = 10
     static let tick: Duration = .seconds(60)
+    /// Past the sum of what a healthy read can take: the keychain tool's 60 s, a delegated
+    /// refresh (up to 30 s, plus the login-shell probe) and the HTTP read's 30 s.
+    public static let defaultFetchDeadline: Duration = .seconds(150)
 
     private let providers: [ToolKind: any UsageProvider]
     private let cache: UsageCacheStore?
     private let clock: any MonotonicClock
+    private let fetchDeadline: Duration
     private var listener: Listener?
     private var enabled: [ToolKind] = []
     private var states: [ToolKind: ToolState] = [:]
     private var lastAttempt: [ToolKind: TimeInterval] = [:]
+    /// Tools whose read has not actually ended, which can outlast its deadline.
     private var inFlight = Set<ToolKind>()
-    private var lastDebouncedRefresh: TimeInterval?
+    /// The `refresh` calls still waiting on a tool's read: resumed at its end or its deadline.
+    private var readWaiters: [ToolKind: CheckedContinuation<Void, Never>] = [:]
+    /// When a refresh last started fetching anything, whatever asked for it. A refresh that
+    /// fetched nothing does not count, so it cannot hold back one that would.
+    private var lastFetchStarted: TimeInterval?
     private var lastPanelOpened: TimeInterval?
     private var signals = AdaptiveRefreshSignals()
     private var lastDecision: AdaptiveRefreshDecision?
@@ -76,15 +92,19 @@ public actor UsageCoordinator {
     private let wallClock: @Sendable () -> Date
 
     public init(providers: [any UsageProvider], cache: UsageCacheStore?, clock: any MonotonicClock = SystemMonotonicClock(),
-                wallClock: @escaping @Sendable () -> Date = { Date() }) {
+                wallClock: @escaping @Sendable () -> Date = { Date() },
+                fetchDeadline: Duration = UsageCoordinator.defaultFetchDeadline) {
         self.wallClock = wallClock
+        self.fetchDeadline = fetchDeadline
         var byTool: [ToolKind: any UsageProvider] = [:]
         for provider in providers { byTool[provider.tool] = provider }
         self.providers = byTool
         self.cache = cache
         self.clock = clock
         for snapshot in cache?.load() ?? [] where byTool[snapshot.tool] != nil {
-            states[snapshot.tool] = ToolState(tool: snapshot.tool, snapshot: snapshot)
+            var state = ToolState(tool: snapshot.tool, snapshot: snapshot)
+            state.isRehydrated = true
+            states[snapshot.tool] = state
         }
     }
 
@@ -121,12 +141,9 @@ public actor UsageCoordinator {
         let now = clock.now()
         // Even a debounced open counts as interaction: someone is looking.
         if reason == .popoverOpened { lastPanelOpened = now }
-        if reason.isDebounced {
-            if let last = lastDebouncedRefresh, now - last < Self.debounce {
-                emit()
-                return
-            }
-            lastDebouncedRefresh = now
+        if reason.isDebounced, let last = lastFetchStarted, now - last < Self.debounce {
+            emit()
+            return
         }
 
         let decision = reason == .scheduled ? adaptiveDecision(now: now) : nil
@@ -147,6 +164,7 @@ public actor UsageCoordinator {
             return
         }
 
+        lastFetchStarted = now
         for tool in due {
             inFlight.insert(tool)
             lastAttempt[tool] = now
@@ -156,23 +174,59 @@ public actor UsageCoordinator {
         emit()
 
         let interaction = reason.interaction
-        await withTaskGroup(of: (ToolKind, Result<ProviderOutcome, any Error>).self) { group in
+        await withTaskGroup(of: Void.self) { group in
             for tool in due {
                 guard let provider = providers[tool] else { continue }
-                group.addTask {
-                    do {
-                        return (tool, .success(try await provider.fetch(interaction)))
-                    } catch {
-                        return (tool, .failure(error))
-                    }
-                }
-            }
-            for await (tool, result) in group {
-                apply(result, to: tool)
-                inFlight.remove(tool)
-                emit()
+                group.addTask { await self.read(tool, from: provider, interaction: interaction) }
             }
         }
+    }
+
+    /// One provider read, waited on until it ends or `fetchDeadline` passes. The read runs in
+    /// its own unstructured task because a task group cannot leave a child behind: a read that
+    /// ignores cancellation would hold the group, and with it the scheduler and every other tool.
+    private func read(_ tool: ToolKind, from provider: any UsageProvider, interaction: FetchInteraction) async {
+        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+            readWaiters[tool] = waiter
+            let deadline = fetchDeadline
+            let work = Task.detached { () async -> Result<ProviderOutcome, any Error> in
+                do {
+                    return .success(try await provider.fetch(interaction))
+                } catch {
+                    return .failure(error)
+                }
+            }
+            let timer = Task.detached {
+                try? await Task.sleep(for: deadline)
+                guard !Task.isCancelled else { return }
+                work.cancel()
+                await self.deadlinePassed(tool)
+            }
+            Task.detached {
+                let result = await work.value
+                timer.cancel()
+                await self.readEnded(tool, result)
+            }
+        }
+    }
+
+    /// The read counts as failed from here on, but the tool stays in flight until it really
+    /// ends: nothing else may start beside it, because providers rely on never running two
+    /// fetches of one tool at once and a hung read must not pile up more of itself.
+    private func deadlinePassed(_ tool: ToolKind) {
+        guard let waiter = readWaiters.removeValue(forKey: tool) else { return }
+        apply(.failure(UsageFetchError.timedOut), to: tool)
+        emit()
+        waiter.resume()
+    }
+
+    /// Also takes a read that ended past its deadline. Its result is still real: a success
+    /// replaces the failure shown meanwhile, and the expected cancellation changes nothing.
+    private func readEnded(_ tool: ToolKind, _ result: Result<ProviderOutcome, any Error>) {
+        inFlight.remove(tool)
+        apply(result, to: tool)
+        emit()
+        readWaiters.removeValue(forKey: tool)?.resume()
     }
 
     private func apply(_ result: Result<ProviderOutcome, any Error>, to tool: ToolKind) {
@@ -182,6 +236,7 @@ public actor UsageCoordinator {
         switch result {
         case .success(let outcome):
             state.lastRefreshFailed = false
+            state.isRehydrated = false
             state.snapshot = outcome.snapshot
             if !outcome.signedIn {
                 state.auth = .signedOut

@@ -26,20 +26,39 @@ public sealed record ProviderSnapshotResult
 /// </summary>
 public sealed class UsageService
 {
+    /// <summary>
+    /// Upper bound on one provider's read. Every result waits on the slowest provider and the
+    /// coordinator's single gate is held meanwhile, so one read that never ends would stop every
+    /// tool's refresh until a restart. Well above the longest legitimate read: a delegated
+    /// <c>codex doctor</c> (30s) followed by a fetch and its retry (20s each).
+    /// </summary>
+    internal static readonly TimeSpan DefaultReadDeadline = TimeSpan.FromSeconds(90);
+
     private readonly IReadOnlyList<IUsageProvider> _providers;
     private readonly Func<ToolKind, bool> _isEnabled;
     private readonly Func<ToolKind, bool> _isActive;
+    private readonly TimeSpan _readDeadline;
+
+    // Reads the deadline gave up on but that are still running. A provider gets no new call until
+    // its read has actually ended: UsageProviderBase's cache and cooldown assume one call at a
+    // time, and a call that stays blocked would otherwise cost another pool thread every cycle.
+    private readonly Dictionary<IUsageProvider, Task> _abandonedReads = new();
 
     /// <param name="isEnabled">
     /// Only providers whose tool is enabled are queried. Defaults to "all enabled" so
     /// existing callers/tests are unaffected. The registry supplies this at runtime so
     /// disabled tools are neither fetched nor surfaced.
     /// </param>
-    public UsageService(IEnumerable<IUsageProvider> providers, Func<ToolKind, bool>? isEnabled = null, Func<ToolKind, bool>? isActive = null)
+    public UsageService(
+        IEnumerable<IUsageProvider> providers,
+        Func<ToolKind, bool>? isEnabled = null,
+        Func<ToolKind, bool>? isActive = null,
+        TimeSpan? readDeadline = null)
     {
         _providers = providers.ToList();
         _isEnabled = isEnabled ?? (_ => true);
         _isActive = isActive ?? _isEnabled;
+        _readDeadline = readDeadline ?? DefaultReadDeadline;
     }
 
     /// <summary>The currently enabled providers, in catalog/registration order.</summary>
@@ -67,23 +86,76 @@ public sealed class UsageService
         return await Task.WhenAll(tasks);
     }
 
-    private static async Task<ProviderSnapshotResult> GetIsolatedAsync(
+    private async Task<ProviderSnapshotResult> GetIsolatedAsync(
         IUsageProvider provider, FetchInteraction interaction, CancellationToken cancellationToken)
     {
+        if (IsStillRunningAbandonedRead(provider))
+        {
+            // Not logged again: the timeout that abandoned the read already was.
+            return new ProviderSnapshotResult
+            {
+                Tool = provider.Tool,
+                ToolName = provider.ToolName,
+                Error = new TimeoutException($"{provider.ToolName} is still running a read that passed its deadline."),
+            };
+        }
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task<UsageSnapshot>? read = null;
         try
         {
-            var snapshot = await provider.GetSnapshotAsync(interaction, cancellationToken);
+            // Task.Run so a provider blocking before its first await (a WMI query, a process
+            // start) can't hold up the others, and so the wait below can still give up on it.
+            var readToken = deadline.Token;
+            read = Task.Run(() => provider.GetSnapshotAsync(interaction, readToken), readToken);
+            // A provider stuck in a blocking call ignores its token, so the wait has to be able
+            // to walk away. Anything it later throws must not surface as an unobserved exception.
+            _ = read.ContinueWith(
+                static task => _ = task.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            var snapshot = await read.WaitAsync(_readDeadline, cancellationToken);
             return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Snapshot = snapshot };
         }
         catch (Exception ex)
         {
-            // Auth-required and cancellation are expected flows, not diagnostics events.
-            // Log type + message only — never tokens, credential URLs, or CLI output.
-            if (ex is not (AuthenticationRequiredException or OperationCanceledException))
+            // Lets an abandoned read that does honour its token stop working.
+            await deadline.CancelAsync();
+            if (read is { IsCompleted: false })
+            {
+                lock (_abandonedReads)
+                {
+                    _abandonedReads[provider] = read;
+                }
+            }
+
+            // Auth-required and app shutdown are expected flows, not diagnostics events. A
+            // cancellation nobody asked for is a timeout (HttpClient reports its own that way)
+            // and is logged. Type + message only — never tokens, credential URLs, or CLI output.
+            var isShutdown = ex is OperationCanceledException && cancellationToken.IsCancellationRequested;
+            if (ex is not AuthenticationRequiredException && !isShutdown)
             {
                 DiagnosticsLog.Write("provider", $"{provider.ToolName} refresh failed: {ex.GetType().Name}: {ex.Message}");
             }
             return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Error = ex };
+        }
+    }
+
+    private bool IsStillRunningAbandonedRead(IUsageProvider provider)
+    {
+        lock (_abandonedReads)
+        {
+            if (!_abandonedReads.TryGetValue(provider, out var read))
+            {
+                return false;
+            }
+            if (!read.IsCompleted)
+            {
+                return true;
+            }
+            _abandonedReads.Remove(provider);
+            return false;
         }
     }
 }

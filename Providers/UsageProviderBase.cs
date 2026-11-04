@@ -117,10 +117,20 @@ public abstract class UsageProviderBase : IUsageProvider
             credentialResult = await _credentials.ReadAsync(Tool, cancellationToken);
         }
 
+        if (credentialResult.Status == CredentialReadStatus.TemporarilyUnavailable)
+        {
+            // Thrown so the coordinator keeps the last good snapshot, as for any failed read.
+            throw new HttpRequestException($"{ToolName} credential source is temporarily unavailable.");
+        }
+
         var credential = credentialResult.Credential;
         var nowTimestamp = Time.GetTimestamp();
 
-        if (_cachesSnapshots)
+        // An Invalid read carries no token, so it says nothing about whose account this is: an
+        // expired token, or a credential file held open past the read's retries. Tracking it as
+        // a change would drop a standing cooldown and the cached snapshot, and then again when
+        // the same token reads fine next time. A sign-out reads as Missing and still resets.
+        if (_cachesSnapshots && credentialResult.Status != CredentialReadStatus.Invalid)
         {
             TrackCredentialFingerprint(credential);
         }
@@ -232,7 +242,10 @@ public abstract class UsageProviderBase : IUsageProvider
             }
             throw;
         }
-        catch (Exception ex) when (_policy.ServeCachedOnAnyFailure && ex is not OperationCanceledException
+        // Only a cancellation someone asked for passes through: HttpClient reports its own
+        // timeout as a cancelled operation, and that is a failure like any other.
+        catch (Exception ex) when (_policy.ServeCachedOnAnyFailure
+            && !(ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
             && _lastSnapshot is not null)
         {
             // Serving the cache turns this into a success downstream, so this is the only

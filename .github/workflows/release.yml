@@ -1,29 +1,48 @@
 # Builds the per-user installer and creates a DRAFT GitHub Release whenever a version
-# tag (e.g. v0.1.0) is pushed; a second job adds the macOS app (AgentGauge-macOS.zip, the
+# tag (e.g. v0.1.0) is pushed; further jobs add the macOS app (AgentGauge-macOS.zip, the
 # asset the Mac updater looks for). The draft carries the assets and auto-generated
 # notes as a starting point; writing the final release notes and publishing the release
 # are done manually. The in-app updater reads the same <Version>, so the tag must match
 # Gauge.csproj's <Version> prefixed with "v" (and the updater only sees it once published).
 #
-# Local alternative: pwsh -File release.ps1 -Draft (see README).
+# Clients install a published release silently, so a compromised build step would reach them
+# unattended. Everything that runs third-party code therefore holds a read-only token, actions
+# are pinned to a commit, and only the two upload jobs — which check nothing out and run no
+# project code — can write. Digests are computed from uploaded bytes, so nothing would catch a
+# substituted asset afterwards.
+#
+# Local alternative: pwsh -File release.ps1 (see README).
+#
+# Publishing the release is a separate event, which runs only the winget job: it stays off
+# until the owner sets the WINGET_PUBLISH repository variable (see packaging/README.md).
 name: release
 
 on:
   push:
     tags:
       - 'v*'
+  release:
+    types: [published]
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  TAG: ${{ github.ref_name }}
 
 jobs:
   release:
+    # Every other tag-push job follows from this one, so they are all skipped with it on the
+    # release event.
+    if: github.event_name == 'push'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up .NET 10
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.x'
 
@@ -34,36 +53,56 @@ jobs:
         run: |
           [xml]$project = Get-Content Gauge.csproj
           $version = [string]($project.Project.PropertyGroup.Version | Select-Object -First 1)
-          if ("v$version" -ne '${{ github.ref_name }}') {
-            throw "Tag ${{ github.ref_name }} does not match Gauge.csproj <Version> $version."
+          if ("v$version" -ne $env:TAG) {
+            throw "Tag $env:TAG does not match Gauge.csproj <Version> $version."
           }
 
       - name: Run tests
         run: dotnet test Gauge.Tests/Gauge.Tests.csproj -c Release
 
       - name: Install Inno Setup 6
-        run: choco install innosetup --no-progress -y
+        run: choco install innosetup --version=6.7.1 --no-progress -y
 
       - name: Build installer
         run: pwsh -File build-installer.ps1
 
+      - name: Keep installer for the upload job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: windows-installer
+          path: dist/GaugeSetup-win-x64.exe
+          if-no-files-found: error
+          retention-days: 1
+
+  release-upload:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch installer
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: windows-installer
+
       - name: Create draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         # Creates a DRAFT release with the installer asset and auto-generated notes as a
         # starting point — final notes and publishing are done manually. If a draft for this
         # tag already exists, its asset is replaced. A release that is already published
-        # (e.g. by release.ps1, whose tag push also triggers this workflow) is left alone:
+        # (e.g. by release.ps1 -Publish, whose tag also triggers this workflow) is left alone:
         # swapping its installer would change the digest clients already verified against.
         shell: pwsh
         run: |
-          $tag = '${{ github.ref_name }}'
+          $tag = $env:TAG
           $isDraft = gh release view $tag --json isDraft --jq '.isDraft' 2> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag dist/GaugeSetup-win-x64.exe --title $tag --draft --generate-notes
+            gh release create $tag GaugeSetup-win-x64.exe --title $tag --draft --generate-notes
             if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
           } elseif ($isDraft -eq 'true') {
-            gh release upload $tag dist/GaugeSetup-win-x64.exe --clobber
+            gh release upload $tag GaugeSetup-win-x64.exe --clobber
             if ($LASTEXITCODE -ne 0) { throw "gh release upload failed ($LASTEXITCODE)" }
           } else {
             Write-Host "Release $tag is already published; leaving its asset unchanged."
@@ -71,13 +110,14 @@ jobs:
           $global:LASTEXITCODE = 0
 
   mac:
-    # After the Windows job, so the draft release already exists to upload into.
+    # After the Windows job, so a tag that failed its checks there builds nothing here.
     needs: release
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Test
         working-directory: mac
@@ -89,23 +129,79 @@ jobs:
           chmod +x scripts/build-app.sh
           ./scripts/build-app.sh
 
+      - name: Keep Mac assets for the upload job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mac-assets
+          path: |
+            mac/build/AgentGauge-macOS.zip
+            mac/build/AgentGauge-macOS.dmg
+          if-no-files-found: error
+          retention-days: 1
+
+  mac-upload:
+    # After release-upload, so the draft release already exists to upload into.
+    needs: [mac, release-upload]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch Mac assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: mac-assets
+
       # The app's version comes from Gauge.csproj (checked against the tag above). A
       # draft's asset may be replaced; a published release only ever GAINS a missing Mac
-      # asset (release.ps1 publishes before this runs) — an existing one is never swapped,
-      # since clients may already have read its digest.
+      # asset (release.ps1 -Publish publishes before this runs) — an existing one is never
+      # swapped, since clients may already have read its digest.
       - name: Upload to release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          tag='${{ github.ref_name }}'
-          is_draft="$(gh release view "$tag" --json isDraft --jq '.isDraft')"
+          is_draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft')"
           for asset in AgentGauge-macOS.zip AgentGauge-macOS.dmg; do
-            has_asset="$(gh release view "$tag" --json assets --jq "[.assets[].name] | index(\"$asset\") != null")"
+            has_asset="$(gh release view "$TAG" --json assets --jq "[.assets[].name] | index(\"$asset\") != null")"
             if [ "$is_draft" = "true" ]; then
-              gh release upload "$tag" "mac/build/$asset" --clobber
+              gh release upload "$TAG" "$asset" --clobber
             elif [ "$has_asset" = "true" ]; then
-              echo "Release $tag already has $asset; leaving it unchanged."
+              echo "Release $TAG already has $asset; leaving it unchanged."
             else
-              gh release upload "$tag" "mac/build/$asset"
+              gh release upload "$TAG" "$asset"
             fi
           done
+
+  winget:
+    # A draft has no public asset URL and the in-app updater cannot see it either, so only a
+    # published stable release is submitted. wingetcreate update needs a version already in
+    # winget-pkgs, hence the switch: it turns on after the first manifest has been merged.
+    if: github.event_name == 'release' && !github.event.release.prerelease && vars.WINGET_PUBLISH == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Submit the release to winget-pkgs
+        env:
+          # wingetcreate reads this itself; -t would risk printing the token in the log.
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          NOTES_URL: ${{ github.event.release.html_url }}
+          PUBLISHED_AT: ${{ github.event.release.published_at }}
+        shell: pwsh
+        run: |
+          if ($env:TAG -notmatch '^v(\d+\.\d+\.\d+)$') { throw "Unexpected release tag: $env:TAG" }
+          $version = $Matches[1]
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/GaugeSetup-win-x64.exe"
+          $date = ([datetimeoffset]::Parse($env:PUBLISHED_AT, [cultureinfo]::InvariantCulture)).UtcDateTime.ToString('yyyy-MM-dd')
+
+          # Pinned by hash like the actions above: this tool runs holding a token that can write
+          # to the owner's public repositories, this one included.
+          curl.exe -fsSL -o wingetcreate.exe https://github.com/microsoft/winget-create/releases/download/v1.12.13.0/wingetcreate.exe
+          if ($LASTEXITCODE -ne 0) { throw "Downloading wingetcreate failed ($LASTEXITCODE)" }
+          if ((Get-FileHash wingetcreate.exe -Algorithm SHA256).Hash -ne '24042BD37915805615E6CF969AC57C6439124C3FE85823327F5F3FB24BD9FFEA') {
+            throw 'wingetcreate.exe does not match its pinned hash.'
+          }
+
+          .\wingetcreate.exe update ghostface2232.AgentGauge --version $version --urls $url --release-notes-url $env:NOTES_URL --release-date $date --submit
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate failed ($LASTEXITCODE)" }

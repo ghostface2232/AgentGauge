@@ -206,6 +206,18 @@ public sealed class GitHubCopilotProviderTests
     }
 
     [Fact]
+    public async Task ASeatWithNoMeteredQuotaIsALegitimateEmptyResult()
+    {
+        var snapshot = await Snapshot("""{ "copilot_plan": "business" }""");
+        Assert.Empty(snapshot.Windows);
+        Assert.Equal("Business", snapshot.Plan);
+    }
+
+    [Fact]
+    public async Task AResponseOfAnUnknownShapeFailsInsteadOfEmptyingTheCard()
+        => await Assert.ThrowsAsync<UsageResponseShapeException>(() => Snapshot("{}"));
+
+    [Fact]
     public async Task NotSignedInYieldsEmptySnapshot()
     {
         var provider = new GitHubCopilotProvider(new HttpClient(new StubHandler("{}")), MissingSource());

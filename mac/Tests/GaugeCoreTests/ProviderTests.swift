@@ -188,6 +188,95 @@ final class HTTPUsageProviderTests: XCTestCase {
         let outcome = try await provider.fetch(.background)
         XCTAssertTrue(outcome.isLive, "a different account must not be served the previous account's cache")
     }
+
+    private func expectUnreadable(_ provider: HTTPUsageProvider, _ problem: CredentialProblem) async throws {
+        do {
+            _ = try await provider.fetch(.background)
+            XCTFail("expected the read failure to propagate")
+        } catch let error as UsageFetchError {
+            XCTAssertEqual(error, .credentialUnreadable(problem))
+        }
+    }
+
+    func testUnseenCredentialKeepsTheHappyPathCap() async throws {
+        for problem in [CredentialProblem.unreadable, .keychainDenied] {
+            let transport = FakeTransport()
+            transport.enqueue(.status(200, claudeBody))
+            let credentials = FakeCredentials(.available(ToolCredential(accessToken: "a")))
+            let clock = ManualClock()
+            let provider = makeProvider(policy: .claude, transport: transport, credentials: credentials, clock: clock)
+            let first = try await provider.fetch(.background)
+
+            credentials.set(.invalid(problem))
+            try await expectUnreadable(provider, problem)
+
+            credentials.set(.available(ToolCredential(accessToken: "a")))
+            clock.advance(60)
+            let served = try await provider.fetch(.background)
+            XCTAssertFalse(served.isLive)
+            XCTAssertEqual(served.snapshot.windows, first.snapshot.windows)
+            XCTAssertEqual(transport.requestCount, 1)
+        }
+    }
+
+    func testUnseenCredentialKeepsTheCooldown() async throws {
+        for problem in [CredentialProblem.unreadable, .keychainDenied] {
+            let transport = FakeTransport()
+            transport.enqueue(.status(200, claudeBody))
+            transport.enqueue(.status(429, "", headers: ["Retry-After": "600"]))
+            let credentials = FakeCredentials(.available(ToolCredential(accessToken: "a")))
+            let clock = ManualClock()
+            let provider = makeProvider(policy: .codexLikeForTests, transport: transport, credentials: credentials, clock: clock)
+            _ = try await provider.fetch(.background)
+            _ = try await provider.fetch(.background)
+            XCTAssertEqual(transport.requestCount, 2)
+
+            credentials.set(.invalid(problem))
+            try await expectUnreadable(provider, problem)
+
+            credentials.set(.available(ToolCredential(accessToken: "a")))
+            clock.advance(60)
+            let served = try await provider.fetch(.background)
+            XCTAssertFalse(served.isLive)
+            XCTAssertEqual(transport.requestCount, 2, "the cooldown must outlast the failed read")
+        }
+    }
+
+    func testAccountSwitchBehindAnUnseenCredentialStillDropsCache() async throws {
+        let transport = FakeTransport()
+        let credentials = FakeCredentials(.available(ToolCredential(accessToken: "a")))
+        let provider = makeProvider(policy: .claude, transport: transport, credentials: credentials)
+        transport.enqueue(.status(200, claudeBody))
+        _ = try await provider.fetch(.background)
+
+        credentials.set(.invalid(.unreadable))
+        try await expectUnreadable(provider, .unreadable)
+
+        credentials.set(.available(ToolCredential(accessToken: "b")))
+        transport.enqueue(.status(200, claudeBody))
+        let outcome = try await provider.fetch(.background)
+        XCTAssertTrue(outcome.isLive, "the switch shows as soon as the credential can be read again")
+    }
+
+    func testExpiredCredentialStillCountsAsAChange() async throws {
+        let transport = FakeTransport()
+        let credentials = FakeCredentials(.available(ToolCredential(accessToken: "a")))
+        let provider = makeProvider(policy: .claude, transport: transport, credentials: credentials)
+        transport.enqueue(.status(200, claudeBody))
+        _ = try await provider.fetch(.background)
+
+        credentials.set(.invalid(.expiredUnrefreshable))
+        do {
+            _ = try await provider.fetch(.background)
+            XCTFail("expected a sign-in requirement")
+        } catch UsageFetchError.authenticationRequired {
+        }
+
+        credentials.set(.available(ToolCredential(accessToken: "a")))
+        transport.enqueue(.status(200, claudeBody))
+        let outcome = try await provider.fetch(.background)
+        XCTAssertTrue(outcome.isLive, "a read that saw the document keeps today's behaviour")
+    }
 }
 
 extension FetchPolicy {
@@ -215,10 +304,16 @@ final class ClaudeKeychainSourceTests: XCTestCase {
     final class FakeKeychain: KeychainReading, @unchecked Sendable {
         let lock = NSLock()
         var item: KeychainItem?
+        var lookupFailure: Int32?
         var result: KeychainPasswordResult = .notFound
         var passwordReads = 0
 
-        func newestItem(service: String) async -> KeychainItem? { lock.withLock { item } }
+        func newestItem(service: String) async -> KeychainItemLookup {
+            lock.withLock { () -> KeychainItemLookup in
+                if let lookupFailure { return .failed(lookupFailure) }
+                return item.map(KeychainItemLookup.found) ?? .notFound
+            }
+        }
         func password(service: String, account: String?) async -> KeychainPasswordResult {
             lock.withLock {
                 passwordReads += 1
@@ -368,5 +463,47 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         let source = ClaudeCredentialSource(keychain: FakeKeychain(), environment: [:], homeDirectory: URL(fileURLWithPath: "/nonexistent"))
         let read = await source.read(interactive: false)
         XCTAssertEqual(read, .missing)
+    }
+
+    func testFailedLookupIsUnreadableRatherThanNotSignedIn() async {
+        let keychain = FakeKeychain()
+        keychain.lookupFailure = -25308 // errSecInteractionNotAllowed
+        let source = ClaudeCredentialSource(keychain: keychain, environment: [:], homeDirectory: URL(fileURLWithPath: "/nonexistent"))
+        let failed = await source.read(interactive: false)
+        XCTAssertEqual(failed, .invalid(.unreadable))
+
+        keychain.lookupFailure = nil
+        keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+        keychain.result = .data(document)
+        guard case .available = await source.read(interactive: false) else { return XCTFail("expected the failure not to stick") }
+    }
+
+    func testUnreadableSecretIsNotHeldAgainstTheItem() async {
+        for unreadable in [KeychainPasswordResult.failed(-1), .data(Data("{ half-written".utf8))] {
+            let keychain = FakeKeychain()
+            keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+            keychain.result = unreadable
+            let source = ClaudeCredentialSource(keychain: keychain, environment: [:], homeDirectory: URL(fileURLWithPath: "/nonexistent"))
+            let first = await source.read(interactive: false)
+            XCTAssertEqual(first, .invalid(.unreadable))
+
+            // Same modification date: a cached failure would hold until the next rotation.
+            keychain.result = .data(document)
+            guard case .available = await source.read(interactive: false) else { return XCTFail("expected a re-read to recover") }
+            XCTAssertEqual(keychain.passwordReads, 2)
+        }
+    }
+
+    func testSecretMissingBesideAFoundItemIsNotReadAsSignedOut() async {
+        let keychain = FakeKeychain()
+        keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+        keychain.result = .notFound
+        let source = ClaudeCredentialSource(keychain: keychain, environment: [:], homeDirectory: URL(fileURLWithPath: "/nonexistent"))
+        let vanishing = await source.read(interactive: false)
+        XCTAssertEqual(vanishing, .invalid(.unreadable))
+
+        keychain.item = nil
+        let gone = await source.read(interactive: false)
+        XCTAssertEqual(gone, .missing, "the lookup finding no item is what means signed out")
     }
 }

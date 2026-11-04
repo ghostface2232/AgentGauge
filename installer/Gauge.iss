@@ -21,6 +21,9 @@ AppPublisher=AgentGauge
 DefaultDirName={localappdata}\Programs\{#MyInstallName}
 DefaultGroupName={#MyInstallName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; Without this the Apps & Features name is "AgentGauge version 0.7.5", translated into the
+; wizard's language, so it could never equal the package name winget and others match on.
+UninstallDisplayName={#MyAppName}
 ; Outward-facing brand icon (the GaugeSetup.exe icon + wizard title bar). Matches the
 ; icon embedded in Gauge.exe, which is what UninstallDisplayIcon resolves to above.
 SetupIconFile=..\Assets\gauge_appicon.ico
@@ -66,10 +69,36 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 ; Silent update (in-app updater runs Setup with /VERYSILENT): there is no finished
 ; page, so relaunch Gauge automatically once the files are in place. The --updated
 ; flag tells the app this launch followed an update so it opens its window once,
-; confirming the update landed (the installer itself is now fully hidden).
+; confirming the update landed (the installer itself is now fully hidden). winget and
+; Scoop also run Setup silently, so a fresh install through them starts Gauge this way.
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--updated"; Flags: nowait; Check: WizardSilent
 
 [Code]
+var
+  InstallCompleted: Boolean;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    InstallCompleted := True;
+end;
+
+// The in-app updater exits before a silent Setup can fail, and the [Run] relaunch above only
+// happens on success. Without this a failed update leaves the user with no app and no message.
+// {app} is unset if Setup stopped early, so the install folder is spelled out.
+procedure DeinitializeSetup;
+var
+  ExePath: String;
+  ResultCode: Integer;
+begin
+  if WizardSilent and not InstallCompleted then
+  begin
+    ExePath := ExpandConstant('{localappdata}\Programs\{#MyInstallName}\{#MyAppExeName}');
+    if FileExists(ExePath) then
+      Exec(ExePath, '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then

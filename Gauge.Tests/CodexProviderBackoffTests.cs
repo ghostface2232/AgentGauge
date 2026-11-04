@@ -160,6 +160,65 @@ public sealed class CodexProviderBackoffTests
         Assert.Equal(3, handler.Calls);
     }
 
+    [Fact]
+    public async Task AnInvalidReadKeepsTheCooldownAndCache()
+    {
+        var (provider, source, handler, time) = ThrottledProvider();
+        await provider.GetSnapshotAsync(default);
+        time.Advance(TimeSpan.FromMinutes(3));
+        await provider.GetSnapshotAsync(default); // 429 → cooldown
+
+        source.Status = CredentialReadStatus.Invalid; // the file was held open, say
+        await Assert.ThrowsAsync<AuthenticationRequiredException>(() => provider.GetSnapshotAsync(default));
+        source.Status = CredentialReadStatus.Available;
+
+        // Same token, still inside the cooldown: no network, and the last value is still there.
+        var served = await provider.GetSnapshotAsync(default);
+        Assert.Equal(2, handler.Calls);
+        Assert.NotEmpty(served.Windows);
+    }
+
+    [Fact]
+    public async Task ANewTokenAfterAnInvalidReadStillClearsTheCooldownAndCache()
+    {
+        var (provider, source, handler, time) = ThrottledProvider();
+        await provider.GetSnapshotAsync(default);
+        time.Advance(TimeSpan.FromMinutes(3));
+        await provider.GetSnapshotAsync(default); // 429 → cooldown
+
+        source.Status = CredentialReadStatus.Invalid;
+        await Assert.ThrowsAsync<AuthenticationRequiredException>(() => provider.GetSnapshotAsync(default));
+        source.Status = CredentialReadStatus.Available;
+        source.Token = "token-two";
+
+        await provider.GetSnapshotAsync(default); // new account must not inherit the block
+        Assert.Equal(3, handler.Calls);
+    }
+
+    [Fact]
+    public async Task ASignOutStillClearsTheCooldownAndCache()
+    {
+        var (provider, source, handler, time) = ThrottledProvider();
+        await provider.GetSnapshotAsync(default);
+        time.Advance(TimeSpan.FromMinutes(3));
+        await provider.GetSnapshotAsync(default); // 429 → cooldown
+
+        source.Status = CredentialReadStatus.Missing;
+        Assert.Empty((await provider.GetSnapshotAsync(default)).Windows);
+        source.Status = CredentialReadStatus.Available;
+
+        await provider.GetSnapshotAsync(default); // signing back in starts clean
+        Assert.Equal(3, handler.Calls);
+    }
+
+    private static (CodexProvider Provider, MutableSource Source, SequenceHandler Handler, MutableTime Time) ThrottledProvider()
+    {
+        var handler = new SequenceHandler(Ok(), TooMany(), Ok());
+        var time = new MutableTime();
+        var source = new MutableSource("token-one");
+        return (new CodexProvider(new HttpClient(handler), source, time: time), source, handler, time);
+    }
+
     private static (CodexProvider Provider, MutableTime Time) Provider(SequenceHandler handler)
     {
         var time = new MutableTime();
@@ -203,13 +262,15 @@ public sealed class CodexProviderBackoffTests
     private sealed class MutableSource(string token) : ICredentialSource
     {
         public string Token { get; set; } = token;
+        public CredentialReadStatus Status { get; set; } = CredentialReadStatus.Available;
         public CredentialOwner Owner => CredentialOwner.CliLocal;
         public CredentialSource Source => CredentialSource.CliLocal;
         public Task<CredentialReadResult> ReadAsync(ToolKind tool, CancellationToken cancellationToken = default)
             => Task.FromResult(new CredentialReadResult
             {
-                Tool = ToolKind.Codex, Status = CredentialReadStatus.Available,
-                Credential = new ToolCredential
+                Tool = ToolKind.Codex, Status = Status,
+                // As the real source: only an Available read carries a credential.
+                Credential = Status != CredentialReadStatus.Available ? null : new ToolCredential
                 {
                     Tool = ToolKind.Codex, Owner = CredentialOwner.CliLocal, Source = CredentialSource.CliLocal,
                     AccessToken = Token,

@@ -11,11 +11,15 @@ namespace Gauge.Services;
 public interface IGitHubCliTokenReader
 {
     /// <summary>
-    /// Returns the gh OAuth token for github.com, or null when gh is not installed, is signed
-    /// out, or the command fails/times out.
+    /// Returns the gh OAuth token for github.com, or null when gh is not installed or is signed
+    /// out. Throws <see cref="GitHubCliReadException"/> when gh could not be asked at all, which
+    /// says nothing about the login.
     /// </summary>
     Task<string?> ReadTokenAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>gh is present but did not answer: it could not start, or it timed out.</summary>
+public sealed class GitHubCliReadException(string message) : Exception(message);
 
 public sealed class GitHubCliTokenReader : IGitHubCliTokenReader
 {
@@ -64,7 +68,7 @@ public sealed class GitHubCliTokenReader : IGitHubCliTokenReader
             using var process = Process.Start(startInfo);
             if (process is null)
             {
-                return null;
+                throw new GitHubCliReadException("gh did not start.");
             }
 
             using var timeoutCts = new CancellationTokenSource(Timeout);
@@ -83,21 +87,21 @@ public sealed class GitHubCliTokenReader : IGitHubCliTokenReader
             catch (OperationCanceledException)
             {
                 // Kill the gh process so neither our own timeout nor a caller cancel (app exit /
-                // aborted refresh) leaves an orphaned child. A caller cancel then propagates;
-                // only our timeout is swallowed into a null "no token" result.
+                // aborted refresh) leaves an orphaned child.
                 TryKill(process);
                 if (cancellationToken.IsCancellationRequested)
                 {
                     throw;
                 }
-                return null;
+                DiagnosticsLog.Write("auth", "gh auth token timed out");
+                throw new GitHubCliReadException("gh timed out.");
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or IOException)
         {
             // Never include the token or gh output in diagnostics; the type name is enough.
             DiagnosticsLog.Write("auth", $"gh auth token failed: {ex.GetType().Name}");
-            return null;
+            throw new GitHubCliReadException("gh failed to run.");
         }
     }
 

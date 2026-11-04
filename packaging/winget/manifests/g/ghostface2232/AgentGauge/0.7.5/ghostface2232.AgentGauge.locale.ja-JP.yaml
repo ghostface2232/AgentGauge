@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.12.0.schema.json
+
+PackageIdentifier: ghostface2232.AgentGauge
+PackageVersion: 0.7.5
+PackageLocale: ja-JP
+ShortDescription: Claude Code、Codex、Antigravity、GitHub Copilot の使用量上限を表示するシステムトレイアプリです。
+Description: |-
+  AgentGauge は、AI コーディングツールの使用量上限、リセット時刻、消費ペースを Windows タスクバーの小さなパネルに
+  表示し、上限が近づくと通知します。各ツールが PC に保存しているサインイン情報を読み取り専用で使用し、
+  開発者には何も送信しません。
+
+  AgentGauge は自動で更新されます。既定では起動時に新しいリリースをインストールします。この動作は設定でオフにできます。
+ManifestType: locale
+ManifestVersion: 1.12.0

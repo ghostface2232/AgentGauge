@@ -11,6 +11,13 @@ public struct KeychainItem: Sendable, Equatable {
     }
 }
 
+public enum KeychainItemLookup: Sendable, Equatable {
+    case found(KeychainItem)
+    case notFound
+    /// The lookup itself failed, which says nothing about whether the item exists.
+    case failed(Int32)
+}
+
 public enum KeychainPasswordResult: Sendable, Equatable {
     case data(Data)
     case notFound
@@ -21,7 +28,7 @@ public enum KeychainPasswordResult: Sendable, Equatable {
 
 public protocol KeychainReading: Sendable {
     /// Attributes only. Reading attributes never shows the keychain access prompt.
-    func newestItem(service: String) async -> KeychainItem?
+    func newestItem(service: String) async -> KeychainItemLookup
     /// The secret itself. For an item another app created, macOS asks the user first.
     func password(service: String, account: String?) async -> KeychainPasswordResult
     /// Like `password`, but never shows the access prompt: an item this app is not already
@@ -37,7 +44,7 @@ extension KeychainReading {
 public struct SystemKeychain: KeychainReading {
     public init() {}
 
-    public func newestItem(service: String) async -> KeychainItem? {
+    public func newestItem(service: String) async -> KeychainItemLookup {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -45,12 +52,14 @@ public struct SystemKeychain: KeychainReading {
             kSecReturnAttributes as String: true,
         ]
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let items = result as? [[String: Any]] else { return nil }
-        return items
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return .notFound }
+        guard status == errSecSuccess, let items = result as? [[String: Any]] else { return .failed(status) }
+        let newest = items
             .map { KeychainItem(account: $0[kSecAttrAccount as String] as? String,
                                 modified: $0[kSecAttrModificationDate as String] as? Date) }
             .max { ($0.modified ?? .distantPast) < ($1.modified ?? .distantPast) }
+        return newest.map(KeychainItemLookup.found) ?? .notFound
     }
 
     public func password(service: String, account: String?) async -> KeychainPasswordResult {
@@ -111,7 +120,7 @@ public struct SecurityToolKeychain: KeychainReading {
         self.fallback = fallback
     }
 
-    public func newestItem(service: String) async -> KeychainItem? {
+    public func newestItem(service: String) async -> KeychainItemLookup {
         await fallback.newestItem(service: service)
     }
 
@@ -181,6 +190,10 @@ public struct SecurityToolKeychain: KeychainReading {
 /// token or wrote an MCP entry), because the attribute read used to detect that never
 /// prompts. A denial is remembered and not re-asked by background polls; only a
 /// user-initiated refresh asks again.
+///
+/// Only the attribute lookup finding no item reads as "not signed in", because that state
+/// replaces the last good snapshot and drops it from the disk cache. Every other failure to
+/// read is `.unreadable`, which keeps both, and is judged afresh on the next poll.
 public actor ClaudeCredentialSource: CredentialSource {
     public static let keychainService = "Claude Code-credentials"
 
@@ -225,13 +238,18 @@ public actor ClaudeCredentialSource: CredentialSource {
     }
 
     private func readCredential(interactive: Bool) async -> CredentialRead {
-        if let item = await keychain.newestItem(service: Self.keychainService) {
+        switch await keychain.newestItem(service: Self.keychainService) {
+        case .found(let item):
             return await readKeychain(item, interactive: interactive)
+        case .failed(let status):
+            Log.write("auth", "Claude keychain lookup failed: OSStatus \(status)")
+            return .invalid(.unreadable)
+        case .notFound:
+            cachedItem = nil
+            cachedRead = nil
+            let now = self.now
+            return await CredentialFileReader().read(fileURL) { CredentialParsing.claude(from: $0, now: now()) }
         }
-        cachedItem = nil
-        cachedRead = nil
-        let now = self.now
-        return await CredentialFileReader().read(fileURL) { CredentialParsing.claude(from: $0, now: now()) }
     }
 
     private func readKeychain(_ item: KeychainItem, interactive: Bool) async -> CredentialRead {
@@ -259,15 +277,21 @@ public actor ClaudeCredentialSource: CredentialSource {
             result = parse(data)
             if case .available = result { cachedDocument = data }
         case .notFound:
-            result = .missing
+            // The attribute lookup just found it, so this is the item being rewritten or
+            // deleted under the read. If it is really gone, the next lookup will say so.
+            Log.write("auth", "Claude keychain item vanished between its attributes and its secret")
+            result = .invalid(.unreadable)
         case .denied:
             result = .invalid(.keychainDenied)
         case .failed(let status):
             Log.write("auth", "Claude keychain read failed: OSStatus \(status)")
             result = .invalid(.unreadable)
         }
-        cachedItem = item
-        cachedRead = result
+        // Not cached when unreadable: that can be momentary (a half-written document), and held
+        // against the modification date it would stay until the next token rotation.
+        let isCacheable = result != .invalid(.unreadable)
+        cachedItem = isCacheable ? item : nil
+        cachedRead = isCacheable ? result : nil
         return result
     }
 

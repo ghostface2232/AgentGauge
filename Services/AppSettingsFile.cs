@@ -67,6 +67,9 @@ internal sealed class AppSettingsDto
     /// <summary>Whether the launch check installs a newer release by itself. Null (absent) reads as on.</summary>
     public bool? AutoUpdate { get; set; }
 
+    /// <summary>The release the automatic install last launched; see <see cref="IAutoInstallAttempts"/>.</summary>
+    public string? AutoUpdateAttemptedVersion { get; set; }
+
     /// <summary>
     /// The user's foreground-lock timeout, captured by <see cref="ForegroundLockGuard"/>
     /// before Gauge zeroes the live value and cleared again on a clean exit. Present at

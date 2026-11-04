@@ -431,6 +431,7 @@ final class AppModel {
                 MainActor.assumeIsolated {
                     self?.sessionLocked = locked
                     self?.signalsChanged()
+                    if !locked { self?.scheduleResumeRefresh() }
                 }
             })
         }

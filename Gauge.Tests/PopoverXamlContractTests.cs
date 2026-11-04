@@ -84,9 +84,10 @@ public sealed class PopoverXamlContractTests
         foreach (var file in Directory.EnumerateFiles(directory, "*.xaml")) yield return file;
         foreach (var child in Directory.EnumerateDirectories(directory))
         {
-            // Mirrors the untracked directories in .gitignore; Ref/ holds other projects' XAML.
+            // Mirrors the untracked directories in .gitignore; Ref/ holds other projects' XAML and
+            // .claude/worktrees holds whole copies of this repo.
             if (Path.GetFileName(child).ToLowerInvariant() is "bin" or "obj" or "dist" or "build" or "publish" or "packages"
-                or "ref" or ".vs" or ".idea" or ".git" or ".codex" or ".agents") continue;
+                or "ref" or ".vs" or ".idea" or ".git" or ".codex" or ".agents" or ".claude") continue;
             foreach (var file in XamlFiles(child)) yield return file;
         }
     }

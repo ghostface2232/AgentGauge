@@ -26,13 +26,14 @@ public sealed class SettingsViewModel
         ToolRegistry registry,
         IReadOnlyDictionary<ToolKind, IAuthenticationProvider> providers,
         UpdateService updateService,
-        GlobalSettingsViewModel global)
+        GlobalSettingsViewModel global,
+        IAutoInstallAttempts? autoInstallAttempts = null)
     {
         _registry = registry;
         _providers = providers;
         Global = global;
         Authentication = new ObservableCollection<AuthenticationCardViewModel>();
-        Update = new UpdateViewModel(updateService);
+        Update = new UpdateViewModel(updateService, autoInstallAttempts);
         // Rebuild on add/remove, and re-sort on reorder (the latter so a drag on the main
         // screen reorders the cards here too, with no provider re-fetch).
         _registry.Changed += (_, _) => RebuildCards();

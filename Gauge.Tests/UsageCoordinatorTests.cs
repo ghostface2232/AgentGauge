@@ -371,6 +371,82 @@ public sealed class UsageCoordinatorTests
     }
 
     [Fact]
+    public async Task ASnapshotStaysMarkedRestoredUntilThisRunReadsTheToolLive()
+    {
+        var persistence = new FakePersistence
+        {
+            Seed = new[]
+            {
+                new UsageSnapshot
+                {
+                    ToolName = "Claude",
+                    CapturedAt = DateTimeOffset.UtcNow.AddMinutes(-20),
+                    Windows = new[] { new UsageWindow { Type = UsageWindowType.FiveHour, Label = "5h", UsedRatio = .5 } },
+                },
+            },
+        };
+        var provider = new StubProvider("Claude") { Throw = true };
+        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }), persistence: persistence);
+        UsageState? state = null;
+        coordinator.Updated += (_, value) => state = value;
+
+        coordinator.ReemitState();
+        Assert.True(Assert.Single(state!.Tools).IsRehydrated);
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.True(Assert.Single(state!.Tools).IsRehydrated);
+
+        provider.Throw = false;
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.False(Assert.Single(state!.Tools).IsRehydrated);
+    }
+
+    [Fact]
+    public async Task ACycleStartedFromTheUiThreadDoesItsWorkOffIt()
+    {
+        // Popover opens and the refresh button call in on the UI thread, and a provider's read
+        // and the history and cache writes all block.
+        var provider = new ContextRecordingProvider("Claude");
+        var persistence = new FakePersistence();
+        using var coordinator = new UsageCoordinator(new UsageService(new IUsageProvider[] { provider }), persistence: persistence);
+        var previous = SynchronizationContext.Current;
+        var uiContext = new SynchronizationContext();
+        Task refresh;
+        try
+        {
+            SynchronizationContext.SetSynchronizationContext(uiContext);
+            refresh = coordinator.RefreshAsync(RefreshReason.Manual);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(previous);
+        }
+        await refresh;
+
+        Assert.True(provider.WasCalled);
+        Assert.NotSame(uiContext, provider.SeenContext);
+        Assert.True(persistence.SaveCalled);
+    }
+
+    private sealed class ContextRecordingProvider(string toolName) : IUsageProvider
+    {
+        public bool WasCalled { get; private set; }
+        public SynchronizationContext? SeenContext { get; private set; }
+        public ToolKind Tool => ToolKind.ClaudeCode;
+        public string ToolName => toolName;
+
+        public Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
+        {
+            WasCalled = true;
+            SeenContext = SynchronizationContext.Current;
+            return Task.FromResult(new UsageSnapshot { ToolName = toolName, CapturedAt = DateTimeOffset.UtcNow, Windows = [] });
+        }
+
+        public Task<UsageSnapshot> GetSnapshotAsync(FetchInteraction interaction, CancellationToken cancellationToken)
+            => GetSnapshotAsync(cancellationToken);
+    }
+
+    [Fact]
     public async Task RehydratedSnapshotIsShownWhenColdStartRefreshFails()
     {
         var persistence = new FakePersistence
@@ -478,10 +554,10 @@ public sealed class UsageCoordinatorTests
         var provider = new StubProvider("Codex") { Block = new TaskCompletionSource() };
         var coordinator = new UsageCoordinator(new UsageService(new[] { provider }));
 
-        // The call chain is synchronous up to the provider's blocked await, so the gate
-        // is provably held once RefreshAsync returns its incomplete task.
+        // A cycle runs on the pool, so wait for it to reach the provider's blocked await; the
+        // gate is provably held from then on.
         var refresh = coordinator.RefreshAsync(RefreshReason.Manual);
-        Assert.Equal(1, provider.CallCount);
+        Assert.True(SpinWait.SpinUntil(() => provider.CallCount == 1, TimeSpan.FromSeconds(30)));
 
         coordinator.Dispose();
         provider.Block.SetResult();

@@ -13,6 +13,10 @@ public sealed class UsageNotificationEvaluator
 {
     private const double ResetDropMinimum = 0.10;
 
+    // Far past recompute jitter (seconds in recorded history) and the same bar
+    // UsageWeekdayProfile uses, because nothing here can tell a re-armed alert from a repeat.
+    private static readonly TimeSpan CycleAdvanceMinimum = TimeSpan.FromHours(1);
+
     private readonly Dictionary<WindowKey, Observation> _observations = new();
 
     /// <summary>
@@ -75,6 +79,14 @@ public sealed class UsageNotificationEvaluator
                 continue;
             }
 
+            // Restored from disk at startup: it can be days old, so comparing the first live
+            // reading against it would present everything that happened while the app was off.
+            // The first live reading sets the baseline instead.
+            if (tool.IsRehydrated)
+            {
+                continue;
+            }
+
             // A failed refresh retains the coordinator's last-good snapshot. Keep
             // its keys alive without evaluating cached values as new transitions.
             if (tool.LastRefreshFailed)
@@ -119,7 +131,11 @@ public sealed class UsageNotificationEvaluator
                     notifications.Add(CreateReset(snapshot.ToolName, window, now));
                 }
 
-                var crossed = reset
+                // A new cycle re-arms its thresholds even when no reset toast is due: usage can
+                // already be back above the old reading by the next poll, and a stale mask or
+                // high-water mark would silence this cycle's alerts and fake a later reset toast.
+                var newCycle = reset || CycleAdvanced(previous, window);
+                var crossed = newCycle
                     ? ThresholdMask.None
                     : previous.Crossed;
 
@@ -137,14 +153,14 @@ public sealed class UsageNotificationEvaluator
 
                 // If a polling gap spans a reset and the new cycle is already above a
                 // threshold, mark it consumed instead of presenting stale crossings.
-                if (reset)
+                if (newCycle)
                 {
                     crossed = MaskAtRatio(window.Type, window.UsedRatio);
                 }
 
                 _observations[key] = new Observation(
                     window.UsedRatio,
-                    Math.Max(reset ? window.UsedRatio : previous.HighestRatio, window.UsedRatio),
+                    Math.Max(newCycle ? window.UsedRatio : previous.HighestRatio, window.UsedRatio),
                     window.ResetTime,
                     snapshot.CapturedAt,
                     crossed);
@@ -176,16 +192,23 @@ public sealed class UsageNotificationEvaluator
             && newReset > oldReset + UsageCycleBoundary.MinimumResetAdvance;
         var usageDropped = current.UsedRatio <= previous.Ratio - ResetDropMinimum;
 
-        // Reset timestamps are the authoritative cycle identity. The fallback covers
-        // providers that temporarily omit them, but requires a strong high-to-low drop.
-        // The shape matches UsageCycleBoundary (timestamps decide; magnitude only stands in
-        // for them) while staying stricter: a toast fires once and cannot be taken back,
-        // where a sparkline segmented wrongly re-draws on the next reading.
+        // Reset timestamps are the authoritative cycle identity. The fallback covers readings
+        // missing one on EITHER side, but requires a strong high-to-low drop. Claude really does
+        // this: an idle window reports a reset time of null, so a used-up window comes back as
+        // 0% with none and only gets its time again on the first use. The shape matches
+        // UsageCycleBoundary (timestamps decide; magnitude only stands in for them) while staying
+        // stricter: a toast fires once and cannot be taken back, where a sparkline segmented
+        // wrongly re-draws on the next reading.
         return (resetTimeAdvanced && usageDropped)
-            || (previous.ResetTime is null && current.ResetTime is null
+            || ((previous.ResetTime is null || current.ResetTime is null)
                 && previous.Ratio >= MinimumThreshold(current.Type)
                 && current.UsedRatio < 0.20);
     }
+
+    private static bool CycleAdvanced(Observation previous, UsageWindow current)
+        => previous.ResetTime is { } oldReset
+            && current.ResetTime is { } newReset
+            && newReset >= oldReset + CycleAdvanceMinimum;
 
     private static IEnumerable<double> ThresholdsFor(UsageWindowType type)
         => type == UsageWindowType.FiveHour

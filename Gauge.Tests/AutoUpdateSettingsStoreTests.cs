@@ -3,8 +3,9 @@ using Gauge.Services;
 namespace Gauge.Tests;
 
 /// <summary>
-/// Persistence validation for <see cref="AutoUpdateSettingsStore"/>: an absent or unreadable
-/// file defaults to on, and saving must not clobber other keys sharing <c>settings.json</c>.
+/// Persistence validation for <see cref="AutoUpdateSettingsStore"/>: an absent file defaults
+/// to on, an unreadable one to off (installing is not undoable), and saving must not clobber
+/// other keys sharing <c>settings.json</c>.
 /// </summary>
 public sealed class AutoUpdateSettingsStoreTests : IDisposable
 {
@@ -40,6 +41,45 @@ public sealed class AutoUpdateSettingsStoreTests : IDisposable
 
         Assert.True(new ApiCostSettingsStore(() => _dir).Load());
         Assert.Equal(Gauge.Models.UsageViewMode.Gauge, new ViewModeSettingsStore(() => _dir).Load());
+    }
+
+    [Fact]
+    public void UnreadableFileReadsAsOffSoAMutedUserIsNotInstalledOver()
+    {
+        WriteSettings("{ not json");
+        Assert.False(new AutoUpdateSettingsStore(() => _dir).Load());
+    }
+
+    [Fact]
+    public void ALockedFileReadsAsOff()
+    {
+        WriteSettings("""{ "AutoUpdate": false }""");
+        using var held = new FileStream(
+            Path.Combine(_dir, "settings.json"), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        Assert.False(new AutoUpdateSettingsStore(() => _dir).Load());
+    }
+
+    [Fact]
+    public void AnAttemptIsRememberedPerVersion()
+    {
+        var store = new AutoUpdateSettingsStore(() => _dir);
+        Assert.False(store.WasAttempted(new Version(1, 2, 3)));
+
+        Assert.True(store.TryRecordAttempt(new Version(1, 2, 3)));
+
+        Assert.True(store.WasAttempted(new Version(1, 2, 3)));
+        Assert.False(store.WasAttempted(new Version(1, 2, 4)));
+    }
+
+    [Fact]
+    public void AnUnreadableFileRefusesTheAttemptAndCountsAsAttempted()
+    {
+        WriteSettings("{ not json");
+        var store = new AutoUpdateSettingsStore(() => _dir);
+
+        Assert.False(store.TryRecordAttempt(new Version(1, 2, 3)));
+        Assert.True(store.WasAttempted(new Version(1, 2, 3)));
     }
 
     private void WriteSettings(string json)

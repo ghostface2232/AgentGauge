@@ -79,12 +79,14 @@ public sealed class ClaudeProvider : UsageProviderBase
         request.Headers.TryAddWithoutValidation("anthropic-beta", OAuthBetaHeader);
         request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
 
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        // ResponseContentRead keeps HttpClient.Timeout over the body as well as the headers.
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
         EnsureUsageSuccess(response);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, default, cancellationToken);
         var root = document.RootElement;
+        UsageResponseShapeException.ThrowUnlessAnyProperty(root, ToolName, "five_hour", "seven_day", "limits");
 
         var windows = new List<UsageWindow>();
         if (ParseWindow(root, "five_hour", UsageWindowType.FiveHour) is { } fiveHour)

@@ -140,6 +140,11 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
         }
 
         _lastCredentialFingerprint = null;
+        if (result.Status == CredentialReadStatus.TemporarilyUnavailable)
+        {
+            return State; // Nothing was learned about the login, so the card stays as it was.
+        }
+
         return result.Status == CredentialReadStatus.Invalid
             ? NewState(AuthenticationStatus.Invalid, _credentials.Source,
                 result.Message ?? Loc.Get("Auth_InvalidCredential"))

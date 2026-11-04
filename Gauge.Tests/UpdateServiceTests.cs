@@ -12,10 +12,17 @@ namespace Gauge.Tests;
 /// and installer download/verification/launch failure. Closes the "Update version
 /// comparison" and "Installer execution failure" rows from COVERAGE.md.
 /// </summary>
-public sealed class UpdateServiceTests
+public sealed class UpdateServiceTests : IDisposable
 {
     // Well-formed but arbitrary: CheckAsync only needs the digest's shape.
     private static readonly string Digest = "sha256:" + new string('a', 64);
+
+    private readonly string _downloads = Path.Combine(Path.GetTempPath(), "GaugeUpdateTests", Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_downloads)) Directory.Delete(_downloads, recursive: true);
+    }
 
     [Theory]
     [InlineData("v0.2.4", true, "0.2.4")]
@@ -158,6 +165,8 @@ public sealed class UpdateServiceTests
         Assert.NotNull(succeeding.LaunchedPath);
         Assert.True(File.Exists(succeeding.LaunchedPath));
         Assert.Contains("/VERYSILENT", succeeding.Arguments);
+        // The app exits before Setup can fail, so its log is the only record of a failure.
+        Assert.Contains($"/LOG=\"{Path.Combine(_downloads, "install.log")}\"", succeeding.Arguments);
 
         var failing = new FakeLauncher(result: false);
         Assert.False(await Service("installer-bytes", launcher: failing).DownloadAndLaunchAsync(release));
@@ -173,8 +182,69 @@ public sealed class UpdateServiceTests
 
         Assert.False(await Service("what-actually-arrived", launcher: launcher).DownloadAndLaunchAsync(release));
         Assert.Null(launcher.LaunchedPath);
-        Assert.False(File.Exists(Path.Combine(Path.GetTempPath(), "Gauge", "GaugeSetup-v9.9.8.exe")));
+        Assert.False(File.Exists(Path.Combine(_downloads, "GaugeSetup-v9.9.8.exe")));
     }
+
+    [Fact]
+    public async Task BeforeLaunchRunsOnlyOnceTheDownloadVerified()
+    {
+        var calls = 0;
+        bool Record() { calls++; return true; }
+
+        var mismatch = new FakeLauncher(result: true);
+        await Service("arrived", launcher: mismatch)
+            .DownloadAndLaunchAsync(Release("v9.9.9", Sha256Of("promised")), beforeLaunch: Record);
+        Assert.Equal(0, calls);
+
+        var matching = new FakeLauncher(result: true);
+        Assert.True(await Service("installer-bytes", launcher: matching)
+            .DownloadAndLaunchAsync(Release("v9.9.9", Sha256Of("installer-bytes")), beforeLaunch: Record));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task ARefusedBeforeLaunchStopsTheInstallAndDiscardsTheDownload()
+    {
+        var launcher = new FakeLauncher(result: true);
+
+        Assert.False(await Service("installer-bytes", launcher: launcher).DownloadAndLaunchAsync(
+            Release("v9.9.9", Sha256Of("installer-bytes")), beforeLaunch: () => false));
+
+        Assert.Null(launcher.LaunchedPath);
+        Assert.False(File.Exists(Path.Combine(_downloads, "GaugeSetup-v9.9.9.exe")));
+    }
+
+    [Fact]
+    public void CleanDownloadsRemovesOldInstallersAndNothingElse()
+    {
+        Directory.CreateDirectory(_downloads);
+        var installer = Path.Combine(_downloads, "GaugeSetup-v0.7.3.exe");
+        var log = Path.Combine(_downloads, "install.log");
+        File.WriteAllText(installer, "old");
+        File.WriteAllText(log, "keep");
+
+        Service("").CleanDownloads();
+
+        Assert.False(File.Exists(installer));
+        Assert.True(File.Exists(log));
+    }
+
+    [Fact]
+    public void CleanDownloadsSkipsALockedInstaller()
+    {
+        // Setup can still be running when the app it relaunched gets here.
+        Directory.CreateDirectory(_downloads);
+        var installer = Path.Combine(_downloads, "GaugeSetup-v0.7.3.exe");
+        File.WriteAllText(installer, "running");
+        using var held = new FileStream(installer, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        Service("").CleanDownloads();
+
+        Assert.True(File.Exists(installer));
+    }
+
+    [Fact]
+    public void CleanDownloadsToleratesAMissingFolder() => Service("").CleanDownloads();
 
     [Fact]
     public async Task DownloadFailureReturnsFalseWithoutLaunching()
@@ -191,11 +261,11 @@ public sealed class UpdateServiceTests
     {
         var launcher = new FakeLauncher(result: true);
         var service = new UpdateService(
-            new HttpClient(new CutOffHandler()), new Version(0, 2, 4), launcher, Architecture.X64);
+            new HttpClient(new CutOffHandler()), new Version(0, 2, 4), launcher, Architecture.X64, _downloads);
 
         Assert.False(await service.DownloadAndLaunchAsync(Release("v9.9.7", Sha256Of("whole-installer"))));
         Assert.Null(launcher.LaunchedPath);
-        Assert.False(File.Exists(Path.Combine(Path.GetTempPath(), "Gauge", "GaugeSetup-v9.9.7.exe")));
+        Assert.False(File.Exists(Path.Combine(_downloads, "GaugeSetup-v9.9.7.exe")));
     }
 
     private static string ReleaseJson(string tag, string digest) => $$"""
@@ -211,7 +281,7 @@ public sealed class UpdateServiceTests
     private static string Sha256Of(string body)
         => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(body)));
 
-    private static UpdateService Service(
+    private UpdateService Service(
         string body,
         HttpStatusCode status = HttpStatusCode.OK,
         IInstallerLauncher? launcher = null,
@@ -220,7 +290,8 @@ public sealed class UpdateServiceTests
             new HttpClient(new StubHandler(body, status)),
             new Version(0, 2, 4),
             launcher ?? new FakeLauncher(result: true),
-            architecture);
+            architecture,
+            _downloads);
 
     private sealed class FakeLauncher(bool result) : IInstallerLauncher
     {

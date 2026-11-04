@@ -221,9 +221,12 @@ public enum DisplayBasis: String, Sendable, CaseIterable, Identifiable {
         return self == .used ? used : 1 - used
     }
 
-    /// An over-limit window floors at 0% remaining rather than going negative.
+    /// The remaining number is 100 minus the rounded used number, not the rounded complement,
+    /// so the two bases always sum to 100 (99.5% used reads 100% / 0%, never 100% / 1%). An
+    /// over-limit window floors at 0% remaining rather than going negative.
     public func percent(for usedRatio: Double) -> Int {
-        Int((fraction(for: usedRatio) * 100).rounded())
+        let used = Int((min(max(usedRatio, 0), 1) * 100).rounded())
+        return self == .used ? used : 100 - used
     }
 }
 

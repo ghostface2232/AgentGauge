@@ -104,13 +104,19 @@ public sealed class ClaudeProviderTests
     [Theory]
     [InlineData("""{ "five_hour": { "resets_at": "2026-07-01T00:00:00Z" } }""")] // utilization absent
     [InlineData("""{ "five_hour": { "utilization": "oops" } }""")]              // wrong type
-    [InlineData("{}")]                                                            // empty object
     [InlineData("""{ "unexpected": true, "five_hour": null }""")]               // unknown / null
     public async Task TolerantOfSchemaDrift(string json)
     {
         var snapshot = await Snapshot(json, Available("t"));
         Assert.Empty(snapshot.Windows);
     }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{ "session": { "used": 3 } }""")]
+    [InlineData("[]")]
+    public async Task AResponseOfAnUnknownShapeFailsInsteadOfEmptyingTheCard(string json)
+        => await Assert.ThrowsAsync<UsageResponseShapeException>(() => Snapshot(json, Available("t")));
 
     [Theory]
     [InlineData(150.0, 1.0)]
@@ -145,7 +151,7 @@ public sealed class ClaudeProviderTests
     public async Task PlanIsSurfacedEvenWhenUsageBodyIsEmpty()
     {
         // The plan comes from the credentials file, so it shows before any window data.
-        var snapshot = await Snapshot("{}", Available("token", "Max 20x"));
+        var snapshot = await Snapshot("""{ "five_hour": null, "seven_day": null }""", Available("token", "Max 20x"));
         Assert.Equal("Max 20x", snapshot.Plan);
         Assert.Empty(snapshot.Windows);
     }

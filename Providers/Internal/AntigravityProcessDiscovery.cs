@@ -32,6 +32,8 @@ internal sealed record AntigravityLanguageServer
 /// </summary>
 internal sealed class AntigravityProcessDiscovery
 {
+    private static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(10);
+
     private readonly string? _installRoot;
     private readonly Func<int, IReadOnlyList<int>> _listeningPorts;
 
@@ -51,6 +53,8 @@ internal sealed class AntigravityProcessDiscovery
             // "_" is a single-char wildcard in WQL LIKE; "[_]" matches a literal underscore.
             using var searcher = new ManagementObjectSearcher(
                 "SELECT ProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name LIKE 'language[_]server%'");
+            // The default is no timeout at all, so a wedged WMI service would hang this read.
+            searcher.Options.Timeout = QueryTimeout;
             using var results = searcher.Get();
 
             foreach (ManagementBaseObject result in results)
