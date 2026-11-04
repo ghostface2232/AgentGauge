@@ -133,7 +133,10 @@ public actor HTTPUsageProvider: UsageProvider {
 
         var credential: ToolCredential?
         if case .available(let available) = read { credential = available }
-        if cachesSnapshots { trackFingerprint(credential) }
+        // A read that saw nothing is not an account switch: treating it as one would drop the
+        // happy-path cap and a standing cooldown, and the next good read would hit a throttling
+        // endpoint at once. A real switch still shows when the credential can next be read.
+        if cachesSnapshots && !read.leavesAccountUnknown { trackFingerprint(credential) }
 
         switch read {
         case .invalid(let problem) where problem.requiresSignIn:
