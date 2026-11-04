@@ -6,18 +6,25 @@
 # Gauge.csproj's <Version> prefixed with "v" (and the updater only sees it once published).
 #
 # Local alternative: pwsh -File release.ps1 -Draft (see README).
+#
+# Publishing the release is a separate event, which runs only the winget job: it stays off
+# until the owner sets the WINGET_PUBLISH repository variable (see packaging/README.md).
 name: release
 
 on:
   push:
     tags:
       - 'v*'
+  release:
+    types: [published]
 
 permissions:
   contents: write
 
 jobs:
   release:
+    # The mac job needs this one, so it is skipped along with it on the release event.
+    if: github.event_name == 'push'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -109,3 +116,32 @@ jobs:
               gh release upload "$tag" "mac/build/$asset"
             fi
           done
+
+  winget:
+    # A draft has no public asset URL and the in-app updater cannot see it either, so only a
+    # published stable release is submitted. wingetcreate update needs a version already in
+    # winget-pkgs, hence the switch: it turns on after the first manifest has been merged.
+    if: github.event_name == 'release' && !github.event.release.prerelease && vars.WINGET_PUBLISH == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Submit the release to winget-pkgs
+        env:
+          # wingetcreate reads this itself; -t would risk printing the token in the log.
+          WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+          NOTES_URL: ${{ github.event.release.html_url }}
+          PUBLISHED_AT: ${{ github.event.release.published_at }}
+        shell: pwsh
+        run: |
+          if ($env:TAG -notmatch '^v(\d+\.\d+\.\d+)$') { throw "Unexpected release tag: $env:TAG" }
+          $version = $Matches[1]
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/GaugeSetup-win-x64.exe"
+          $date = ([datetimeoffset]::Parse($env:PUBLISHED_AT, [cultureinfo]::InvariantCulture)).UtcDateTime.ToString('yyyy-MM-dd')
+
+          curl.exe -fsSL -o wingetcreate.exe https://aka.ms/wingetcreate/latest
+          if ($LASTEXITCODE -ne 0) { throw "Downloading wingetcreate failed ($LASTEXITCODE)" }
+
+          .\wingetcreate.exe update ghostface2232.AgentGauge --version $version --urls $url --release-notes-url $env:NOTES_URL --release-date $date --submit
+          if ($LASTEXITCODE -ne 0) { throw "wingetcreate failed ($LASTEXITCODE)" }

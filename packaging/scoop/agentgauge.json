@@ -1,0 +1,46 @@
+{
+    "version": "0.7.5",
+    "description": "System tray monitor for the usage limits of Claude Code, Codex, Antigravity and GitHub Copilot.",
+    "homepage": "https://github.com/ghostface2232/AgentGauge",
+    "license": "Proprietary",
+    "notes": [
+        "AgentGauge is installed to %LOCALAPPDATA%\\Programs\\Gauge by its own installer, not into the Scoop apps folder.",
+        "It updates itself on launch by default, so 'scoop list' can show an older version than the one running; 'scoop hold' does not stop this. Turn it off in AgentGauge's settings.",
+        "Exit AgentGauge from its tray icon before running 'scoop uninstall'. Your settings in %APPDATA%\\Gauge are kept."
+    ],
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/ghostface2232/AgentGauge/releases/download/v0.7.5/GaugeSetup-win-x64.exe",
+            "hash": "174478e9c80c9ef01153382ab65a1421d582e06e57ec2fe2961a39b2a779393d"
+        }
+    },
+    "installer": {
+        "args": [
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/FORCECLOSEAPPLICATIONS"
+        ]
+    },
+    "uninstaller": {
+        "script": [
+            "# Scoop also runs this during 'scoop update', and the Inno uninstaller deletes the start-on-boot Run value.",
+            "# The wiki documents $cmd, but current Scoop holds the command in $subCommand, so both are read.",
+            "$command = if ($cmd) { $cmd } else { $subCommand }",
+            "if ($command -ne 'update') {",
+            "    $uninstaller = Join-Path $env:LOCALAPPDATA 'Programs\\Gauge\\unins000.exe'",
+            "    if (Test-Path $uninstaller) {",
+            "        Start-Process -FilePath $uninstaller -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait",
+            "    }",
+            "}"
+        ]
+    },
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/ghostface2232/AgentGauge/releases/download/v$version/GaugeSetup-win-x64.exe"
+            }
+        }
+    }
+}
