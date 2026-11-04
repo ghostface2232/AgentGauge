@@ -126,7 +126,11 @@ public abstract class UsageProviderBase : IUsageProvider
         var credential = credentialResult.Credential;
         var nowTimestamp = Time.GetTimestamp();
 
-        if (_cachesSnapshots)
+        // An Invalid read carries no token, so it says nothing about whose account this is: an
+        // expired token, or a credential file held open past the read's retries. Tracking it as
+        // a change would drop a standing cooldown and the cached snapshot, and then again when
+        // the same token reads fine next time. A sign-out reads as Missing and still resets.
+        if (_cachesSnapshots && credentialResult.Status != CredentialReadStatus.Invalid)
         {
             TrackCredentialFingerprint(credential);
         }
