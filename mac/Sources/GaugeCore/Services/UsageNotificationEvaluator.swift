@@ -22,6 +22,9 @@ public struct UsageNotification: Sendable, Equatable {
 public struct UsageNotificationEvaluator: Sendable {
     /// A reset-time advance smaller than this is server recompute jitter, not a new cycle.
     static let minimumResetAdvance: TimeInterval = 60
+    /// A reset-time advance this large starts a new cycle even without a usage drop. Far past
+    /// recompute jitter, because nothing here can tell a re-armed alert from a repeat.
+    static let cycleAdvanceMinimum: TimeInterval = 3600
     private static let resetDropMinimum = 0.10
 
     private var observations: [Key: Observation] = [:]
@@ -58,6 +61,16 @@ public struct UsageNotificationEvaluator: Sendable {
             guard let snapshot = state.snapshot else { continue }
             let windows = snapshot.windows.filter(Self.isSupported)
 
+            // Restored from disk at launch: it can be days old, so comparing the first live
+            // reading with it would present everything that happened while the app was off.
+            // The first live reading sets the baseline instead. That is also what a shown
+            // tool's resume mark is for, so this uses it up; left set, it would make the first
+            // live reading a throwaway baseline and swallow the second one too.
+            if state.isRehydrated {
+                resumingTools.remove(snapshot.tool)
+                continue
+            }
+
             // A failed refresh re-serves the last good snapshot: keep its keys alive without
             // evaluating cached values as new transitions.
             if state.lastRefreshFailed {
@@ -87,7 +100,11 @@ public struct UsageNotificationEvaluator: Sendable {
                     notifications.append(Self.resetNotification(snapshot.tool, window))
                 }
 
-                var crossed: Set<Double> = reset ? [] : previous.crossed
+                // A new cycle re-arms its thresholds even when no reset toast is due: usage can
+                // already be back above the old reading by the next poll, and a stale mask or
+                // high-water mark would silence this cycle's alerts and fake a later reset toast.
+                let newCycle = reset || Self.cycleAdvanced(previous, window)
+                var crossed: Set<Double> = newCycle ? [] : previous.crossed
                 for threshold in Self.thresholds(window.type)
                 where !crossed.contains(threshold) && previous.ratio < threshold && window.usedRatio >= threshold {
                     notifications.append(Self.thresholdNotification(snapshot.tool, window, threshold: threshold, now: now))
@@ -95,11 +112,11 @@ public struct UsageNotificationEvaluator: Sendable {
                 }
                 // A polling gap that spans a reset into an already-high cycle is marked
                 // consumed rather than replayed.
-                if reset { crossed = Self.crossedAt(window) }
+                if newCycle { crossed = Self.crossedAt(window) }
 
                 observations[key] = Observation(
                     ratio: window.usedRatio,
-                    highestRatio: max(reset ? window.usedRatio : previous.highestRatio, window.usedRatio),
+                    highestRatio: max(newCycle ? window.usedRatio : previous.highestRatio, window.usedRatio),
                     resetTime: window.resetTime,
                     capturedAt: snapshot.capturedAt,
                     crossed: crossed)
@@ -120,15 +137,21 @@ public struct UsageNotificationEvaluator: Sendable {
         type == .fiveHour || type == .weekly
     }
 
-    /// Reset timestamps are the authoritative cycle identity. The fallback covers providers
-    /// that omit them but requires a strong high-to-low drop — a toast cannot be taken back.
+    /// Reset timestamps are the authoritative cycle identity. The fallback covers a reading
+    /// missing one on EITHER side but requires a strong high-to-low drop, because a toast
+    /// cannot be taken back. Claude really does this: an idle window reports a null reset time,
+    /// so a used-up window comes back as 0% with none and gets its time again on first use.
     private static func isReset(_ previous: Observation, _ current: UsageWindow) -> Bool {
         let dropped = current.usedRatio <= previous.ratio - resetDropMinimum
         if let old = previous.resetTime, let new = current.resetTime {
             return new.timeIntervalSince(old) > minimumResetAdvance && dropped
         }
-        return previous.resetTime == nil && current.resetTime == nil
-            && previous.ratio >= minimumThreshold(current.type) && current.usedRatio < 0.20
+        return previous.ratio >= minimumThreshold(current.type) && current.usedRatio < 0.20
+    }
+
+    private static func cycleAdvanced(_ previous: Observation, _ current: UsageWindow) -> Bool {
+        guard let old = previous.resetTime, let new = current.resetTime else { return false }
+        return new.timeIntervalSince(old) >= cycleAdvanceMinimum
     }
 
     private static func thresholds(_ type: UsageWindowType) -> [Double] {

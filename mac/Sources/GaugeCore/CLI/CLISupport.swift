@@ -20,6 +20,12 @@ public protocol ProcessRunning: Sendable {
 /// `gh auth token`, whose output is the token and stays in memory); a CLI's own output
 /// carries account information and is never logged.
 public struct SystemProcessRunner: ProcessRunning {
+    /// How long a timed-out process gets to honour SIGTERM before SIGKILL.
+    static let terminationGrace: TimeInterval = 2
+    /// How long stdout may stay open after the process itself has exited. What the process
+    /// wrote is already in the pipe, so this only waits out a descendant's last words.
+    static let drainGrace: TimeInterval = 1
+
     public init() {}
 
     public func run(_ executable: URL, arguments: [String], environment: [String: String],
@@ -39,48 +45,122 @@ public struct SystemProcessRunner: ProcessRunning {
             let state = RunState()
             // Drained while the process runs: output larger than the pipe buffer (the keychain
             // document grows with every MCP OAuth entry) would otherwise block the writer and
-            // only end at the timeout.
-            let drained = DispatchGroup()
-            let collected = OutputBox()
+            // only end at the timeout. Started before the launch, so a process that exits at
+            // once cannot be judged before its output has anywhere to go.
+            let drain = pipe.map { OutputDrain($0.fileHandleForReading) }
 
-            process.terminationHandler = { finished in
-                drained.wait()
-                let output = pipe == nil ? nil : collected.data
+            let deliver: @Sendable (Int32?, Data?) -> Void = { exitCode, output in
                 state.finishOnce {
                     continuation.resume(returning: ProcessResult(
-                        exitCode: finished.terminationStatus, timedOut: state.timedOut, launched: true, output: output))
+                        exitCode: exitCode, timedOut: state.timedOut, launched: true, output: output))
                 }
+            }
+            process.terminationHandler = { finished in
+                let status = finished.terminationStatus
+                guard let drain else { return deliver(status, nil) }
+                drain.whenEnded { deliver(status, $0) }
+                // Exit does not end the pipe while a descendant still holds its write end (a
+                // daemon started by ~/.zshrc during the login-shell probe), so it is bounded.
+                drain.stop(after: Self.drainGrace)
             }
             do {
                 try process.run()
             } catch {
+                drain?.stop()
                 state.finishOnce { continuation.resume(returning: .launchFailed) }
                 return
-            }
-            if let pipe {
-                drained.enter()
-                DispatchQueue.global().async {
-                    collected.data = pipe.fileHandleForReading.readDataToEndOfFile()
-                    drained.leave()
-                }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
                 guard process.isRunning else { return }
                 state.markTimedOut()
                 process.terminate()
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.terminationGrace) {
                     if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                    // The termination handler normally finishes first. This holds the timeout
+                    // even for a process that never comes back from SIGKILL (stuck in the
+                    // kernel), so the caller is resumed no matter what.
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 2 * Self.drainGrace) {
+                        guard let drain else { return deliver(nil, nil) }
+                        drain.whenEnded { deliver(nil, $0) }
+                        drain.stop()
+                    }
                 }
             }
         }
     }
 
-    private final class OutputBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stored = Data()
-        var data: Data {
-            get { lock.withLock { stored } }
-            set { lock.withLock { stored = newValue } }
+    /// Collects a child's stdout through a dispatch source rather than a blocking read, because
+    /// the read side must be able to give up on a pipe that never reaches EOF. Closing a
+    /// FileHandle under a thread blocked in `readDataToEndOfFile` is undefined, and that call
+    /// reports a failed read by raising an Objective-C exception, which would crash the app;
+    /// cancelling a source is the supported way to stop, and its cancel handler is the one
+    /// safe place to close the descriptor. A descendant that writes after that gets EPIPE.
+    private final class OutputDrain: @unchecked Sendable {
+        private static let chunkSize = 64 * 1024
+
+        private let descriptor: Int32
+        private let queue = DispatchQueue(label: "io.github.ghostface2232.agentgauge.process-output")
+        private let source: DispatchSourceRead
+        // Confined to `queue`.
+        private var collected = Data()
+        private var ended = false
+        private var waiters: [@Sendable (Data) -> Void] = []
+
+        init(_ handle: FileHandle) {
+            descriptor = handle.fileDescriptor
+            // A spurious wake-up must come back as EAGAIN instead of parking the serial queue.
+            // The flag belongs to the read end's own file description; the child's stdout is
+            // the write end and stays blocking.
+            _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
+            source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
+            source.setEventHandler { [self] in readAvailable() }
+            source.setCancelHandler { try? handle.close() }
+            source.resume()
+        }
+
+        /// Calls back with everything read once the pipe reaches EOF or `stop` gives up on it.
+        func whenEnded(_ waiter: @escaping @Sendable (Data) -> Void) {
+            queue.async { [self] in
+                if ended {
+                    waiter(collected)
+                } else {
+                    waiters.append(waiter)
+                }
+            }
+        }
+
+        /// Forces the end of the output: takes what is already buffered and closes the read end.
+        func stop(after delay: TimeInterval = 0) {
+            queue.asyncAfter(deadline: .now() + delay) { [self] in
+                readAvailable()
+                end()
+            }
+        }
+
+        private func readAvailable() {
+            let capacity = Self.chunkSize
+            var buffer = [UInt8](repeating: 0, count: capacity)
+            while !ended {
+                let count = Darwin.read(descriptor, &buffer, capacity)
+                if count > 0 {
+                    collected.append(contentsOf: buffer[..<count])
+                } else if count < 0 && errno == EINTR {
+                    continue
+                } else if count < 0 && errno == EAGAIN {
+                    return
+                } else {
+                    return end()
+                }
+            }
+        }
+
+        private func end() {
+            guard !ended else { return }
+            ended = true
+            source.cancel()
+            let current = waiters
+            waiters = []
+            current.forEach { $0(collected) }
         }
     }
 
@@ -112,21 +192,31 @@ public protocol CLILocating: Sendable {
 
 /// Finds the official CLIs. An app launched from Finder or at login does not inherit the
 /// shell's PATH, so the usual install locations are checked first and the user's login
-/// shell PATH (where nvm/asdf/Homebrew put things) is asked once as a fallback.
+/// shell PATH (where nvm/asdf/Homebrew put things) is the fallback. A good answer is kept for
+/// the process lifetime; a failed probe (a slow ~/.zshrc, say) is asked again after a cooldown.
 ///
 /// Last comes the copy a desktop app ships, so a desktop-only install can still sign in and
 /// run the delegated refresh: the Claude desktop app unpacks the real `claude` binary under
 /// its Application Support folder, and the Codex app bundles `codex` and shares
 /// `~/.codex/auth.json` with the CLI. The desktop apps' own token stores are never read.
 public actor CLILocator: CLILocating {
+    /// A failed probe costs up to its 5-second timeout, and every delegated refresh or `gh`
+    /// lookup asks for this PATH, so failures are not retried on each of those.
+    static let shellProbeRetryCooldown: TimeInterval = 300
+
     private let runner: any ProcessRunning
     private let homeDirectory: URL
+    private let clock: any MonotonicClock
     private var loginShellPath: [String]?
+    private var shellProbe: Task<[String]?, Never>?
+    private var shellProbeRetryAt: TimeInterval?
 
     public init(runner: any ProcessRunning = SystemProcessRunner(),
-                homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+                homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+                clock: any MonotonicClock = SystemMonotonicClock()) {
         self.runner = runner
         self.homeDirectory = homeDirectory
+        self.clock = clock
     }
 
     public func locate(_ name: String) async -> URL? {
@@ -160,22 +250,30 @@ public actor CLILocator: CLILocating {
     /// can keep an older one beside the current, so the highest version wins. The binary sits in
     /// a `claude.app` wrapper (`claude.app/Contents/MacOS/claude`, observed with 2.1.309) either
     /// one build-hash folder down or directly in the version folder, or bare in either place.
+    /// The app writes a `.verified` marker into the build folder after the binary, so a build
+    /// still downloading is passed over for an older complete one; an unmarked binary is used
+    /// only when no build carries the marker.
     static func newestClaudeBinary(in root: URL) -> URL? {
         let fileManager = FileManager.default
         guard let versions = try? fileManager.contentsOfDirectory(atPath: root.path) else { return nil }
         let ordered = versions
             .filter { $0.first?.isNumber == true }
             .sorted { $0.compare($1, options: .numeric) == .orderedDescending }
+        var unverified: URL?
         for version in ordered {
             let directory = root.appending(path: version)
             var folders = [directory]
             if let builds = try? fileManager.contentsOfDirectory(atPath: directory.path) {
                 folders += builds.sorted().map { directory.appending(path: $0) }
             }
-            let candidates = folders.flatMap { [$0.appending(path: "claude.app/Contents/MacOS").path, $0.path] }
-            if let found = firstExecutable("claude", in: candidates) { return found }
+            for folder in folders {
+                let candidates = [folder.appending(path: "claude.app/Contents/MacOS").path, folder.path]
+                guard let binary = firstExecutable("claude", in: candidates) else { continue }
+                if fileManager.fileExists(atPath: folder.appending(path: ".verified").path) { return binary }
+                if unverified == nil { unverified = binary }
+            }
         }
-        return nil
+        return unverified
     }
 
     /// PATH entries that name one fixed folder. A relative entry (`.`, `bin`, an empty one)
@@ -236,6 +334,25 @@ public actor CLILocator: CLILocating {
 
     private func shellPath() async -> [String] {
         if let loginShellPath { return loginShellPath }
+        // The locator is shared by every provider, so concurrent callers share one shell.
+        if let shellProbe { return await shellProbe.value ?? [] }
+        if let shellProbeRetryAt, clock.now() < shellProbeRetryAt { return [] }
+
+        let runner = runner
+        let probe = Task { await Self.probeLoginShell(runner: runner) }
+        shellProbe = probe
+        let directories = await probe.value
+        shellProbe = nil
+        if let directories {
+            loginShellPath = directories
+            shellProbeRetryAt = nil
+        } else {
+            shellProbeRetryAt = clock.now() + Self.shellProbeRetryCooldown
+        }
+        return directories ?? []
+    }
+
+    private static func probeLoginShell(runner: any ProcessRunning) async -> [String]? {
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         // Interactive + login so both ~/.zprofile (Homebrew) and ~/.zshrc (nvm) apply. The
         // markers fence PATH off from anything the rc files print.
@@ -245,14 +362,22 @@ public actor CLILocator: CLILocating {
             environment: ProcessInfo.processInfo.environment,
             timeout: 5,
             captureOutput: true)
-        var directories: [String] = []
-        if let data = result.output, let text = String(data: data, encoding: .utf8),
-           let start = text.range(of: "__AGENTGAUGE_PATH__"),
-           let end = text.range(of: "__AGENTGAUGE_END__", range: start.upperBound..<text.endIndex) {
-            directories = text[start.upperBound..<end.lowerBound].split(separator: ":").map(String.init)
-        }
-        loginShellPath = directories
-        return directories
+        // Judged by the answer, not the exit: a shell that printed PATH and then hung at exit
+        // still gave a good one. The output can carry account details, so it is never logged.
+        if let directories = parseLoginShellPath(result.output) { return directories }
+        Log.write("auth", "Login shell PATH probe failed (launched=\(result.launched), exit=\(result.exitCode.map { String($0) } ?? "-"), timedOut=\(result.timedOut))")
+        return nil
+    }
+
+    /// The directories between the probe's markers; nil when they are absent or fence nothing.
+    /// Decoded leniently, so a stray non-UTF-8 byte from an rc file cannot cost the answer.
+    static func parseLoginShellPath(_ output: Data?) -> [String]? {
+        guard let output else { return nil }
+        let text = String(decoding: output, as: UTF8.self)
+        guard let start = text.range(of: "__AGENTGAUGE_PATH__"),
+              let end = text.range(of: "__AGENTGAUGE_END__", range: start.upperBound..<text.endIndex) else { return nil }
+        let directories = text[start.upperBound..<end.lowerBound].split(separator: ":").map(String.init)
+        return directories.isEmpty ? nil : directories
     }
 }
 

@@ -214,4 +214,15 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(DisplayBasis.remaining.percent(for: 0.42), 58)
         XCTAssertEqual(DisplayBasis.remaining.percent(for: 1.3), 0)
     }
+
+    func testRemainingPercentIsTheComplementOfTheRoundedUsedPercent() {
+        XCTAssertEqual(DisplayBasis.used.percent(for: 0.995), 100)
+        XCTAssertEqual(DisplayBasis.remaining.percent(for: 0.995), 0, "never 100% used and 1% left")
+        XCTAssertEqual(DisplayBasis.remaining.percent(for: 0.004), 100)
+        XCTAssertEqual(DisplayBasis.remaining.percent(for: -0.2), 100)
+        for thousandths in 0...1000 {
+            let ratio = Double(thousandths) / 1000
+            XCTAssertEqual(DisplayBasis.used.percent(for: ratio) + DisplayBasis.remaining.percent(for: ratio), 100)
+        }
+    }
 }

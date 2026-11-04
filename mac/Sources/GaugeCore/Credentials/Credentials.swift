@@ -38,6 +38,12 @@ public enum CredentialRead: Sendable, Equatable {
     /// Never signed in on this Mac: a clean "no data" state, not a failure.
     case missing
     case invalid(CredentialProblem)
+
+    /// The credential could not be seen at all, so nothing is known about whose it is, or
+    /// whether it changed. Every other outcome read the source and can be judged.
+    var leavesAccountUnknown: Bool {
+        self == .invalid(.unreadable) || self == .invalid(.keychainDenied)
+    }
 }
 
 public protocol CredentialSource: Sendable {

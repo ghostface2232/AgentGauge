@@ -78,4 +78,110 @@ final class CLILocatorTests: XCTestCase {
     func testClaudeDesktopBinaryMissingRoot() {
         XCTAssertNil(CLILocator.newestClaudeBinary(in: root.appending(path: "absent")))
     }
+
+    func testClaudeDesktopBinaryStillDownloadingLosesToOlderVerifiedBuild() throws {
+        let older = try executable("2.1.308/c17a819afb40/claude.app/Contents/MacOS/claude")
+        FileManager.default.createFile(atPath: root.appending(path: "2.1.308/c17a819afb40/.verified").path, contents: Data())
+        try executable("2.1.309/9078b9c1d466/claude.app/Contents/MacOS/claude")
+        XCTAssertEqual(CLILocator.newestClaudeBinary(in: root)?.path, older.path)
+    }
+
+    func testClaudeDesktopBinaryPrefersVerifiedBuildWithinOneVersion() throws {
+        try executable("2.1.309/aaaa/claude")
+        let verified = try executable("2.1.309/bbbb/claude")
+        FileManager.default.createFile(atPath: root.appending(path: "2.1.309/bbbb/.verified").path, contents: Data())
+        XCTAssertEqual(CLILocator.newestClaudeBinary(in: root)?.path, verified.path)
+    }
+
+    func testClaudeDesktopBinaryNewestVerifiedWins() throws {
+        try executable("2.1.99/aaaa/claude")
+        FileManager.default.createFile(atPath: root.appending(path: "2.1.99/aaaa/.verified").path, contents: Data())
+        let newest = try executable("2.1.309/bbbb/claude")
+        FileManager.default.createFile(atPath: root.appending(path: "2.1.309/bbbb/.verified").path, contents: Data())
+        XCTAssertEqual(CLILocator.newestClaudeBinary(in: root)?.path, newest.path)
+    }
+
+    func testClaudeDesktopBinaryWithoutAnyMarkerFallsBackToNewest() throws {
+        try executable("2.1.308/aaaa/claude")
+        let newest = try executable("2.1.309/bbbb/claude")
+        XCTAssertEqual(CLILocator.newestClaudeBinary(in: root)?.path, newest.path)
+    }
+
+    // MARK: Login shell probe
+
+    private final class ShellRunner: ProcessRunning, @unchecked Sendable {
+        private let lock = NSLock()
+        private var results: [ProcessResult]
+        private var count = 0
+        private let delay: Duration
+
+        init(_ results: [ProcessResult], delay: Duration = .zero) {
+            self.results = results
+            self.delay = delay
+        }
+
+        var runs: Int { lock.withLock { count } }
+
+        func run(_ executable: URL, arguments: [String], environment: [String: String],
+                 timeout: TimeInterval, captureOutput: Bool) async -> ProcessResult {
+            let result = lock.withLock { () -> ProcessResult in
+                count += 1
+                return results.isEmpty ? ProcessResult.launchFailed : results.removeFirst()
+            }
+            try? await Task.sleep(for: delay)
+            return result
+        }
+    }
+
+    private func probeAnswer(_ path: String) -> ProcessResult {
+        ProcessResult(exitCode: 0, timedOut: false, launched: true,
+                      output: Data("__AGENTGAUGE_PATH__\(path)__AGENTGAUGE_END__".utf8))
+    }
+
+    private func path(_ locator: CLILocator) async -> [Substring] {
+        await locator.environment(for: URL(fileURLWithPath: "/usr/bin/true"))["PATH", default: ""].split(separator: ":")
+    }
+
+    func testFailedShellProbeIsRetriedAfterItsCooldownAndOnlySuccessIsKept() async {
+        let timedOut = ProcessResult(exitCode: nil, timedOut: true, launched: true, output: Data())
+        let runner = ShellRunner([timedOut, probeAnswer("/opt/probed/bin")])
+        let clock = ManualClock()
+        let locator = CLILocator(runner: runner, homeDirectory: root, clock: clock)
+
+        var entries = await path(locator)
+        XCTAssertFalse(entries.contains("/opt/probed/bin"))
+        XCTAssertEqual(runner.runs, 1)
+
+        entries = await path(locator)
+        XCTAssertEqual(runner.runs, 1, "inside the cooldown a failed probe is not repeated")
+
+        clock.advance(CLILocator.shellProbeRetryCooldown + 1)
+        entries = await path(locator)
+        XCTAssertTrue(entries.contains("/opt/probed/bin"))
+        XCTAssertEqual(runner.runs, 2)
+
+        clock.advance(CLILocator.shellProbeRetryCooldown * 10)
+        entries = await path(locator)
+        XCTAssertTrue(entries.contains("/opt/probed/bin"))
+        XCTAssertEqual(runner.runs, 2, "a good answer is kept for the process lifetime")
+    }
+
+    func testConcurrentCallersShareOneShellProbe() async {
+        let runner = ShellRunner([probeAnswer("/opt/probed/bin")], delay: .milliseconds(100))
+        let locator = CLILocator(runner: runner, homeDirectory: root, clock: ManualClock())
+        async let first = path(locator)
+        async let second = path(locator)
+        let entries = await (first, second)
+        XCTAssertTrue(entries.0.contains("/opt/probed/bin"))
+        XCTAssertTrue(entries.1.contains("/opt/probed/bin"))
+        XCTAssertEqual(runner.runs, 1)
+    }
+
+    func testLoginShellPathParsing() {
+        XCTAssertEqual(CLILocator.parseLoginShellPath(Data("rc noise\n__AGENTGAUGE_PATH__/a:/b__AGENTGAUGE_END__".utf8)), ["/a", "/b"])
+        XCTAssertNil(CLILocator.parseLoginShellPath(nil))
+        XCTAssertNil(CLILocator.parseLoginShellPath(Data()))
+        XCTAssertNil(CLILocator.parseLoginShellPath(Data("__AGENTGAUGE_PATH__/a".utf8)), "cut off before the end marker")
+        XCTAssertNil(CLILocator.parseLoginShellPath(Data("__AGENTGAUGE_PATH____AGENTGAUGE_END__".utf8)), "an empty PATH is no answer")
+    }
 }

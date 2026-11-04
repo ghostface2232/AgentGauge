@@ -82,6 +82,19 @@ final class AntigravityParserTests: XCTestCase {
         XCTAssertEqual(AntigravityQuotaParser.familyLabel(bucketID: "gemini-5h", groupName: nil), "Gemini")
         XCTAssertEqual(AntigravityQuotaParser.familyLabel(bucketID: "3p-weekly", groupName: "  "), "Claude/GPT")
         XCTAssertNil(AntigravityQuotaParser.familyLabel(bucketID: "other", groupName: nil))
+        XCTAssertEqual(AntigravityQuotaParser.familyLabel(bucketID: "gemini-argon-wtu-weekly", groupName: nil), "Gemini 4 Argon")
+        XCTAssertEqual(AntigravityQuotaParser.familyLabel(bucketID: "GEMINI-5H", groupName: nil), "Gemini")
+    }
+
+    /// Same rules as the Windows `FamilyLabel`: only a group naming both shortens to the shared
+    /// family, so a single-vendor scoped limit never collapses into "Claude/GPT".
+    func testFamilyLabelShortensOnlyTheSharedGroups() {
+        for name in ["Claude and GPT models", "claude/gpt", "GPT & Claude"] {
+            XCTAssertEqual(AntigravityQuotaParser.familyLabel(bucketID: "x", groupName: name), "Claude/GPT")
+        }
+        XCTAssertEqual(AntigravityQuotaParser.familyLabel(bucketID: "3p-weekly", groupName: "Claude Models"), "Claude Models")
+        XCTAssertEqual(AntigravityQuotaParser.familyLabel(bucketID: "3p-weekly", groupName: "GPT-5 Codex"), "GPT-5 Codex")
+        XCTAssertEqual(AntigravityQuotaParser.familyLabel(bucketID: "gemini-5h", groupName: " GEMINI MODELS "), "Gemini")
     }
 
     func testUsesGroupMetadataWhenBucketIdsChange() throws {

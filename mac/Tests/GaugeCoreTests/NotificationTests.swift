@@ -5,9 +5,12 @@ import XCTest
 final class NotificationEvaluatorTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_000_000)
 
-    private func state(_ ratio: Double, type: UsageWindowType = .fiveHour, reset: Date?, at captured: Date) -> ToolState {
+    private func state(_ ratio: Double, type: UsageWindowType = .fiveHour, reset: Date?, at captured: Date,
+                       rehydrated: Bool = false) -> ToolState {
         let window = UsageWindow(type: type, usedRatio: ratio, resetTime: reset, duration: 5 * 3600)
-        return ToolState(tool: .claude, snapshot: UsageSnapshot(tool: .claude, plan: nil, windows: [window], capturedAt: captured))
+        var state = ToolState(tool: .claude, snapshot: UsageSnapshot(tool: .claude, plan: nil, windows: [window], capturedAt: captured))
+        state.isRehydrated = rehydrated
+        return state
     }
 
     func testBaselineNeverAlerts() {
@@ -54,6 +57,131 @@ final class NotificationEvaluatorTests: XCTestCase {
         var failed = state(0.95, reset: reset, at: start + 60)
         failed.lastRefreshFailed = true
         XCTAssertTrue(evaluator.evaluate([failed], now: start + 60).isEmpty)
+    }
+
+    private let hour: TimeInterval = 3600
+    private let day: TimeInterval = 86_400
+
+    // Claude reports an idle window with a null reset time, so a used-up window comes back as
+    // 0% with none and only gets its time again on first use.
+    func testResetIntoAWindowWithNoResetTimeStillCounts() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.95, reset: start + hour, at: start)], now: start)
+        let alerts = evaluator.evaluate([state(0, reset: nil, at: start + 2 * hour)], now: start)
+        XCTAssertEqual(alerts.map(\.kind), [.reset])
+    }
+
+    func testThresholdsAreRearmedAfterAResetThroughNoResetTime() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.85, reset: start + hour, at: start)], now: start)
+        XCTAssertEqual(evaluator.evaluate([state(0.95, reset: start + hour, at: start + 300)], now: start).map(\.kind), [.threshold])
+
+        _ = evaluator.evaluate([state(0, reset: nil, at: start + 2 * hour)], now: start)
+        XCTAssertTrue(evaluator.evaluate([state(0.03, reset: start + 7 * hour, at: start + 2.5 * hour)], now: start).isEmpty)
+
+        let crossing = evaluator.evaluate([state(0.92, reset: start + 7 * hour, at: start + 4 * hour)], now: start)
+        XCTAssertEqual(crossing.map(\.kind), [.threshold])
+    }
+
+    func testOldHighWaterMarkCannotFakeAResetToastInALaterCycle() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.95, reset: start + hour, at: start)], now: start)
+        _ = evaluator.evaluate([state(0, reset: nil, at: start + 2 * hour)], now: start)
+        _ = evaluator.evaluate([state(0.25, reset: start + 7 * hour, at: start + 3 * hour)], now: start)
+
+        // This cycle never came near the threshold, so its reset is not worth announcing.
+        let next = evaluator.evaluate([state(0.03, reset: start + 13 * hour, at: start + 8 * hour)], now: start)
+        XCTAssertTrue(next.isEmpty)
+    }
+
+    func testStrongDropWithTheResetTimeReturningAlsoCounts() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.95, reset: nil, at: start)], now: start)
+        let alerts = evaluator.evaluate([state(0.02, reset: start + 5 * hour, at: start + hour)], now: start)
+        XCTAssertEqual(alerts.map(\.kind), [.reset])
+    }
+
+    func testMissingResetTimeWithoutAStrongDropIsNotAReset() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.95, reset: start + hour, at: start)], now: start)
+
+        // Schema drift dropping the field must not read as a new cycle on its own.
+        XCTAssertTrue(evaluator.evaluate([state(0.90, reset: nil, at: start + 300)], now: start).isEmpty)
+        XCTAssertTrue(evaluator.evaluate([state(0.95, reset: start + hour, at: start + 600)], now: start).isEmpty)
+    }
+
+    func testCycleThatAdvancedWithoutADropRearmsWithoutAToast() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.60, type: .weekly, reset: start + day, at: start)], now: start)
+        XCTAssertEqual(evaluator.evaluate([state(0.75, type: .weekly, reset: start + day, at: start + hour)], now: start).map(\.kind), [.threshold])
+
+        // A new cycle that by the next poll is back near the old reading: 75% to 66% is under
+        // the drop that would make this a reset, and no toast is due for it.
+        XCTAssertTrue(evaluator.evaluate([state(0.66, type: .weekly, reset: start + 8 * day, at: start + 2 * day)], now: start).isEmpty)
+
+        let crossing = evaluator.evaluate([state(0.72, type: .weekly, reset: start + 8 * day, at: start + 3 * day)], now: start)
+        XCTAssertEqual(crossing.map(\.kind), [.threshold])
+    }
+
+    func testCycleAlreadyAboveAThresholdIsMarkedConsumed() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.95, type: .weekly, reset: start + day, at: start)], now: start)
+
+        // Already at 92% when first seen in its new cycle, with no drop that makes it a reset.
+        XCTAssertTrue(evaluator.evaluate([state(0.92, type: .weekly, reset: start + 8 * day, at: start + 2 * day)], now: start).isEmpty)
+        XCTAssertTrue(evaluator.evaluate([state(0.96, type: .weekly, reset: start + 8 * day, at: start + 3 * day)], now: start).isEmpty)
+    }
+
+    func testResetTimeJitterDoesNotRearmAThresholdAlreadyAnnounced() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.60, type: .weekly, reset: start + day, at: start)], now: start)
+        XCTAssertEqual(evaluator.evaluate([state(0.75, type: .weekly, reset: start + day, at: start + hour)], now: start).map(\.kind), [.threshold])
+
+        let jittered = start + day + 1800
+        XCTAssertTrue(evaluator.evaluate([state(0.66, type: .weekly, reset: jittered, at: start + 2 * hour)], now: start).isEmpty)
+        XCTAssertTrue(evaluator.evaluate([state(0.72, type: .weekly, reset: jittered, at: start + 3 * hour)], now: start).isEmpty)
+    }
+
+    func testSnapshotRestoredFromDiskIsNotABaseline() {
+        // Off since Monday at 65%. Comparing Wednesday's first live 75% with it would announce
+        // a crossing that happened while the app was not running.
+        var evaluator = UsageNotificationEvaluator()
+        let reset = start + 4 * day
+        XCTAssertTrue(evaluator.evaluate([state(0.65, type: .weekly, reset: reset, at: start, rehydrated: true)], now: start).isEmpty)
+
+        let firstLive = evaluator.evaluate([state(0.75, type: .weekly, reset: reset, at: start + 2 * day)], now: start)
+        let nextCrossing = evaluator.evaluate([state(0.92, type: .weekly, reset: reset, at: start + 2 * day + hour)], now: start)
+
+        XCTAssertTrue(firstLive.isEmpty)
+        XCTAssertEqual(nextCrossing.map(\.level), [.danger])
+    }
+
+    func testResetWhileTheAppWasOffIsNotAnnounced() {
+        var evaluator = UsageNotificationEvaluator()
+        _ = evaluator.evaluate([state(0.95, reset: start + hour, at: start, rehydrated: true)], now: start)
+        XCTAssertTrue(evaluator.evaluate([state(0.02, reset: start + 25 * hour, at: start + day)], now: start).isEmpty)
+    }
+
+    func testFailedRefreshOfARestoredSnapshotIsStillNotABaseline() {
+        var evaluator = UsageNotificationEvaluator()
+        let reset = start + 4 * day
+        var failed = state(0.65, type: .weekly, reset: reset, at: start, rehydrated: true)
+        failed.lastRefreshFailed = true
+        XCTAssertTrue(evaluator.evaluate([failed], now: start).isEmpty)
+        XCTAssertTrue(evaluator.evaluate([state(0.75, type: .weekly, reset: reset, at: start + day)], now: start).isEmpty)
+    }
+
+    /// A tool hidden since launch and shown now: its restored snapshot takes the place of the
+    /// stale cache the resume mark expects, so only the first live reading is a baseline.
+    func testShowingAToolStillOnARestoredSnapshotSwallowsNoLiveReading() {
+        var evaluator = UsageNotificationEvaluator()
+        let reset = start + 4 * day
+        evaluator.toolShown(.claude)
+        XCTAssertTrue(evaluator.evaluate([state(0.65, type: .weekly, reset: reset, at: start, rehydrated: true)], now: start).isEmpty)
+
+        XCTAssertTrue(evaluator.evaluate([state(0.75, type: .weekly, reset: reset, at: start + day)], now: start).isEmpty)
+        let crossing = evaluator.evaluate([state(0.92, type: .weekly, reset: reset, at: start + day + hour)], now: start)
+        XCTAssertEqual(crossing.map(\.level), [.danger])
     }
 }
 
