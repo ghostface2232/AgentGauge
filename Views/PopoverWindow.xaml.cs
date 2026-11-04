@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Gauge.Localization;
+using Gauge.Services;
 using Gauge.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -313,8 +314,17 @@ public sealed partial class PopoverWindow : Window
         presenter.IsAlwaysOnTop = true;
         AppWindow.SetPresenter(presenter);
 
-        // Hide from Alt-Tab.
-        AppWindow.IsShownInSwitchers = false;
+        // Hide from Alt-Tab. This has thrown NotImplementedException in the field, and nothing
+        // above OnLaunched catches it, so it would end a tray app with no visible trace.
+        // WS_EX_TOOLWINDOW from HideFromTaskbar also keeps the window out of Alt-Tab.
+        try
+        {
+            AppWindow.IsShownInSwitchers = false;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsLog.Write("app", $"IsShownInSwitchers failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private void HideFromTaskbar()

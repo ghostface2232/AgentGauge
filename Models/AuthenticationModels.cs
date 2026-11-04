@@ -31,6 +31,9 @@ public enum CredentialReadStatus
     Available,
     Missing,
     Invalid,
+    // The source could not be asked right now, which says nothing about the login. Kept apart
+    // from Missing because Missing clears the card and its cached values.
+    TemporarilyUnavailable,
 }
 
 public sealed record ToolCredential

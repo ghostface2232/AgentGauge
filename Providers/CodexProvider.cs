@@ -83,12 +83,14 @@ public sealed class CodexProvider : UsageProviderBase
             request.Headers.TryAddWithoutValidation("ChatGPT-Account-Id", credential.AccountId);
         }
 
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        // ResponseContentRead keeps HttpClient.Timeout over the body as well as the headers.
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
         EnsureUsageSuccess(response);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, default, cancellationToken);
         var root = document.RootElement;
+        UsageResponseShapeException.ThrowUnlessAnyProperty(root, ToolName, "rate_limit", "additional_rate_limits");
 
         var plan = ProviderText.PlanLabel(root.GetStringOrNull("plan_type"), KnownPlans);
 
@@ -105,6 +107,16 @@ public sealed class CodexProvider : UsageProviderBase
             }
         }
         windows.AddRange(ParseAdditionalRateLimits(root));
+
+        // A window was reported but none could be read (a new duration, a renamed field). An
+        // empty success would wipe the card's last good values, so it counts as a failed read.
+        if (windows.Count == 0
+            && root.GetObjectOrNull("rate_limit") is { } reported
+            && (reported.GetObjectOrNull("primary_window") is not null
+                || reported.GetObjectOrNull("secondary_window") is not null))
+        {
+            throw new UsageResponseShapeException(ToolName);
+        }
 
         return Snapshot(plan, windows, ParseResetCredits(root));
     }

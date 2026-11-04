@@ -13,13 +13,15 @@ namespace Gauge.ViewModels;
 public sealed partial class UpdateViewModel : ObservableObject
 {
     private readonly UpdateService _service;
+    private readonly IAutoInstallAttempts? _attempts;
     private GitHubRelease? _available;
     private bool _quietChecking;
     private bool _installWhenFound;
 
-    public UpdateViewModel(UpdateService service)
+    public UpdateViewModel(UpdateService service, IAutoInstallAttempts? attempts = null)
     {
         _service = service;
+        _attempts = attempts;
         VersionText = service.CurrentVersion.ToString(3);
         ActionCommand = new AsyncRelayCommand(RunActionAsync, () => !IsBusy);
     }
@@ -84,7 +86,22 @@ public sealed partial class UpdateViewModel : ObservableObject
     {
         if (!_installWhenFound || IsBusy) return;
         _installWhenFound = false;
-        if (IsUpdateAvailable) await UpdateAsync();
+        if (!IsUpdateAvailable || _available is not { } release) return;
+
+        if (_attempts is null)
+        {
+            await UpdateAsync();
+            return;
+        }
+        if (_attempts.WasAttempted(release.Version))
+        {
+            // The release is still on offer, so the earlier silent install did not land. The
+            // footer button keeps offering it; running it again here could end the app on
+            // every logon with no window left to turn the switch off from.
+            DiagnosticsLog.Write("update", $"Not reinstalling {release.TagName} automatically: an earlier silent install did not land.");
+            return;
+        }
+        await UpdateAsync(() => _attempts.TryRecordAttempt(release.Version));
     }
 
     private Task RunActionAsync()
@@ -128,14 +145,14 @@ public sealed partial class UpdateViewModel : ObservableObject
         }
     }
 
-    private async Task UpdateAsync()
+    private async Task UpdateAsync(Func<bool>? beforeLaunch = null)
     {
         if (_available is null) return;
 
         _installWhenFound = false;
         IsBusy = true;
         StatusText = Loc.Get("Update_Downloading");
-        if (await _service.DownloadAndLaunchAsync(_available))
+        if (await _service.DownloadAndLaunchAsync(_available, beforeLaunch: beforeLaunch))
         {
             StatusText = Loc.Get("Update_Installing");
             ExitRequested?.Invoke(this, EventArgs.Empty);

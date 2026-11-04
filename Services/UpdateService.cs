@@ -42,18 +42,26 @@ public sealed class UpdateService
     // GitHub redirects the old "gauge" path here, so updaters from older builds still
     // resolve releases through the rename.
     private const string Repo = "AgentGauge";
+    private const string InstallLogName = "install.log";
 
     private readonly HttpClient _http;
     private readonly Version _currentVersion;
     private readonly IInstallerLauncher _launcher;
     private readonly string _assetName;
+    private readonly string _downloadDirectory;
+
+    // HttpClient.Timeout stops covering a response once its headers arrive, so a download
+    // that stalls mid-body needs its own bound or the footer stays busy until a restart.
+    private static readonly TimeSpan DownloadDeadline = TimeSpan.FromMinutes(10);
 
     public UpdateService(
         HttpClient? http = null,
         Version? currentVersion = null,
         IInstallerLauncher? launcher = null,
-        Architecture? architecture = null)
+        Architecture? architecture = null,
+        string? downloadDirectory = null)
     {
+        _downloadDirectory = downloadDirectory ?? Path.Combine(Path.GetTempPath(), "Gauge");
         // Dedicated client: GitHub requires a User-Agent, and a 60 MB installer
         // download needs a longer timeout than the usage HttpClient allows.
         _http = http ?? new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
@@ -144,20 +152,26 @@ public sealed class UpdateService
     /// Downloads the installer and starts it silently. Returns true once the
     /// installer process has launched; the caller should then exit the app so
     /// the installer can replace the locked files and relaunch Gauge.
+    /// <paramref name="beforeLaunch"/> runs once the download has verified, and returning
+    /// false stops there: the automatic path records its attempt at that exact point, so a
+    /// failed download stays retryable while a launched installer counts as tried.
     /// </summary>
-    public async Task<bool> DownloadAndLaunchAsync(GitHubRelease release, CancellationToken cancellationToken = default)
+    public async Task<bool> DownloadAndLaunchAsync(
+        GitHubRelease release, CancellationToken cancellationToken = default, Func<bool>? beforeLaunch = null)
     {
         string? installer = null;
         try
         {
-            var dir = Path.Combine(Path.GetTempPath(), "Gauge");
+            var dir = _downloadDirectory;
             Directory.CreateDirectory(dir);
             installer = Path.Combine(dir, $"GaugeSetup-{release.TagName}.exe");
 
-            await using (var stream = await _http.GetStreamAsync(release.DownloadUrl, cancellationToken))
-            await using (var file = File.Create(installer))
+            using (var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                await stream.CopyToAsync(file, cancellationToken);
+                deadline.CancelAfter(DownloadDeadline);
+                await using var stream = await _http.GetStreamAsync(release.DownloadUrl, deadline.Token);
+                await using var file = File.Create(installer);
+                await stream.CopyToAsync(file, deadline.Token);
             }
 
             // Never launch bytes that are not the release's: /VERYSILENT would run a
@@ -170,10 +184,18 @@ public sealed class UpdateService
                 return false;
             }
 
+            if (beforeLaunch is not null && !beforeLaunch())
+            {
+                TryDelete(installer);
+                return false;
+            }
+
             // /VERYSILENT hides the installer UI entirely (no progress window); the
             // in-app ring spinner stands in for it. CloseApplications=yes closes the
-            // running app, and the WizardSilent [Run] entry relaunches it afterwards.
-            return _launcher.Launch(installer, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART");
+            // running app, and the WizardSilent [Run] entry relaunches it afterwards. The
+            // app has exited by the time Setup could fail, so its log is the only record.
+            var log = Path.Combine(dir, InstallLogName);
+            return _launcher.Launch(installer, $"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=\"{log}\"");
         }
         catch (Exception ex)
         {
@@ -184,6 +206,29 @@ public sealed class UpdateService
             // be launched (each attempt recreates it), but it should not linger in %TEMP%.
             if (installer is not null) TryDelete(installer);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Removes installers left by earlier updates, 50 MB each. Setup may still be running
+    /// when the app it relaunched gets here; its locked file is skipped and goes next launch.
+    /// </summary>
+    public void CleanDownloads()
+    {
+        try
+        {
+            if (!Directory.Exists(_downloadDirectory))
+            {
+                return;
+            }
+            foreach (var file in Directory.EnumerateFiles(_downloadDirectory, "GaugeSetup-*.exe"))
+            {
+                TryDelete(file);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DiagnosticsLog.Write("update", $"Installer cleanup failed: {ex.GetType().Name}");
         }
     }
 

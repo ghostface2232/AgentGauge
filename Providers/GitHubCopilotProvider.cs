@@ -57,12 +57,15 @@ public sealed class GitHubCopilotProvider : UsageProviderBase
         request.Headers.TryAddWithoutValidation("Editor-Plugin-Version", "copilot-chat/0.26.0");
         request.Headers.TryAddWithoutValidation("User-Agent", "GitHubCopilotChat/0.26.0");
 
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        // ResponseContentRead keeps HttpClient.Timeout over the body as well as the headers.
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
         EnsureUsageSuccess(response);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, default, cancellationToken);
         var root = document.RootElement;
+        // The plan fields count: a seat with no metered quota legitimately has no quota_snapshots.
+        UsageResponseShapeException.ThrowUnlessAnyProperty(root, ToolName, "quota_snapshots", "copilot_plan", "access_type_sku");
 
         var plan = MapPlan(root.GetStringOrNull("copilot_plan"), root.GetStringOrNull("access_type_sku"));
         var windows = ParseWindows(root);

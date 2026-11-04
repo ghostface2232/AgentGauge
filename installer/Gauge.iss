@@ -70,6 +70,31 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--updated"; Flags: nowait; Check: WizardSilent
 
 [Code]
+var
+  InstallCompleted: Boolean;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    InstallCompleted := True;
+end;
+
+// The in-app updater exits before a silent Setup can fail, and the [Run] relaunch above only
+// happens on success. Without this a failed update leaves the user with no app and no message.
+// {app} is unset if Setup stopped early, so the install folder is spelled out.
+procedure DeinitializeSetup;
+var
+  ExePath: String;
+  ResultCode: Integer;
+begin
+  if WizardSilent and not InstallCompleted then
+  begin
+    ExePath := ExpandConstant('{localappdata}\Programs\{#MyInstallName}\{#MyAppExeName}');
+    if FileExists(ExePath) then
+      Exec(ExePath, '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usUninstall then

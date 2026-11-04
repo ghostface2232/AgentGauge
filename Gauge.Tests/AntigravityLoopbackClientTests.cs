@@ -9,6 +9,28 @@ namespace Gauge.Tests;
 public sealed class AntigravityLoopbackClientTests
 {
     [Fact]
+    public void ARequestTimeoutMovesOnToTheNextPort()
+    {
+        // HttpClient reports its own timeout as a cancelled operation with no caller cancel.
+        Assert.True(AntigravityLoopbackClient.IsPortFailure(new TaskCanceledException(), CancellationToken.None));
+        Assert.True(AntigravityLoopbackClient.IsPortFailure(new HttpRequestException(), CancellationToken.None));
+        Assert.True(AntigravityLoopbackClient.IsPortFailure(new IOException(), CancellationToken.None));
+    }
+
+    [Fact]
+    public void ACallerCancellationStillPropagates()
+    {
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        Assert.False(AntigravityLoopbackClient.IsPortFailure(new TaskCanceledException(), cancelled.Token));
+    }
+
+    [Fact]
+    public void AnUnrelatedFailureIsNotAPortFailure()
+        => Assert.False(AntigravityLoopbackClient.IsPortFailure(new InvalidOperationException(), CancellationToken.None));
+
+    [Fact]
     public void TrustsSelfSignedCertOnlyForLoopbackIpLiteral()
     {
         Assert.True(AntigravityLoopbackTls.IsTrustedLoopback(new Uri("https://127.0.0.1:6112/x")));

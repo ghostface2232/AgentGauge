@@ -117,6 +117,12 @@ public abstract class UsageProviderBase : IUsageProvider
             credentialResult = await _credentials.ReadAsync(Tool, cancellationToken);
         }
 
+        if (credentialResult.Status == CredentialReadStatus.TemporarilyUnavailable)
+        {
+            // Thrown so the coordinator keeps the last good snapshot, as for any failed read.
+            throw new HttpRequestException($"{ToolName} credential source is temporarily unavailable.");
+        }
+
         var credential = credentialResult.Credential;
         var nowTimestamp = Time.GetTimestamp();
 
@@ -232,7 +238,10 @@ public abstract class UsageProviderBase : IUsageProvider
             }
             throw;
         }
-        catch (Exception ex) when (_policy.ServeCachedOnAnyFailure && ex is not OperationCanceledException
+        // Only a cancellation someone asked for passes through: HttpClient reports its own
+        // timeout as a cancelled operation, and that is a failure like any other.
+        catch (Exception ex) when (_policy.ServeCachedOnAnyFailure
+            && !(ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
             && _lastSnapshot is not null)
         {
             // Serving the cache turns this into a success downstream, so this is the only

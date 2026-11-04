@@ -19,6 +19,9 @@ public sealed record CachedUsage
     /// <summary>True if the most recent refresh attempt for this tool failed.</summary>
     public bool LastRefreshFailed { get; init; }
 
+    /// <summary>True until this run has read the tool successfully: the snapshot came from disk.</summary>
+    public bool IsRehydrated { get; init; }
+
     /// <summary>True when there is a snapshot to show (possibly stale).</summary>
     public bool HasData => Snapshot is not null;
 }

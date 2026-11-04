@@ -154,6 +154,7 @@ public sealed class UsageCoordinator : IDisposable
                 Snapshot = snapshot,
                 LastUpdatedAt = snapshot.CapturedAt,
                 LastRefreshFailed = false,
+                IsRehydrated = true,
             };
         }
     }
@@ -221,7 +222,11 @@ public sealed class UsageCoordinator : IDisposable
         {
             // _cts.Token is read inside the try: Dispose can tear the CTS down between
             // the _disposed check and here, and that must land in the catch below.
-            await RefreshCoreAsync(reason, _cts.Token, waitForExisting);
+            // On the pool because popover opens and the refresh button call in from the UI
+            // thread, and a cycle does blocking work: WMI queries, credential parsing, SQLite
+            // commits and the cache write. Every event it raises goes through the dispatcher.
+            var cancellationToken = _cts.Token;
+            await Task.Run(() => RefreshCoreAsync(reason, cancellationToken, waitForExisting), cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -548,6 +553,7 @@ public sealed class UsageCoordinator : IDisposable
                         Snapshot = previous?.Snapshot,
                         LastUpdatedAt = previous?.LastUpdatedAt,
                         LastRefreshFailed = true,
+                        IsRehydrated = previous?.IsRehydrated ?? false,
                     };
             }
 
@@ -613,12 +619,10 @@ public sealed class UsageCoordinator : IDisposable
             // ignore
         }
 
-        // Let the loop observe the cancel and unwind. A loop cycle runs entirely on the
-        // thread pool, so it exits in milliseconds; the bound only keeps a pathological
-        // hang from stalling exit. A cycle started from a UI async void handler is
-        // different: without ConfigureAwait(false) its continuations need the UI thread,
-        // which Dispose is blocking, so such a cycle CANNOT finish here — its held gate
-        // is what the leak branch below exists for.
+        // Let the loop observe the cancel and unwind. Cycles run entirely on the thread
+        // pool, so they exit in milliseconds; the bound only keeps a pathological hang
+        // (a provider stuck in a blocking call) from stalling exit, and its held gate is
+        // what the leak branch below exists for.
         try
         {
             _loopTask?.Wait(TimeSpan.FromSeconds(2));

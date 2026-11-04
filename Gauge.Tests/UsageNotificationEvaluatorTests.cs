@@ -236,14 +236,131 @@ public sealed class UsageNotificationEvaluatorTests
         };
     }
 
+    // Claude reports an idle window with a null reset time, so a used-up window comes back as
+    // 0% with none and only gets its time again on first use. Recorded history shows this for
+    // most resets of the 5-hour window.
+    [Fact]
+    public void AResetIntoAWindowWithNoResetTimeStillCountsAsAReset()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, .95, Now.AddHours(1), Now), Now);
+
+        var toast = evaluator.Evaluate(State(UsageWindowType.FiveHour, 0, null, Now.AddHours(2)), Now);
+
+        Assert.Equal(UsageNotificationKind.Reset, Assert.Single(toast).Kind);
+    }
+
+    [Fact]
+    public void ThresholdsAreReArmedAfterAResetThatPassedThroughNoResetTime()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, .85, Now.AddHours(1), Now), Now);
+        Assert.Single(evaluator.Evaluate(State(UsageWindowType.FiveHour, .95, Now.AddHours(1), Now.AddMinutes(5)), Now));
+
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, 0, null, Now.AddHours(2)), Now);
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.FiveHour, .03, Now.AddHours(7), Now.AddHours(2.5)), Now));
+
+        var crossing = evaluator.Evaluate(State(UsageWindowType.FiveHour, .92, Now.AddHours(7), Now.AddHours(4)), Now);
+
+        Assert.Equal(UsageNotificationKind.Threshold, Assert.Single(crossing).Kind);
+    }
+
+    [Fact]
+    public void AnOldHighWaterMarkCanNotFakeAResetToastInALaterCycle()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, .95, Now.AddHours(1), Now), Now);
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, 0, null, Now.AddHours(2)), Now);
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, .25, Now.AddHours(7), Now.AddHours(3)), Now);
+
+        // This cycle never came near the threshold, so its reset is not worth announcing.
+        var nextCycle = evaluator.Evaluate(State(UsageWindowType.FiveHour, .03, Now.AddHours(13), Now.AddHours(8)), Now);
+
+        Assert.Empty(nextCycle);
+    }
+
+    [Fact]
+    public void AStrongDropWithTheResetTimeReturningAlsoCounts()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, .95, null, Now), Now);
+
+        var toast = evaluator.Evaluate(State(UsageWindowType.FiveHour, .02, Now.AddHours(5), Now.AddHours(1)), Now);
+
+        Assert.Equal(UsageNotificationKind.Reset, Assert.Single(toast).Kind);
+    }
+
+    [Fact]
+    public void AMissingResetTimeWithoutAStrongDropIsNotAReset()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, .95, Now.AddHours(1), Now), Now);
+
+        // Schema drift dropping the field must not read as a new cycle on its own.
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.FiveHour, .90, null, Now.AddMinutes(5)), Now));
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.FiveHour, .95, Now.AddHours(1), Now.AddMinutes(10)), Now));
+    }
+
+    [Fact]
+    public void ACycleThatAdvancedWithoutADropReArmsWithoutAToast()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.Weekly, .60, Now.AddDays(1), Now), Now);
+        Assert.Single(evaluator.Evaluate(State(UsageWindowType.Weekly, .75, Now.AddDays(1), Now.AddHours(1)), Now));
+
+        // A new cycle that by the next poll is back near the old reading: 75% -> 66% is under
+        // the drop that would make this a reset, and no toast is due for it.
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.Weekly, .66, Now.AddDays(8), Now.AddDays(2)), Now));
+
+        var crossing = evaluator.Evaluate(State(UsageWindowType.Weekly, .72, Now.AddDays(8), Now.AddDays(3)), Now);
+
+        Assert.Equal(UsageNotificationKind.Threshold, Assert.Single(crossing).Kind);
+    }
+
+    [Fact]
+    public void ResetTimeJitterDoesNotReArmAThresholdAlreadyAnnounced()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.Weekly, .60, Now.AddDays(1), Now), Now);
+        Assert.Single(evaluator.Evaluate(State(UsageWindowType.Weekly, .75, Now.AddDays(1), Now.AddHours(1)), Now));
+
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.Weekly, .66, Now.AddDays(1).AddMinutes(30), Now.AddHours(2)), Now));
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.Weekly, .72, Now.AddDays(1).AddMinutes(30), Now.AddHours(3)), Now));
+    }
+
+    [Fact]
+    public void ASnapshotRestoredFromDiskIsNotABaseline()
+    {
+        // Off since Monday at 65%. Comparing Wednesday's first live 75% with it would announce
+        // a crossing that happened while the app was not running.
+        var evaluator = new UsageNotificationEvaluator();
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.Weekly, .65, Now.AddDays(4), Now, rehydrated: true), Now));
+
+        var firstLive = evaluator.Evaluate(State(UsageWindowType.Weekly, .75, Now.AddDays(4), Now.AddDays(2)), Now);
+        var nextCrossing = evaluator.Evaluate(State(UsageWindowType.Weekly, .92, Now.AddDays(4), Now.AddDays(2).AddHours(1)), Now);
+
+        Assert.Empty(firstLive);
+        Assert.Equal(UsageLevel.Danger, Assert.Single(nextCrossing).Level);
+    }
+
+    [Fact]
+    public void AResetWhileTheAppWasOffIsNotAnnounced()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        evaluator.Evaluate(State(UsageWindowType.FiveHour, .95, Now.AddHours(1), Now, rehydrated: true), Now);
+
+        Assert.Empty(evaluator.Evaluate(State(UsageWindowType.FiveHour, .02, Now.AddHours(25), Now.AddDays(1)), Now));
+    }
+
     private static UsageState State(
         UsageWindowType type,
         double ratio,
-        DateTimeOffset reset,
+        DateTimeOffset? reset,
         DateTimeOffset captured,
         bool failed = false,
         string? id = null,
-        string? groupLabel = null)
+        string? groupLabel = null,
+        bool rehydrated = false)
     {
         var snapshot = new UsageSnapshot
         {
@@ -279,6 +396,7 @@ public sealed class UsageNotificationEvaluatorTests
                     Snapshot = snapshot,
                     LastUpdatedAt = captured,
                     LastRefreshFailed = failed,
+                    IsRehydrated = rehydrated,
                 },
             ],
         };

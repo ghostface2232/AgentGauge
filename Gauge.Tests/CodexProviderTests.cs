@@ -179,14 +179,23 @@ public sealed class CodexProviderTests
     }
 
     [Theory]
-    [InlineData("{}")]                                                            // no rate_limit
-    [InlineData("""{ "rate_limit": { "primary_window": { "reset_at": 1 } } }""")] // used_percent absent
-    [InlineData("""{ "rate_limit": { "primary_window": { "used_percent": "x" } } }""")] // wrong type
-    public async Task TolerantOfSchemaDrift(string json)
+    [InlineData("""{ "rate_limit": {} }""")]
+    [InlineData("""{ "rate_limit": null }""")]
+    [InlineData("""{ "rate_limit": { "primary_window": null, "secondary_window": null } }""")]
+    public async Task NoWindowsReportedIsALegitimateEmptyResult(string json)
     {
         var snapshot = await Snapshot(json, Available("t"));
         Assert.Empty(snapshot.Windows);
     }
+
+    [Theory]
+    [InlineData("{}")]                                                            // no rate_limit
+    [InlineData("""{ "plan_type": "plus" }""")]                                   // rate_limit renamed
+    [InlineData("""{ "rate_limit": { "primary_window": { "reset_at": 1 } } }""")] // used_percent absent
+    [InlineData("""{ "rate_limit": { "primary_window": { "used_percent": "x" } } }""")] // wrong type
+    [InlineData("""{ "rate_limit": { "primary_window": { "used_percent": 5, "limit_window_seconds": 2592000 } } }""")] // unknown duration
+    public async Task AWindowThatCannotBeReadFailsInsteadOfEmptyingTheCard(string json)
+        => await Assert.ThrowsAsync<UsageResponseShapeException>(() => Snapshot(json, Available("t")));
 
     [Fact]
     public async Task UsedPercentIsClamped()
@@ -258,11 +267,11 @@ public sealed class CodexProviderTests
     }
 
     [Theory]
-    [InlineData("""{ "rate_limit_reset_credits": { "available_count": 0 } }""", 0)]
-    [InlineData("""{ "rate_limit_reset_credits": {} }""", null)]
-    [InlineData("""{ "rate_limit_reset_credits": null }""", null)]
-    [InlineData("{}", null)]
-    [InlineData("""{ "rate_limit_reset_credits": { "available_count": "2" } }""", null)]
+    [InlineData("""{ "rate_limit": {}, "rate_limit_reset_credits": { "available_count": 0 } }""", 0)]
+    [InlineData("""{ "rate_limit": {}, "rate_limit_reset_credits": {} }""", null)]
+    [InlineData("""{ "rate_limit": {}, "rate_limit_reset_credits": null }""", null)]
+    [InlineData("""{ "rate_limit": {} }""", null)]
+    [InlineData("""{ "rate_limit": {}, "rate_limit_reset_credits": { "available_count": "2" } }""", null)]
     public async Task MissingOrMistypedResetCreditsStayAbsentInsteadOfBecomingZero(string json, int? expected)
     {
         // A plan without the feature must not be reported as a spent balance, so only a real

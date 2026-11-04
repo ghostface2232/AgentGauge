@@ -50,14 +50,30 @@ public sealed class GitHubCopilotCredentialSource : ICredentialSource
         }
 
         // 1) gh CLI first — gh maintains and refreshes the token itself.
-        var token = await _ghTokenReader.ReadTokenAsync(cancellationToken);
+        string? token = null;
+        var ghFailed = false;
+        try
+        {
+            token = await _ghTokenReader.ReadTokenAsync(cancellationToken);
+        }
+        catch (GitHubCliReadException)
+        {
+            ghFailed = true;
+        }
 
         // 2) Fall back to a github-copilot apps.json/hosts.json file (gh-less setups).
         token ??= ReadOAuthTokenFromFile();
 
         if (string.IsNullOrWhiteSpace(token))
         {
-            return Missing();
+            // gh timing out after a wake or under an antivirus scan is not a logout.
+            return ghFailed
+                ? new CredentialReadResult
+                {
+                    Tool = ToolKind.GitHubCopilot,
+                    Status = CredentialReadStatus.TemporarilyUnavailable,
+                }
+                : Missing();
         }
 
         return new CredentialReadResult
@@ -115,28 +131,26 @@ public sealed class GitHubCopilotCredentialSource : ICredentialSource
 
     /// <summary>
     /// The file maps an app/host key (e.g. <c>"github.com:Iv1.abc"</c>) to an object carrying an
-    /// <c>oauth_token</c>. Prefer the first github.com entry, else fall back to the first token.
+    /// <c>oauth_token</c>. Only an entry whose host is exactly github.com qualifies: the token is
+    /// sent to api.github.com, and a token issued for an Enterprise host must not leave for
+    /// another server just because it was the only one in the file.
     /// </summary>
-    private static string? FindOAuthToken(JsonElement root)
+    internal static string? FindOAuthToken(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
-        string? firstToken = null;
         foreach (var property in root.EnumerateObject())
         {
-            if (property.Value.GetStringOrNull("oauth_token") is not { Length: > 0 } token)
-            {
-                continue;
-            }
-            firstToken ??= token;
-            if (property.Name.Contains("github.com", StringComparison.OrdinalIgnoreCase))
+            var host = property.Name.Split(':', 2)[0];
+            if (host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+                && property.Value.GetStringOrNull("oauth_token") is { Length: > 0 } token)
             {
                 return token;
             }
         }
-        return firstToken;
+        return null;
     }
 
     private static CredentialReadResult Missing() => new()

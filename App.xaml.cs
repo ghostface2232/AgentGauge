@@ -207,7 +207,7 @@ public partial class App : Application
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
 
         _updateService = new UpdateService();
-        _settingsViewModel = new SettingsViewModel(_toolRegistry, _authentication, _updateService, globalSettings);
+        _settingsViewModel = new SettingsViewModel(_toolRegistry, _authentication, _updateService, globalSettings, _autoUpdateSettingsStore);
         _settingsViewModel.AuthenticationSucceeded += OnAuthenticationSucceeded;
         _settingsViewModel.SettingsWriteCompleted += (_, saved) => ReportSettingsWrite(saved);
         _settingsViewModel.Update.ExitRequested += OnUpdateExitRequested;
@@ -217,6 +217,7 @@ public partial class App : Application
         // relaunches that follow an update or a language switch (and the demo switches) only
         // check: the installer relaunches with --updated, so skipping there keeps a release
         // that fails to bump its version from reinstalling itself in a loop.
+        _ = Task.Run(_updateService.CleanDownloads);
         var launchArgs = Environment.GetCommandLineArgs();
         var autoUpdate = _autoUpdate && !launchArgs.Any(arg => AutoUpdateSkipFlags.Contains(arg, StringComparer.OrdinalIgnoreCase));
         _ = _settingsViewModel.Update.CheckInBackgroundAsync(installIfAvailable: autoUpdate);
@@ -294,8 +295,11 @@ public partial class App : Application
         // Waking from sleep or unlocking the session can land anywhere in the providers'
         // cadences, so the popover would otherwise show data as stale as the longest
         // interval. One forced (debounced) refresh brings every card current on wake.
-        SystemEvents.PowerModeChanged += OnPowerModeChanged;
-        SystemEvents.SessionSwitch += OnSessionSwitch;
+        SystemEventsSubscription.RunWithoutSynchronizationContext(() =>
+        {
+            SystemEvents.PowerModeChanged += OnPowerModeChanged;
+            SystemEvents.SessionSwitch += OnSessionSwitch;
+        });
         // Unpackaged WinUI launches do not reliably copy ordinary EXE arguments into
         // LaunchActivatedEventArgs.Arguments. Read the actual process command line so
         // the developer visual-QA switches work when launched from PowerShell/Explorer.
