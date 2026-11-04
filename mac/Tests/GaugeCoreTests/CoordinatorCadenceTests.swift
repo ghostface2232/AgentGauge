@@ -20,6 +20,232 @@ final class CountingProvider: UsageProvider, @unchecked Sendable {
     }
 }
 
+/// Parks its first fetch until released and ignores cancellation meanwhile, the way a stuck
+/// blocking call does. Later fetches return at once.
+final class HangingProvider: UsageProvider, @unchecked Sendable {
+    let tool: ToolKind
+    private let lock = NSLock()
+    private var count = 0
+    private var parked: CheckedContinuation<Void, Never>?
+    private var released = false
+    private var cancelled = false
+
+    init(_ tool: ToolKind) { self.tool = tool }
+
+    var fetches: Int { lock.withLock { count } }
+    var sawCancellation: Bool { lock.withLock { cancelled } }
+
+    func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome {
+        let isFirst = lock.withLock { () -> Bool in
+            count += 1
+            return count == 1
+        }
+        if isFirst {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let resumeNow = lock.withLock { () -> Bool in
+                    if released { return true }
+                    parked = continuation
+                    return false
+                }
+                if resumeNow { continuation.resume() }
+            }
+            let isCancelled = Task.isCancelled
+            lock.withLock { cancelled = isCancelled }
+        }
+        let window = UsageWindow(type: .fiveHour, usedRatio: 0.2)
+        return ProviderOutcome(snapshot: UsageSnapshot(tool: tool, plan: nil, windows: [window], capturedAt: Date()),
+                               signedIn: true, isLive: true)
+    }
+
+    func release() {
+        let waiter = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            defer { parked = nil }
+            return parked
+        }
+        waiter?.resume()
+    }
+}
+
+/// Never answers, but honours cancellation the way a URLSession read does.
+final class SleepingProvider: UsageProvider, @unchecked Sendable {
+    let tool: ToolKind
+    private let lock = NSLock()
+    private var count = 0
+
+    init(_ tool: ToolKind) { self.tool = tool }
+
+    var fetches: Int { lock.withLock { count } }
+
+    func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome {
+        lock.withLock { count += 1 }
+        try await Task.sleep(for: .seconds(3600))
+        throw UsageFetchError.invalidResponse
+    }
+}
+
+final class CoordinatorDeadlineTests: XCTestCase {
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<500 where !condition() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func testHungProviderHoldsBackNeitherOtherToolsNorTheScheduler() async {
+        let clock = ManualClock()
+        let hung = HangingProvider(.claude)
+        let codex = CountingProvider(.codex)
+        let coordinator = UsageCoordinator(providers: [hung, codex], cache: nil, clock: clock, fetchDeadline: .milliseconds(100))
+        await coordinator.setEnabledTools([.claude, .codex])
+        let recorder = StatesRecorder()
+        await coordinator.setListener { recorder.append($0) }
+        let claudeState = { recorder.all.last?.first { $0.tool == .claude } }
+
+        await coordinator.refresh(.popoverOpened)
+        XCTAssertEqual(codex.fetches, 1)
+        XCTAssertEqual(claudeState()?.lastRefreshFailed, true, "a read past its deadline counts as a failure")
+        XCTAssertEqual(claudeState()?.isRefreshing, false)
+
+        clock.advance(181)
+        await coordinator.refresh(.scheduled)
+        XCTAssertEqual(codex.fetches, 2, "the next tick still refreshes the healthy tool")
+
+        clock.advance(11)
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(codex.fetches, 3)
+        XCTAssertEqual(hung.fetches, 1, "no second fetch may start beside one that has not ended")
+
+        hung.release()
+        await waitUntil { claudeState()?.lastRefreshFailed == false }
+        XCTAssertEqual(claudeState()?.lastRefreshFailed, false, "a late success still lands")
+        XCTAssertNotNil(claudeState()?.snapshot)
+        XCTAssertTrue(hung.sawCancellation, "the deadline cancels the read")
+
+        clock.advance(11)
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(hung.fetches, 2, "the tool is free again once its read has really ended")
+    }
+
+    func testCancellableReadIsFreedAfterItsDeadline() async {
+        let clock = ManualClock()
+        let sleeping = SleepingProvider(.codex)
+        let coordinator = UsageCoordinator(providers: [sleeping], cache: nil, clock: clock, fetchDeadline: .milliseconds(50))
+        await coordinator.setEnabledTools([.codex])
+        let recorder = StatesRecorder()
+        await coordinator.setListener { recorder.append($0) }
+
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(recorder.all.last?.first?.lastRefreshFailed, true)
+
+        // The cancelled read ends on its own task, so the tool may still be in flight at first.
+        for _ in 0..<200 where sleeping.fetches < 2 {
+            clock.advance(11)
+            await coordinator.refresh(.manual)
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(sleeping.fetches, 2)
+        XCTAssertEqual(recorder.all.last?.first?.lastRefreshFailed, true, "the cancellation itself changes nothing")
+    }
+
+    func testUnreadableCredentialKeepsTheSnapshotAndTheDiskCache() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = UsageCacheStore(directory: directory)
+        let clock = ManualClock()
+        let transport = FakeTransport()
+        transport.enqueue(.status(200, #"{"five_hour":{"utilization":40,"resets_at":"2026-10-19T05:00:00Z"}}"#))
+        let credentials = FakeCredentials(.available(ToolCredential(accessToken: "a")))
+        let provider = HTTPUsageProvider(tool: .claude, credentials: credentials, endpoint: ClaudeEndpoint(),
+                                         policy: .claude, transport: transport, clock: clock)
+        let coordinator = UsageCoordinator(providers: [provider], cache: cache, clock: clock)
+        await coordinator.setEnabledTools([.claude])
+        let recorder = StatesRecorder()
+        await coordinator.setListener { recorder.append($0) }
+
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(cache.load().count, 1)
+
+        credentials.set(.invalid(.unreadable))
+        clock.advance(11)
+        await coordinator.refresh(.manual)
+        let state = try XCTUnwrap(recorder.all.last?.first)
+        XCTAssertEqual(state.auth, .unreadable)
+        XCTAssertTrue(state.lastRefreshFailed)
+        XCTAssertEqual(state.snapshot?.windows.count, 1)
+        XCTAssertEqual(cache.load().count, 1)
+    }
+}
+
+final class CoordinatorDebounceTests: XCTestCase {
+    func testManualRefreshIsDebouncedSoClicksCannotKeepPiercingACooldown() async {
+        let clock = ManualClock()
+        let codex = CountingProvider(.codex)
+        let coordinator = UsageCoordinator(providers: [codex], cache: nil, clock: clock)
+        await coordinator.setEnabledTools([.codex])
+
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(codex.fetches, 1)
+        clock.advance(9)
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(codex.fetches, 1, "a second click inside 10 s shows the cached state")
+        clock.advance(2)
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(codex.fetches, 2)
+    }
+
+    func testAnyRefreshThatFetchesArmsTheDebounce() async {
+        let arming: [RefreshReason] = [.launch, .scheduled, .toolsChanged, .popoverOpened, .systemResumed, .manual]
+        for reason in arming {
+            for debounced in [RefreshReason.popoverOpened, .manual, .systemResumed] {
+                let clock = ManualClock()
+                let codex = CountingProvider(.codex)
+                let coordinator = UsageCoordinator(providers: [codex], cache: nil, clock: clock)
+                await coordinator.setEnabledTools([.codex])
+
+                await coordinator.refresh(reason)
+                XCTAssertEqual(codex.fetches, 1)
+                clock.advance(1)
+                await coordinator.refresh(debounced)
+                XCTAssertEqual(codex.fetches, 1, "\(reason) should hold back \(debounced)")
+            }
+        }
+    }
+
+    func testRefreshThatFetchesNothingDoesNotArmTheDebounce() async {
+        let clock = ManualClock()
+        let antigravity = CountingProvider(.antigravity)
+        let floored = UsageCoordinator(providers: [antigravity], cache: nil, clock: clock)
+        await floored.setEnabledTools([.antigravity])
+        await floored.refresh(.popoverOpened)
+        clock.advance(30)
+        await floored.refresh(.popoverOpened)
+        XCTAssertEqual(antigravity.fetches, 1, "inside the cost floor")
+        await floored.refresh(.manual)
+        XCTAssertEqual(antigravity.fetches, 2, "the floored open fetched nothing, so nothing holds this back")
+
+        let codex = CountingProvider(.codex)
+        let idleTick = UsageCoordinator(providers: [codex], cache: nil, clock: clock)
+        await idleTick.setEnabledTools([.codex])
+        await idleTick.refresh(.popoverOpened)
+        clock.advance(30)
+        await idleTick.refresh(.scheduled)
+        XCTAssertEqual(codex.fetches, 1, "not due yet")
+        await idleTick.refresh(.manual)
+        XCTAssertEqual(codex.fetches, 2)
+    }
+
+    func testToolChangeIsNotDebounced() async {
+        let clock = ManualClock()
+        let codex = CountingProvider(.codex)
+        let coordinator = UsageCoordinator(providers: [codex], cache: nil, clock: clock)
+        await coordinator.setEnabledTools([.codex])
+        await coordinator.refresh(.manual)
+        clock.advance(1)
+        await coordinator.refresh(.toolsChanged)
+        XCTAssertEqual(codex.fetches, 2)
+    }
+}
+
 final class CoordinatorCadenceTests: XCTestCase {
     func testPopoverOpenRespectsAntigravityCostFloorButManualDoesNot() async {
         let clock = ManualClock()
@@ -38,6 +264,10 @@ final class CoordinatorCadenceTests: XCTestCase {
         XCTAssertEqual(antigravity.fetches, 1, "floor holds back the expensive read")
         XCTAssertEqual(codex.fetches, 2, "one-GET providers stay current on every open")
 
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(antigravity.fetches, 1, "the open's read of Codex armed the 10 s debounce")
+
+        clock.advance(11)
         await coordinator.refresh(.manual)
         XCTAssertEqual(antigravity.fetches, 2, "an explicit refresh bypasses the floor")
 

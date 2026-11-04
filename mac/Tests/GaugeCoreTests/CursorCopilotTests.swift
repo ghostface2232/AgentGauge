@@ -203,7 +203,7 @@ final class CursorCredentialTests: XCTestCase {
         var promptingReads = 0
         var silentReads = 0
         init(_ result: KeychainPasswordResult) { self.result = result }
-        func newestItem(service: String) async -> KeychainItem? { nil }
+        func newestItem(service: String) async -> KeychainItemLookup { .notFound }
         func password(service: String, account: String?) async -> KeychainPasswordResult {
             promptingReads += 1
             return result

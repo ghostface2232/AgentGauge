@@ -10,6 +10,8 @@ public enum UsageFetchError: Error, Sendable, Equatable {
     /// Inside a rate-limit cooldown with nothing cached: failed fast without a network call.
     case cooldown
     case invalidResponse
+    /// The read outlived the coordinator's per-provider deadline.
+    case timedOut
 
     var isAuthRejection: Bool {
         if case .http(let status, _) = self { return status == 401 || status == 403 }

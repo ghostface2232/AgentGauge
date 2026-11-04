@@ -215,10 +215,16 @@ final class ClaudeKeychainSourceTests: XCTestCase {
     final class FakeKeychain: KeychainReading, @unchecked Sendable {
         let lock = NSLock()
         var item: KeychainItem?
+        var lookupFailure: Int32?
         var result: KeychainPasswordResult = .notFound
         var passwordReads = 0
 
-        func newestItem(service: String) async -> KeychainItem? { lock.withLock { item } }
+        func newestItem(service: String) async -> KeychainItemLookup {
+            lock.withLock { () -> KeychainItemLookup in
+                if let lookupFailure { return .failed(lookupFailure) }
+                return item.map(KeychainItemLookup.found) ?? .notFound
+            }
+        }
         func password(service: String, account: String?) async -> KeychainPasswordResult {
             lock.withLock {
                 passwordReads += 1
@@ -368,5 +374,47 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         let source = ClaudeCredentialSource(keychain: FakeKeychain(), environment: [:], homeDirectory: URL(fileURLWithPath: "/nonexistent"))
         let read = await source.read(interactive: false)
         XCTAssertEqual(read, .missing)
+    }
+
+    func testFailedLookupIsUnreadableRatherThanNotSignedIn() async {
+        let keychain = FakeKeychain()
+        keychain.lookupFailure = -25308 // errSecInteractionNotAllowed
+        let source = ClaudeCredentialSource(keychain: keychain, environment: [:], homeDirectory: URL(fileURLWithPath: "/nonexistent"))
+        let failed = await source.read(interactive: false)
+        XCTAssertEqual(failed, .invalid(.unreadable))
+
+        keychain.lookupFailure = nil
+        keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+        keychain.result = .data(document)
+        guard case .available = await source.read(interactive: false) else { return XCTFail("expected the failure not to stick") }
+    }
+
+    func testUnreadableSecretIsNotHeldAgainstTheItem() async {
+        for unreadable in [KeychainPasswordResult.failed(-1), .data(Data("{ half-written".utf8))] {
+            let keychain = FakeKeychain()
+            keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+            keychain.result = unreadable
+            let source = ClaudeCredentialSource(keychain: keychain, environment: [:], homeDirectory: URL(fileURLWithPath: "/nonexistent"))
+            let first = await source.read(interactive: false)
+            XCTAssertEqual(first, .invalid(.unreadable))
+
+            // Same modification date: a cached failure would hold until the next rotation.
+            keychain.result = .data(document)
+            guard case .available = await source.read(interactive: false) else { return XCTFail("expected a re-read to recover") }
+            XCTAssertEqual(keychain.passwordReads, 2)
+        }
+    }
+
+    func testSecretMissingBesideAFoundItemIsNotReadAsSignedOut() async {
+        let keychain = FakeKeychain()
+        keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+        keychain.result = .notFound
+        let source = ClaudeCredentialSource(keychain: keychain, environment: [:], homeDirectory: URL(fileURLWithPath: "/nonexistent"))
+        let vanishing = await source.read(interactive: false)
+        XCTAssertEqual(vanishing, .invalid(.unreadable))
+
+        keychain.item = nil
+        let gone = await source.read(interactive: false)
+        XCTAssertEqual(gone, .missing, "the lookup finding no item is what means signed out")
     }
 }

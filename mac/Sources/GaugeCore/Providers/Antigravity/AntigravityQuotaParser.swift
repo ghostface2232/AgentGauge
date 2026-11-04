@@ -53,17 +53,19 @@ enum AntigravityQuotaParser {
     }
 
     /// The two shared families get short language-neutral names; any other group (a
-    /// model-scoped limit such as "Gemini 4 Argon") keeps its own display name, so it never
-    /// collapses into "Gemini" and reads as a second, indistinguishable Gemini weekly window.
-    /// The observed `gemini-*` / `3p-*` bucket prefixes stand in when a group has no name.
+    /// model-scoped limit such as "Gemini 4 Argon", or one naming only Claude or only GPT) keeps
+    /// its own display name, so it never collapses into a family and reads as a second,
+    /// indistinguishable weekly window. The observed `gemini-argon-*` / `gemini-*` / `3p-*`
+    /// bucket prefixes stand in when a group has no name.
     static func familyLabel(bucketID: String, groupName: String?) -> String? {
         if let name = ProviderText.normalize(groupName) {
             let lowered = name.lowercased()
-            if lowered.contains("claude") || lowered.contains("gpt") { return "Claude/GPT" }
             if lowered == "gemini" || lowered == "gemini models" { return "Gemini" }
+            if lowered.contains("claude") && lowered.contains("gpt") { return "Claude/GPT" }
             return name
         }
         let id = bucketID.lowercased()
+        if id.hasPrefix("gemini-argon") { return "Gemini 4 Argon" }
         if id.hasPrefix("gemini") { return "Gemini" }
         if id.hasPrefix("3p") { return "Claude/GPT" }
         return nil
