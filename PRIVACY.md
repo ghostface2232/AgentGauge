@@ -1,66 +1,97 @@
 # AgentGauge: Privacy Policy
 
-**Effective date:** 2026-09-18
+**Effective date:** 2026-11-04
 **Contact:** baemingwan@gmail.com
 **Repository:** https://github.com/ghostface2232/AgentGauge
 
 ---
 
 ## 1. Summary
-AgentGauge is a Windows tray app that displays usage limits for developer tools such as Claude Code, Codex, Antigravity, and GitHub Copilot. **AgentGauge does not collect or store personal information, and does not transmit any data to the developer.** AgentGauge operates no servers of its own and contains no analytics or tracking. All processing happens locally on the user's PC.
+AgentGauge is a Windows tray app and macOS menu bar app that displays usage limits for developer tools: Claude Code, Codex, Antigravity, GitHub Copilot and, on macOS, Cursor. **AgentGauge sends nothing to the developer.** The developer operates no servers for it, and it contains no analytics or tracking.
+
+To work, AgentGauge reads the sign-ins those tools already store on your device and sends each one to that tool's own service. It also keeps a few files on your device, described in Section 4. Most of them hold only settings and usage figures, but one optional file holds file paths that can contain your account and project names.
 
 ## 2. Information Accessed and Processed
-AgentGauge accesses the following information **read-only on the user's device** solely to display usage. This information is never sent to the developer or any third party.
+AgentGauge reads the following **read-only on your device**, solely to display usage. Each credential goes only to the service it belongs to, as listed in Section 3. Credentials are held in memory and are never written to AgentGauge's own files or logs.
 
-| Information | Source | Purpose |
-| --- | --- | --- |
-| OAuth tokens | Local files managed by each CLI (`%USERPROFILE%\.claude\.credentials.json`, `%USERPROFILE%\.codex\auth.json`) | Authenticate requests to each tool's official usage API |
-| GitHub OAuth token (Copilot) | The `gh` CLI (`gh auth token`), or a `github-copilot` `apps.json`/`hosts.json` file under `%LOCALAPPDATA%` or `~\.config` (written by Copilot editor integrations) | Authenticate the request to GitHub's Copilot quota endpoint |
-| Usage data | Responses from each tool's official API, or — for Antigravity — from the app's local engine over a loopback (127.0.0.1) connection | Display limits and usage in the tray popover |
-| Token counts from local session logs (**only when "Show API-equivalent cost" is turned on; off by default**) | Claude Code's transcripts (`%USERPROFILE%\.claude\projects\**\*.jsonl` and `%USERPROFILE%\.config\claude\projects`, or under `CLAUDE_CONFIG_DIR` instead) and Codex's session rollouts (`%USERPROFILE%\.codex\sessions`, `archived_sessions`, or under `CODEX_HOME`) | Estimate this month's cost at public API list prices beside each card's plan label |
+| Information | Windows source | macOS source | Purpose |
+| --- | --- | --- | --- |
+| Claude Code OAuth token, plan and rate-limit tier | `%USERPROFILE%\.claude\.credentials.json` | Login Keychain item `Claude Code-credentials`, or `~/.claude/.credentials.json` (under `CLAUDE_CONFIG_DIR` when set) if no item exists | Authenticate the Claude usage request and label the plan |
+| Claude Code profile (`oauthAccount`: organization type and rate-limit tier only) | `%USERPROFILE%\.claude.json` | `~/.claude.json` (under `CLAUDE_CONFIG_DIR` when set) | Show a plan change sooner than the credential does. The file also holds other Claude Code state, such as account details and project history. It is parsed in memory, and nothing else from it is used or kept |
+| Codex OAuth token and account ID | `%USERPROFILE%\.codex\auth.json`, or under `CODEX_HOME` | `~/.codex/auth.json`, or under `CODEX_HOME` | Authenticate the Codex usage request. The token's expiry claim is also read, to detect expiry |
+| GitHub OAuth token (Copilot) | The `gh` CLI (`gh auth token`), or a `github-copilot` `apps.json`/`hosts.json` file under `%LOCALAPPDATA%` or `~\.config` | The `gh` CLI, or `apps.json`/`hosts.json` under `$XDG_CONFIG_HOME/github-copilot` or `~/.config/github-copilot` | Authenticate the Copilot quota request |
+| Cursor session token and user ID | Not supported on Windows | Cursor's `state.vscdb` database, opened read-only (see below) | Authenticate the Cursor usage request |
+| Antigravity process information | `language_server` command lines and listening ports (see below) | The same, through macOS process APIs (see below) | Find and talk to Antigravity's local engine |
+| Usage data | Responses from each tool's service, or from Antigravity's local engine | Same | Display limits and usage |
+| Token counts from local session logs (**only when "Show API-equivalent cost" is on; off by default**) | `%USERPROFILE%\.claude\projects\**\*.jsonl` and `%USERPROFILE%\.config\claude\projects` (or under `CLAUDE_CONFIG_DIR` instead); `%USERPROFILE%\.codex\sessions` and `archived_sessions` (or under `CODEX_HOME`) | The equivalent paths under `~` | Estimate this month's cost at public API list prices |
 
-For Antigravity, AgentGauge reads **no** credential file. It obtains usage from Antigravity's own local engine: either the one the running app already hosts, or, when the app is closed, an engine AgentGauge briefly launches that signs itself in from the user's existing on-disk Antigravity login and is shut down again immediately after the reading. AgentGauge does not read, write, refresh, or log Antigravity's credentials.
+**Antigravity.** AgentGauge reads no Antigravity credential file, and does not read, write, refresh or log Antigravity's account credentials. While the app is running, AgentGauge looks for Antigravity's language server among running processes. On Windows it uses WMI to read the process ID, executable path and command line of each process named `language_server`, whichever program it belongs to. On macOS it uses `sysctl` to read the arguments of your own processes whose executable name starts with `language_server`. It keeps only a process inside the Antigravity install, discards the others' details without storing or logging them, takes the `--csrf_token` value from that process's command line, finds its loopback port, and sends the token as a header to that port on `127.0.0.1`. The token guards the local connection, and it is held in memory and never logged. When the app is closed, AgentGauge briefly starts Antigravity's own engine with a token it generates itself. That engine signs itself in from your existing on-disk login, and AgentGauge shuts it down right after the reading. On macOS, the engine also gets an environment marker so AgentGauge can recognize its helper processes.
 
-The session logs also contain the conversations themselves. AgentGauge reads from them **only** each response's token counts, model name, timestamp, and message/response identifiers (to count a response once); it never reads, stores, or logs conversation content, file paths from the conversation, or prompts. The files are opened read-only and never modified. Nothing is read while the option is off, and turning it off stops the reading immediately. The prices are a table bundled with the app — no network request is made for this feature.
+**Session logs.** These logs also contain your conversations. AgentGauge uses only each response's token counts, model name, timestamp and message/response identifiers (to count a response once). It never stores or logs conversation content, prompts, or file paths from the conversation. The files are opened read-only and never modified. Nothing is read while the option is off, and turning it off stops the reading immediately. Prices come from a table bundled with the app, so this feature makes no network request.
 
-AgentGauge **never writes or deletes** credential files itself and does not log or store tokens or login output. One nuance: when a CLI's on-disk token has expired, AgentGauge may briefly run that official CLI in the background (`claude`, `codex`) so the CLI refreshes its **own** token and rewrites its **own** credentials file — exactly as it would on next use. That refresh and its network traffic belong to the CLI, and its output is discarded unread by AgentGauge.
+**Delegated refresh.** AgentGauge never writes or deletes credential files itself, and it does not log or store tokens or login output. When a CLI's stored token has expired, AgentGauge may briefly run that official CLI in the background (`claude mcp list`, `codex doctor`) so the CLI refreshes its **own** token and rewrites its **own** credentials, exactly as it would on next use. That refresh and its network traffic belong to the CLI, and AgentGauge discards the output unread. Signing in always runs the official CLI where you can see it, or opens the tool's own app.
+
+### macOS only
+- **Keychain, Claude Code.** AgentGauge reads the `Claude Code-credentials` item's attributes on every refresh, which never prompts. It reads the secret only when the item has changed, by running `/usr/bin/security find-generic-password`, the tool Claude Code itself uses, so normally no prompt appears. If that tool cannot be used, it falls back to the Security framework, and macOS asks for your permission. If you deny access, only a refresh you start yourself asks again.
+- **Keychain and database, Cursor.** AgentGauge reads the `cursorAuth/accessToken` value from `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`. Cursor 3.27 and later store that value encrypted. AgentGauge then reads the "Cursor Safe Storage" Keychain password and uses it to decrypt the token in memory. This is a deliberate exception to AgentGauge's rule against opening other apps' encrypted stores, made because Cursor offers no CLI or other readable source. Background refreshes never show the access prompt for this item; only a refresh you start can. The user ID sent to Cursor comes from the token itself.
+- **Finding CLIs.** Apps opened from Finder don't inherit your shell's `PATH`, so if a CLI isn't in the usual install folders, AgentGauge runs your login shell once (`$SHELL -ilc`) to read `PATH`. This runs your shell's startup files, as opening a terminal would. Only `PATH` is captured.
+- **Signing in.** AgentGauge writes a small `<cli>-login.command` script under `$TMPDIR/AgentGauge` and opens it in Terminal. The script contains only the CLI's path and its login command.
 
 ## 3. Network Communication
-AgentGauge communicates only with the following external endpoints. All of them are the user's own first-party services; there is no developer-operated server.
+AgentGauge contacts only the endpoints below. There is no developer-operated server. As with any request, each service can see your IP address and the request's headers.
 
 | Endpoint | Purpose | Data sent |
 | --- | --- | --- |
-| `api.anthropic.com` | Fetch Claude Code usage | User's Anthropic OAuth token |
-| `chatgpt.com` | Fetch Codex usage | User's OpenAI OAuth token |
-| `api.github.com` (`/copilot_internal/user`) | Fetch GitHub Copilot usage (only when Copilot is registered) | User's GitHub OAuth token |
-| `status.anthropic.com` / `status.claude.com`, `status.openai.com`, `www.githubstatus.com` | Read public service health every 15 minutes for registered tools | None (unauthenticated public GET; no token or cookie attached) |
-| `api.github.com` (`/repos/.../releases/latest`) | Check for app updates | None (public release info only; no token attached) |
-| `github.com` / `objects.githubusercontent.com` | Download the release installer, only when the user clicks Update | None (public file; no token attached) |
+| `api.anthropic.com` | Fetch Claude Code usage | Your Anthropic OAuth token and a `claude-code` User-Agent |
+| `chatgpt.com` | Fetch Codex usage | Your OpenAI OAuth token and your account ID (`ChatGPT-Account-Id` header) |
+| `api.github.com` (`/copilot_internal/user`) | Fetch GitHub Copilot usage (only when Copilot is registered) | Your GitHub OAuth token and an editor-style client identity |
+| `cursor.com` (macOS only) | Fetch Cursor usage | Your Cursor user ID and session token, as a cookie |
+| `status.anthropic.com` (may redirect to `status.claude.com`), `status.openai.com`, `www.githubstatus.com`, and on macOS `status.cursor.com` | Read public service health every 15 minutes for registered tools | Nothing beyond the request itself: no token or cookie |
+| `api.github.com` (`/repos/.../releases/latest`) | Check for app updates at launch and on request | Nothing beyond the request itself: no token |
+| `github.com` and its release download hosts | Download a new release (see Section 5) | Nothing beyond the request itself: no token |
 
-Tokens sent to each service, and the resulting data handling, are governed by that service's privacy policy (Anthropic, OpenAI, GitHub).
+Tokens sent to each service, and the resulting data handling, are governed by that service's privacy policy (Anthropic, OpenAI, GitHub, Cursor).
 
-For Antigravity, AgentGauge itself makes **no external network call**: it talks only to the Antigravity engine on the local loopback address (127.0.0.1), which never leaves the device. That engine — part of Antigravity, whether the app's own or one AgentGauge briefly launches — may in turn contact Antigravity's first-party cloud to fetch quota, exactly as it does for the Antigravity app; that traffic is the engine's own and is governed by Antigravity's privacy policy, not the developer's.
+For Antigravity, AgentGauge itself makes **no external network call**: it talks only to the engine on the loopback address (`127.0.0.1`). That engine is part of Antigravity, whether it is the app's own or one AgentGauge briefly starts, and it may contact Antigravity's cloud services (Google's `generativelanguage.googleapis.com` and `daily-cloudcode-pa.googleapis.com`) to fetch quota. That traffic is the engine's own and is governed by Antigravity's privacy policy.
 
 ## 4. Data Stored on the Device
-The only data AgentGauge stores on the user's PC is the following, which contains no personally identifying information:
 
-- `%APPDATA%\Gauge\settings.json` — only the user's own **app preferences**: the list of registered tools to display, the UI language, which usage notifications are on, the card display choices (bars or gauges, used or remaining, trend sparklines), the weekly pace model, whether the API-cost estimate is shown, and the Windows foreground-lock timeout value AgentGauge restores when it exits
-- `%APPDATA%\Gauge\usage-cache.json` — the **last good usage values** AgentGauge itself computed (tool name, plan label, window percentages and counts, reset times), kept so cards can show a last-known value right after a reboot. No tokens or credentials ever touch this file.
-- `%APPDATA%\Gauge\usage-history.db` — a local SQLite database of **usage samples** (tool, window, percentage, timestamp) retained for **90 days** and pruned automatically; used for trend/forecast features. Contains no tokens and no personal information.
-- `%APPDATA%\Gauge\api-cost-ledger.json` — present only once the API-cost option has been turned on: per scanned log file, its path, size, how far it was read, a hash of its first few kilobytes (to recognise the file if it is moved or rewritten), and per-day, per-model **token counts**; plus, for each message/response identifier already counted, its day, model and token counts. Everything dated more than about two months back is pruned, including the identifiers. No conversation content, tokens (credentials), or personal information.
-- `%APPDATA%\Gauge\logs\gauge.log` — a small rotating **diagnostics log** (error types and messages only). Tokens, credentials, and CLI output are never written to it.
-- Windows registry (`HKCU\...\Run`) — the **auto-start setting**, if enabled by the user
+### Windows
+- `%APPDATA%\Gauge\settings.json`: **app preferences** only. These are the registered and hidden tools, UI language, notification kinds, card display choices, the tray icon's tool, weekly pace model, API-cost and automatic-update switches, and the Windows foreground-lock timeout value AgentGauge restores when it exits.
+- `%APPDATA%\Gauge\settings.corrupt-<date>-<time>.json`: if `settings.json` stops being valid JSON and you open Settings, AgentGauge keeps the unreadable file as this copy and writes a new `settings.json`. The copy holds whatever the old file held and is not deleted automatically.
+- `%APPDATA%\Gauge\usage-cache.json`: the **last good usage values** (tool name, plan label, window percentages and counts, reset times), so cards can show a last-known value after a reboot. It holds no tokens or credentials.
+- `%APPDATA%\Gauge\usage-history.db`: a local SQLite database of **usage samples** (tool, window, percentage, reset time, timestamp), kept for **90 days** and pruned automatically, for trends and forecasts. It holds no tokens.
+- `%APPDATA%\Gauge\api-cost-ledger.json`: present only once the API-cost option has been turned on. For each scanned log file it stores the file's **full path**, size, how far it was read, and a hash of its first few kilobytes (to recognize the file if it is moved or rewritten), plus per-day, per-model **token counts**. For each message/response identifier already counted, it stores that identifier with its day, model and token counts. **These paths can contain your Windows account name and project names**: Claude Code names its log folders after each project's path, for example `C:\Users\<account>\.claude\projects\C--Users-<account>-<project>\…`. Everything older than about two months is pruned. The file holds no conversation content or tokens (credentials), and turning the option off leaves it on disk until you delete it.
+- `%APPDATA%\Gauge\logs\gauge.log`: a small rotating **diagnostics log** of error types and messages. Tokens, credentials and CLI output are never written to it, but an error message can include a local file path, which may contain your account name. The log never leaves your device.
+- `%TEMP%\Gauge\GaugeSetup-<version>.exe`: the **downloaded update installer**. Gauge removes it the next time it starts, and it is safe to delete.
+- `%TEMP%\Gauge\install.log`: the **installer's log** from the last update, kept for troubleshooting. It stays on this computer, can contain file paths that include your Windows account name, and is safe to delete.
+- Windows registry: the **auto-start setting** (`HKCU\...\Run`), if you enable it, and the entries Windows needs to show AgentGauge's notifications (under `HKCU`).
 
-This data can be removed at any time by deleting the files/registry entry. The uninstaller removes the Run key; the `%APPDATA%\Gauge` folder can be deleted manually if desired.
+The uninstaller removes the program and the Run value. The `%APPDATA%\Gauge` folder and `%TEMP%\Gauge` stay until you delete them.
 
-## 5. Third-Party Sharing / Sale
-AgentGauge does not share or sell personal information to third parties. The communication in Section 3 covers usage, public service health, and app updates.
+### macOS
+- **Preferences** are stored in UserDefaults under `io.github.ghostface2232.agentgauge`. They cover the same kinds of choices as on Windows, except the language, which follows macOS.
+- `~/Library/Application Support/AgentGauge/` holds `usage-cache.json`, `usage-history.db` (90 days) and, once the option has been turned on, `api-cost-ledger.json`. These have the same contents as on Windows, so **the ledger's paths can contain your macOS account name and project names**.
+- **Diagnostics** go to the macOS unified log (subsystem `io.github.ghostface2232.agentgauge`), under the same rule: no tokens, credentials or CLI output. macOS manages how long they are kept, and they do not leave your device through AgentGauge.
+- `$TMPDIR/AgentGauge/<cli>-login.command`: the sign-in script described in Section 2.
+- **Open at login** is registered with macOS as a login item, if you enable it.
+- While updating, the download is unpacked under `$TMPDIR/AgentGauge-update-<id>` and staged as `.AgentGauge-update-<version>.app` next to the installed app. Both are gone once the update finishes.
 
-## 6. Children's Privacy
+To remove this data, delete the AgentGauge folder above, then run `defaults delete io.github.ghostface2232.agentgauge`.
+
+## 5. Automatic Updates
+By default, each time it starts, AgentGauge asks GitHub whether a newer release exists. If one does, it downloads the release, checks the download against the SHA-256 digest GitHub reports, **installs it without asking**, and restarts. You can turn this off in Settings (General on Windows, About on macOS). AgentGauge then installs an update only when you ask it to, though it still checks at launch.
+
+The digest check catches a corrupted or truncated download. It doesn't prove who built the release, because the digest comes from the same GitHub response as the download link, and release builds are not code-signed by a commercial certificate.
+
+## 6. Third-Party Sharing / Sale
+AgentGauge does not share or sell personal information. The communication in Section 3 covers usage, public service health and app updates.
+
+## 7. Children's Privacy
 AgentGauge is not directed at children and does not knowingly collect children's personal information.
 
-## 7. Changes to This Policy
+## 8. Changes to This Policy
 Changes will be announced through this document and the repository. The effective date is updated for material changes.
 
-## 8. Contact
+## 9. Contact
 Privacy inquiries: **baemingwan@gmail.com**

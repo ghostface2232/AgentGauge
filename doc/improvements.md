@@ -30,7 +30,7 @@
 `App.xaml:28-30`의 `UsageOkBrush #2E9E4F` / `UsageCautionBrush #FEAD0C` / `UsageDangerBrush #FE140C`는 단일 테마 하드코딩(주석으로 ThemeDictionaries 이관 예정 명시). 바 채움색으로는 무난하지만 `UsageCautionBrush`가 **텍스트**로도 쓰임 — "갱신 실패" 배지(`PopoverWindow.xaml:241-249`)와 페이스 경고 캡션. 라이트 아크릴 카드 위 #FEAD0C는 대비 약 1.6:1로 사실상 안 보임.
 **제안**: 약속대로 `ThemeDictionaries` 이관, 라이트 테마용 진한 앰버/레드 텍스트 변형 정의. 앱 자체 규칙("색상만으로 상태 전달 금지")을 스스로 어기는 지점의 수정.
 
-### 5. winget 매니페스트 제출 + README에 솔직한 SmartScreen 안내 — 배포 · S
+### 5. winget 매니페스트 제출 + README에 솔직한 SmartScreen 안내 — 배포 · S 🟡 (2026-11-04 초안 — `packaging/`의 winget·Scoop 매니페스트, `release.yml` 제출 잡, README 안내 반영. 제출·공개는 소유자 몫으로 미실행, [packaging/README.md](../packaging/README.md) 참고)
 코드 서명이 보류된 상태에서 `winget install`이 최선의 완화책: 신뢰 가능한 획득 경로 + 복붙 설치 명령 + 커뮤니티 저장소 검증. 설치기는 이미 winget 요건(무인 설치 `/VERYSILENT`, per-user, `PrivilegesRequired=lowest`)을 충족 (`installer/Gauge.iss`). `release.yml`에서 `wingetcreate update`로 자동화 가능.
 README는 "무서명 **로컬 빌드**는 SmartScreen 경고 가능"(46행)이라 쓰지만 릴리스 빌드도 무서명(79행). "더 보기 → 실행" 안내와 winget 대안을 나란히 명시.
 
