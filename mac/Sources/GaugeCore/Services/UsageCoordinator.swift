@@ -21,6 +21,8 @@ public struct ToolState: Sendable, Equatable, Identifiable {
     /// long its indicator spins without a wall-clock change stretching or cutting it. Set only
     /// when a read starts: cache re-emits and repeated requests never extend it.
     public var refreshStartedAt: TimeInterval?
+    /// True until this run has read the tool successfully: `snapshot` came from the disk cache.
+    public var isRehydrated = false
 
     public var id: ToolKind { tool }
 
@@ -100,7 +102,9 @@ public actor UsageCoordinator {
         self.cache = cache
         self.clock = clock
         for snapshot in cache?.load() ?? [] where byTool[snapshot.tool] != nil {
-            states[snapshot.tool] = ToolState(tool: snapshot.tool, snapshot: snapshot)
+            var state = ToolState(tool: snapshot.tool, snapshot: snapshot)
+            state.isRehydrated = true
+            states[snapshot.tool] = state
         }
     }
 
@@ -232,6 +236,7 @@ public actor UsageCoordinator {
         switch result {
         case .success(let outcome):
             state.lastRefreshFailed = false
+            state.isRehydrated = false
             state.snapshot = outcome.snapshot
             if !outcome.signedIn {
                 state.auth = .signedOut

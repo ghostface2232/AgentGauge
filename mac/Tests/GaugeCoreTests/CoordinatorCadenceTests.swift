@@ -176,6 +176,36 @@ final class CoordinatorDeadlineTests: XCTestCase {
     }
 }
 
+final class CoordinatorRehydrationTests: XCTestCase {
+    func testRestoredSnapshotStaysMarkedUntilTheFirstSuccessfulRead() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = UsageCacheStore(directory: directory)
+        cache.save([UsageSnapshot(tool: .claude, plan: nil, windows: [UsageWindow(type: .fiveHour, usedRatio: 0.4)],
+                                  capturedAt: Date(timeIntervalSince1970: 1_800_000_000))])
+
+        let clock = ManualClock()
+        let transport = FakeTransport() // Fails while its queue is empty.
+        let provider = HTTPUsageProvider(tool: .claude, credentials: FakeCredentials(.available(ToolCredential(accessToken: "a"))),
+                                         endpoint: ClaudeEndpoint(), policy: FetchPolicy(), transport: transport, clock: clock)
+        let coordinator = UsageCoordinator(providers: [provider], cache: cache, clock: clock)
+        await coordinator.setEnabledTools([.claude])
+        let recorder = StatesRecorder()
+        await coordinator.setListener { recorder.append($0) }
+        XCTAssertEqual(recorder.all.last?.first?.isRehydrated, true)
+
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(recorder.all.last?.first?.lastRefreshFailed, true)
+        XCTAssertEqual(recorder.all.last?.first?.isRehydrated, true, "a failed refresh still shows the restored snapshot")
+
+        transport.enqueue(.status(200, #"{"five_hour":{"utilization":40,"resets_at":"2026-10-19T05:00:00Z"}}"#))
+        clock.advance(11)
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(recorder.all.last?.first?.lastRefreshFailed, false)
+        XCTAssertEqual(recorder.all.last?.first?.isRehydrated, false)
+    }
+}
+
 final class CoordinatorDebounceTests: XCTestCase {
     func testManualRefreshIsDebouncedSoClicksCannotKeepPiercingACooldown() async {
         let clock = ManualClock()
