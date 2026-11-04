@@ -81,6 +81,58 @@ public sealed class UsageServiceDeadlineTests
     }
 
     [Fact]
+    public async Task AProviderStillStuckPastItsDeadlineGetsNoNewCallUntilThatReadEnds()
+    {
+        // Ignores its token, as a blocking call does. Another call would run alongside it,
+        // against provider state that assumes one at a time, and cost another pool thread.
+        var stuck = new TaskCompletionSource<UsageSnapshot>();
+        var calls = 0;
+        var service = new UsageService(
+            [new Provider(ToolKind.Codex, (_, _) => Interlocked.Increment(ref calls) == 1
+                ? stuck.Task
+                : Task.FromResult(Snapshot("Codex")))],
+            readDeadline: ShortDeadline);
+        var providers = service.GetEnabledProviders();
+
+        Assert.IsType<TimeoutException>(Assert.Single(await service.GetSnapshotsAsync(providers, default).WaitAsync(TestTimeout)).Error);
+        Assert.IsType<TimeoutException>(Assert.Single(await service.GetSnapshotsAsync(providers, default).WaitAsync(TestTimeout)).Error);
+        Assert.Equal(1, Volatile.Read(ref calls));
+
+        stuck.SetResult(Snapshot("Codex"));
+
+        // The read's own task finishes just after the source it awaits.
+        var recovered = false;
+        var giveUp = DateTime.UtcNow + TestTimeout;
+        while (!recovered && DateTime.UtcNow < giveUp)
+        {
+            recovered = Assert.Single(await service.GetSnapshotsAsync(providers, default)).Succeeded;
+        }
+        Assert.True(recovered);
+        Assert.Equal(2, Volatile.Read(ref calls));
+    }
+
+    [Fact]
+    public async Task OneStuckProviderDoesNotStopTheOthersBeingCalledAgain()
+    {
+        var codexCalls = 0;
+        var service = new UsageService(
+            [new Provider(ToolKind.ClaudeCode, (_, _) => new TaskCompletionSource<UsageSnapshot>().Task),
+             new Provider(ToolKind.Codex, (_, _) =>
+             {
+                 Interlocked.Increment(ref codexCalls);
+                 return Task.FromResult(Snapshot("Codex"));
+             })],
+            readDeadline: ShortDeadline);
+        var providers = service.GetEnabledProviders();
+
+        await service.GetSnapshotsAsync(providers, default).WaitAsync(TestTimeout);
+        var second = await service.GetSnapshotsAsync(providers, default).WaitAsync(TestTimeout);
+
+        Assert.Equal(2, Volatile.Read(ref codexCalls));
+        Assert.True(second.Single(r => r.Tool == ToolKind.Codex).Succeeded);
+    }
+
+    [Fact]
     public async Task ShutdownCancellationIsReportedAsCancellationNotATimeout()
     {
         using var shutdown = new CancellationTokenSource();

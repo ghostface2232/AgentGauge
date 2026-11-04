@@ -39,6 +39,11 @@ public sealed class UsageService
     private readonly Func<ToolKind, bool> _isActive;
     private readonly TimeSpan _readDeadline;
 
+    // Reads the deadline gave up on but that are still running. A provider gets no new call until
+    // its read has actually ended: UsageProviderBase's cache and cooldown assume one call at a
+    // time, and a call that stays blocked would otherwise cost another pool thread every cycle.
+    private readonly Dictionary<IUsageProvider, Task> _abandonedReads = new();
+
     /// <param name="isEnabled">
     /// Only providers whose tool is enabled are queried. Defaults to "all enabled" so
     /// existing callers/tests are unaffected. The registry supplies this at runtime so
@@ -84,13 +89,25 @@ public sealed class UsageService
     private async Task<ProviderSnapshotResult> GetIsolatedAsync(
         IUsageProvider provider, FetchInteraction interaction, CancellationToken cancellationToken)
     {
+        if (IsStillRunningAbandonedRead(provider))
+        {
+            // Not logged again: the timeout that abandoned the read already was.
+            return new ProviderSnapshotResult
+            {
+                Tool = provider.Tool,
+                ToolName = provider.ToolName,
+                Error = new TimeoutException($"{provider.ToolName} is still running a read that passed its deadline."),
+            };
+        }
+
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task<UsageSnapshot>? read = null;
         try
         {
             // Task.Run so a provider blocking before its first await (a WMI query, a process
             // start) can't hold up the others, and so the wait below can still give up on it.
             var readToken = deadline.Token;
-            var read = Task.Run(() => provider.GetSnapshotAsync(interaction, readToken), readToken);
+            read = Task.Run(() => provider.GetSnapshotAsync(interaction, readToken), readToken);
             // A provider stuck in a blocking call ignores its token, so the wait has to be able
             // to walk away. Anything it later throws must not surface as an unobserved exception.
             _ = read.ContinueWith(
@@ -105,6 +122,13 @@ public sealed class UsageService
         {
             // Lets an abandoned read that does honour its token stop working.
             await deadline.CancelAsync();
+            if (read is { IsCompleted: false })
+            {
+                lock (_abandonedReads)
+                {
+                    _abandonedReads[provider] = read;
+                }
+            }
 
             // Auth-required and app shutdown are expected flows, not diagnostics events. A
             // cancellation nobody asked for is a timeout (HttpClient reports its own that way)
@@ -115,6 +139,23 @@ public sealed class UsageService
                 DiagnosticsLog.Write("provider", $"{provider.ToolName} refresh failed: {ex.GetType().Name}: {ex.Message}");
             }
             return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Error = ex };
+        }
+    }
+
+    private bool IsStillRunningAbandonedRead(IUsageProvider provider)
+    {
+        lock (_abandonedReads)
+        {
+            if (!_abandonedReads.TryGetValue(provider, out var read))
+            {
+                return false;
+            }
+            if (!read.IsCompleted)
+            {
+                return true;
+            }
+            _abandonedReads.Remove(provider);
+            return false;
         }
     }
 }
