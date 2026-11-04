@@ -96,3 +96,8 @@ AgentGauge updates itself from GitHub Releases:
 
 - Inspired by [CodexBar](https://github.com/steipete/codexbar), the macOS menu bar app for tracking AI coding tool usage.
 - Typography set in [Pretendard](https://github.com/orioncactus/pretendard) by Kil Hyung-jin, bundled under the SIL Open Font License 1.1.
+
+
+## License
+
+AgentGauge is released under the [MIT License](LICENSE). Pretendard keeps its own license, as noted above. Tool names and logos belong to their respective owners.

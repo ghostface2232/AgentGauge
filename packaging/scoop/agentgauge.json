@@ -2,7 +2,7 @@
     "version": "0.7.5",
     "description": "System tray monitor for the usage limits of Claude Code, Codex, Antigravity and GitHub Copilot.",
     "homepage": "https://github.com/ghostface2232/AgentGauge",
-    "license": "Proprietary",
+    "license": "MIT",
     "notes": [
         "AgentGauge is installed to %LOCALAPPDATA%\\Programs\\Gauge by its own installer, not into the Scoop apps folder.",
         "It updates itself on launch by default, so 'scoop list' can show an older version than the one running; 'scoop hold' does not stop this. Turn it off in AgentGauge's settings.",

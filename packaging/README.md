@@ -31,7 +31,7 @@ Since v0.7.5, AgentGauge installs newer releases by itself on launch. We keep th
 - **`ElevationRequirement: elevationProhibited`** makes winget refuse to run from an elevated shell. Otherwise the installer's silent relaunch would inherit the elevated token. The tray app and the CLIs it runs would then be elevated, and they could rewrite the user's credential files with administrator ownership. With a different admin account, the app would also land in that account's profile.
 - **`MinimumOSVersion: 10.0.19041.0`** is the floor the README states.
 - **`ManifestVersion: 1.12.0`** is the version the current Microsoft docs use. `wingetcreate` writes its own current version on later updates.
-- **`License: Proprietary`** is accurate while the repo has no license file. See the owner steps below.
+- **`License: MIT`**, with `LicenseUrl` pointing at `LICENSE` on `main`. Merge this branch before submitting, or that link is dead.
 
 ### Submission tool: `wingetcreate`
 
@@ -59,9 +59,8 @@ Scoop's usual `innosetup: true` unpacks the files into `~\scoop\apps\`. Here tha
 
 ## Owner: decide
 
-1. **License.** The repo has no license file, so legally it's all rights reserved, and SignPath Foundation's OSI requirement can't be met. MIT is the recommended choice: it's short and fits a free tool. The drafts work either way. To change them, set `License` in `ghostface2232.AgentGauge.locale.en-US.yaml` (and add `LicenseUrl`) and `license` in `agentgauge.json`. `Proprietary` is accepted by both as it stands.
-2. **Identifier.** Keep `ghostface2232.AgentGauge`, or choose another before the first merge.
-3. **`RequireExplicitUpgrade`.** Keep it (recommended) or remove it, as described above.
+1. **Identifier.** Keep `ghostface2232.AgentGauge`, or choose another before the first merge.
+2. **`RequireExplicitUpgrade`.** Keep it (recommended) or remove it, as described above.
 
 ## Owner: do, in order
 

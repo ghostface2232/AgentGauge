@@ -10,7 +10,8 @@ PrivacyUrl: https://github.com/ghostface2232/AgentGauge/blob/main/PRIVACY.md
 Author: ghostface2232
 PackageName: AgentGauge
 PackageUrl: https://github.com/ghostface2232/AgentGauge
-License: Proprietary
+License: MIT
+LicenseUrl: https://github.com/ghostface2232/AgentGauge/blob/main/LICENSE
 ShortDescription: System tray monitor for the usage limits of Claude Code, Codex, Antigravity and GitHub Copilot.
 Description: |-
   AgentGauge shows the rate-limit windows, reset times and pace of your AI coding tools in a small
