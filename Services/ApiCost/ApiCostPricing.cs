@@ -28,8 +28,9 @@ public static class ApiCostPricing
     private static readonly Dictionary<string, Rates> Table = new(StringComparer.OrdinalIgnoreCase)
     {
         // ── Anthropic ─────────────────────────────────────────────────────
-        // Fable 5.1, Mythos 5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual 0.1x of
+        // Fable 5.2/5.1, Mythos 5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual 0.1x of
         // input (0.025x and 0.05x); writes keep the standard 1.25x.
+        ["claude-fable-5-2"] = new(8, 0.2m, 10, 40),
         ["claude-fable-5-1"] = new(10, 0.25m, 12.5m, 50),
         ["claude-mythos-5-1"] = new(10, 0.25m, 12.5m, 50),
         ["claude-fable-5"] = new(10, 1, 12.5m, 50),

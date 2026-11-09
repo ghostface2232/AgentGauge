@@ -41,8 +41,9 @@ public enum ApiCostPricing {
     }
 
     private static let table: [String: Rates] = [
-        // Anthropic. Fable 5.1, Mythos 5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual
+        // Anthropic. Fable 5.2/5.1, Mythos 5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual
         // 0.1x of input (0.025x and 0.05x); writes keep the standard 1.25x.
+        "claude-fable-5-2": rates("8", "0.2", "10", "40"),
         "claude-fable-5-1": rates("10", "0.25", "12.5", "50"),
         "claude-mythos-5-1": rates("10", "0.25", "12.5", "50"),
         "claude-fable-5": rates("10", "1", "12.5", "50"),
