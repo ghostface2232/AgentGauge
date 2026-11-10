@@ -32,6 +32,9 @@ public sealed record UsageSnapshot
     /// </summary>
     public int? ResetCredits { get; init; }
 
+    /// <summary>Expiry times for available manual resets, separate from scheduled usage rollovers.</summary>
+    public IReadOnlyList<ResetCreditDeadline>? ResetCreditDeadlines { get; init; }
+
     /// <summary>When this snapshot was captured.</summary>
     public DateTimeOffset CapturedAt { get; init; }
 }

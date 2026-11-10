@@ -196,44 +196,23 @@ public sealed class ToolCardViewModelTests
     }
 
     [Theory]
-    [InlineData(null)]
-    [InlineData(0)]
-    public void ResetCreditChipIsHiddenWithoutAHeldBalance(int? credits)
+    [InlineData(-1, false)]
+    [InlineData(12, true)]
+    [InlineData(36, true)]
+    [InlineData(49, false)]
+    public void ResetCreditChipOnlyShowsAnUpcomingDeadline(int hours, bool visible)
     {
-        // Zero is the ordinary state for a plan that has the feature, and null is a tool that
-        // has no such thing; neither is worth a chip.
-        var card = new ToolCardViewModel(Cached("Codex", credits, Window(null, null, UsageWindowType.FiveHour)));
+        var card = new ToolCardViewModel(CachedWithDeadline(hours));
 
-        Assert.False(card.HasResetCredits);
-        Assert.Empty(card.ResetCreditsText);
-        Assert.Empty(card.ResetCreditsDescription);
-    }
-
-    [Fact]
-    public void ResetCreditChipShowsTheHeldBalanceWithASpelledOutDescription()
-    {
-        var card = new ToolCardViewModel(Cached("Codex", 2, Window(null, null, UsageWindowType.FiveHour)));
-
-        Assert.True(card.HasResetCredits);
-        Assert.Equal("초기화 2회", card.ResetCreditsText);
-        Assert.Equal("사용량 초기화 2회 사용 가능", card.ResetCreditsDescription);
-    }
-
-    [Fact]
-    public void ResetCreditChipClearsWhenTheBalanceIsSpent()
-    {
-        var card = new ToolCardViewModel(Cached("Codex", 1, Window(null, null, UsageWindowType.FiveHour)));
-
-        card.Update(Cached("Codex", 0, Window(null, null, UsageWindowType.FiveHour)));
-
-        Assert.False(card.HasResetCredits);
-        Assert.Empty(card.ResetCreditsText);
+        Assert.Equal(visible, card.HasResetCreditWarning);
+        Assert.Equal(visible, card.ResetCreditsDescription.Contains("만료"));
+        if (visible) Assert.Contains("초기화권", card.WarningResetCreditsText);
     }
 
     [Fact]
     public void HeaderChipsDropTheirLabelsOnlyWhenTheApiCostAndBothChipsAreShown()
     {
-        var card = new ToolCardViewModel(Cached("Codex", 2, Window(null, null, UsageWindowType.FiveHour)));
+        var card = new ToolCardViewModel(CachedWithDeadline(36));
         var incident = new ProviderStatus(ToolKind.Codex, ProviderStatusLevel.Major, "Incident", DateTimeOffset.UtcNow);
         var cost = new ApiCostEstimate("Codex", 2026, 10, 12m, new TokenTotals(1, 0, 0, 0, 1), 0, [], DateTimeOffset.UtcNow);
         var changed = new List<string?>();
@@ -245,12 +224,13 @@ public sealed class ToolCardViewModelTests
 
         card.ApplyApiCost(cost);
         Assert.False(card.ShowHeaderChipLabels);
+        Assert.Equal("2일", card.WarningResetCreditsText);
         Assert.Contains(nameof(ToolCardViewModel.ShowHeaderChipLabels), changed);
 
         // Losing any one of them brings the labels back.
-        card.Update(Cached("Codex", 0, Window(null, null, UsageWindowType.FiveHour)));
+        card.Update(CachedWithDeadline(null));
         Assert.True(card.ShowHeaderChipLabels);
-        card.Update(Cached("Codex", 2, Window(null, null, UsageWindowType.FiveHour)));
+        card.Update(CachedWithDeadline(36));
         Assert.False(card.ShowHeaderChipLabels);
         card.ApplyApiCost(null);
         Assert.True(card.ShowHeaderChipLabels);
@@ -268,10 +248,14 @@ public sealed class ToolCardViewModelTests
         UsedRatio = 0.1,
     };
 
+    private static CachedUsage CachedWithDeadline(int? hours)
+        => Cached("Codex", hours is { } value ? [new(DateTimeOffset.UtcNow.AddHours(value))] : null,
+            Window(null, null, UsageWindowType.FiveHour));
+
     private static CachedUsage Cached(string toolName, params UsageWindow[] windows)
         => Cached(toolName, null, windows);
 
-    private static CachedUsage Cached(string toolName, int? resetCredits, params UsageWindow[] windows) => new()
+    private static CachedUsage Cached(string toolName, ResetCreditDeadline[]? deadlines, params UsageWindow[] windows) => new()
     {
         ToolName = toolName,
         Snapshot = new UsageSnapshot
@@ -279,7 +263,7 @@ public sealed class ToolCardViewModelTests
             ToolName = toolName,
             CapturedAt = DateTimeOffset.UtcNow,
             Windows = windows,
-            ResetCredits = resetCredits,
+            ResetCreditDeadlines = deadlines,
         },
         LastUpdatedAt = DateTimeOffset.UtcNow,
     };

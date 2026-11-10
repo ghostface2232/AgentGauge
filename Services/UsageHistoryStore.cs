@@ -113,8 +113,8 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                     """
                     INSERT OR IGNORE INTO samples
                         (tool, window_key, group_label, captured_at, used_ratio,
-                         reset_time, used_tokens, limit_tokens)
-                    VALUES ($tool, $key, $group, $captured, $ratio, $reset, $used, $limit)
+                         reset_time, used_tokens, limit_tokens, reset_credits, reset_credit_expiry)
+                    VALUES ($tool, $key, $group, $captured, $ratio, $reset, $used, $limit, $credits, $expiry)
                     """;
                 var tool = command.Parameters.Add("$tool", SqliteType.Text);
                 var key = command.Parameters.Add("$key", SqliteType.Text);
@@ -124,6 +124,8 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                 var reset = command.Parameters.Add("$reset", SqliteType.Integer);
                 var used = command.Parameters.Add("$used", SqliteType.Integer);
                 var limit = command.Parameters.Add("$limit", SqliteType.Integer);
+                var credits = command.Parameters.Add("$credits", SqliteType.Integer);
+                var expiry = command.Parameters.Add("$expiry", SqliteType.Integer);
 
                 foreach (var window in snapshot.Windows)
                 {
@@ -135,6 +137,8 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                     reset.Value = (object?)window.ResetTime?.ToUnixTimeMilliseconds() ?? DBNull.Value;
                     used.Value = (object?)window.UsedTokens ?? DBNull.Value;
                     limit.Value = (object?)window.LimitTokens ?? DBNull.Value;
+                    credits.Value = (object?)CreditsFor(snapshot, window) ?? DBNull.Value;
+                    expiry.Value = (object?)CreditExpiryFor(snapshot, window)?.ToUnixTimeMilliseconds() ?? DBNull.Value;
                     command.ExecuteNonQuery();
                 }
                 transaction.Commit();
@@ -210,7 +214,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             {
                 command.CommandText =
                     """
-                    SELECT tool, window_key, captured_at, used_ratio, reset_time FROM samples
+                    SELECT tool, window_key, captured_at, used_ratio, reset_time, reset_credits, reset_credit_expiry FROM samples
                     WHERE captured_at >= $since ORDER BY captured_at
                     """;
                 command.Parameters.AddWithValue("$since", since);
@@ -222,10 +226,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                     {
                         _tail[key] = list = new List<UsageSample>();
                     }
-                    list.Add(new UsageSample(
-                        DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)),
-                        reader.GetDouble(3),
-                        reader.IsDBNull(4) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4))));
+                    list.Add(ReadSample(reader));
                 }
             }
 
@@ -235,7 +236,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             {
                 command.CommandText =
                     """
-                    SELECT tool, window_key, captured_at, used_ratio, reset_time FROM samples
+                    SELECT tool, window_key, captured_at, used_ratio, reset_time, reset_credits, reset_credit_expiry FROM samples
                     WHERE captured_at >= $since ORDER BY tool, window_key, captured_at
                     """;
                 command.Parameters.AddWithValue("$since", profileSince);
@@ -243,15 +244,18 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                 while (reader.Read())
                 {
                     var key = (reader.GetString(0), reader.GetString(1));
-                    var sample = new UsageSample(
-                        DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)),
-                        reader.GetDouble(3),
-                        reader.IsDBNull(4) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4)));
-                    Accumulator(key).Add(sample, _zone);
+                    Accumulator(key).Add(ReadSample(reader), _zone);
                 }
             }
         });
     }
+
+    private static UsageSample ReadSample(SqliteDataReader reader) => new(
+        DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(2)),
+        reader.GetDouble(3),
+        reader.IsDBNull(4) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(4)),
+        reader.IsDBNull(5) ? null : reader.GetInt32(5),
+        reader.IsDBNull(6) ? null : DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(6)));
 
     private void AppendToTail(UsageSnapshot snapshot)
     {
@@ -270,12 +274,21 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             {
                 continue;
             }
-            var sample = new UsageSample(snapshot.CapturedAt, window.UsedRatio, window.ResetTime);
+            var sample = new UsageSample(snapshot.CapturedAt, window.UsedRatio, window.ResetTime,
+                CreditsFor(snapshot, window), CreditExpiryFor(snapshot, window));
             Accumulator(key).Add(sample, _zone);
             list.Add(sample);
             list.RemoveAll(s => s.CapturedAt < cutoff);
         }
     }
+
+    private static int? CreditsFor(UsageSnapshot snapshot, UsageWindow window)
+        => window.ResetCredits ?? (window.GroupLabel is null ? snapshot.ResetCredits : null);
+
+    private static DateTimeOffset? CreditExpiryFor(UsageSnapshot snapshot, UsageWindow window)
+        => snapshot.ResetCreditDeadlines?.Where(deadline => deadline.ExpiresAt > snapshot.CapturedAt
+                && (deadline.Scope is null || deadline.Scope == window.GroupLabel))
+            .MinBy(deadline => deadline.ExpiresAt)?.ExpiresAt;
 
     private WeekdayAccumulator Accumulator((string Tool, string Key) key)
     {
@@ -317,7 +330,8 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             var local = TimeZoneInfo.ConvertTime(current.CapturedAt, zone);
             _days.Add(DateOnly.FromDateTime(local.Date));
             if (previous is not { } last) return;
-            if (current.CapturedAt - last.CapturedAt > MaximumProfileGap) return;
+            if (current.CapturedAt - last.CapturedAt > MaximumProfileGap
+                || current.IsManualResetAfter(last)) return;
             var delta = current.UsedRatio - last.UsedRatio;
             if (delta < 0
                 && current.ResetTime is { } reset && last.ResetTime is { } lastReset
@@ -425,12 +439,25 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                         used_ratio   REAL    NOT NULL,
                         reset_time   INTEGER NULL,
                         used_tokens  INTEGER NULL,
-                        limit_tokens INTEGER NULL
+                        limit_tokens INTEGER NULL,
+                        reset_credits INTEGER NULL,
+                        reset_credit_expiry INTEGER NULL
                     );
                     CREATE UNIQUE INDEX IF NOT EXISTS ix_samples_identity
                         ON samples (tool, window_key, captured_at);
                     """;
                 command.ExecuteNonQuery();
+            }
+            foreach (var column in new[] { "reset_credits", "reset_credit_expiry" })
+            {
+                using var schema = connection.CreateCommand();
+                schema.CommandText = "SELECT 1 FROM pragma_table_info('samples') WHERE name = $column";
+                schema.Parameters.AddWithValue("$column", column);
+                if (schema.ExecuteScalar() is null)
+                {
+                    schema.CommandText = $"ALTER TABLE samples ADD COLUMN {column} INTEGER NULL";
+                    schema.ExecuteNonQuery();
+                }
             }
             // Rows are keyed by display name, so a renamed tool carries its history across
             // the rename. OR IGNORE keeps a row already present under the new name; the

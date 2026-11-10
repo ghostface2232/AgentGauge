@@ -252,7 +252,7 @@ public sealed class CodexProviderTests
     public async Task ReadsHeldResetCreditsRatherThanTheCurrentlyApplicableOnes()
     {
         // applicable_available_count is the subset spendable against the limit in force, so it
-        // reads 0 whenever nothing is capped. The card wants the balance held, not that subset.
+        // can differ from the balance needed to detect a manual reset.
         const string json = """
         {
           "plan_type": "plus",
@@ -264,6 +264,31 @@ public sealed class CodexProviderTests
         var snapshot = await Snapshot(json, Available("t"));
 
         Assert.Equal(3, snapshot.ResetCredits);
+    }
+
+    [Fact]
+    public async Task ReadsOnlyAvailableDatedCreditsAndReusesTheSupplementalRead()
+    {
+        const string usage = """
+        { "rate_limit": { "primary_window": { "used_percent": 3, "limit_window_seconds": 18000 } },
+          "rate_limit_reset_credits": { "available_count": 2 } }
+        """;
+        const string credits = """
+        { "credits": [
+          {"status":"available","expires_at":"2027-03-09T07:59:00Z"},
+          {"status":"redeemed","expires_at":"2027-03-08T07:59:00Z"},
+          {"status":"available","expires_at":null}
+        ] }
+        """;
+        var handler = new StubHandler(usage, resetDetails: credits);
+        var provider = new CodexProvider(new HttpClient(handler), Available("t"));
+        var first = await provider.GetSnapshotAsync(default);
+        var second = await provider.GetSnapshotAsync(default);
+
+        var deadline = Assert.Single(first.ResetCreditDeadlines!);
+        Assert.Equal(new DateTimeOffset(2027, 3, 9, 7, 59, 0, TimeSpan.Zero), deadline.ExpiresAt);
+        Assert.Equal(deadline, Assert.Single(second.ResetCreditDeadlines!));
+        Assert.Equal(1, handler.ResetReads);
     }
 
     [Theory]
@@ -320,12 +345,19 @@ public sealed class CodexProviderTests
             => Task.FromResult(result);
     }
 
-    private sealed class StubHandler(string json, HttpStatusCode statusCode = HttpStatusCode.OK) : HttpMessageHandler
+    private sealed class StubHandler(
+        string json, HttpStatusCode statusCode = HttpStatusCode.OK, string? resetDetails = null) : HttpMessageHandler
     {
+        public int ResetReads { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => Task.FromResult(new HttpResponseMessage(statusCode)
+        {
+            var isCreditRequest = request.RequestUri?.AbsolutePath == "/backend-api/wham/rate-limit-reset-credits";
+            if (isCreditRequest) ResetReads++;
+            return Task.FromResult(new HttpResponseMessage(statusCode)
             {
-                Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                Content = new StringContent(isCreditRequest ? resetDetails ?? "{}" : json, Encoding.UTF8, "application/json"),
             });
+        }
     }
 }

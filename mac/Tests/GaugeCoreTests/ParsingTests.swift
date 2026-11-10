@@ -50,6 +50,28 @@ final class ClaudeParserTests: XCTestCase {
         XCTAssertEqual(windows[2].usedRatio, 0.61, accuracy: 0.0001)
     }
 
+    func testFableGrantDeadlineIsSeparateFromWindowResetAndBalanceIsScoped() throws {
+        let data = Data("""
+        {
+          "seven_day": {"utilization": 10},
+          "limits": [{"kind":"weekly_scoped","group":"weekly","percent":50,
+            "scope":{"model":{"display_name":"Fable"}}}],
+          "cedar_ember": {"eligible":true,"grants":[
+            {"resets_left":1,"paused":false,"starts_at":"2026-11-09T18:00:00Z",
+              "ends_at":"2027-03-09T07:59:00Z","clears":["seven_day_overage_included"]},
+            {"resets_left":0,"paused":false,"starts_at":"2026-11-09T18:00:00Z",
+              "ends_at":"2027-03-09T07:59:00Z","clears":["seven_day_overage_included"]}
+          ]}
+        }
+        """.utf8)
+        let now = try XCTUnwrap(Timestamp.parse("2027-03-08T00:00:00Z"))
+        let payload = try ClaudeUsageParser.payload(from: data, now: now)
+        let deadline = try XCTUnwrap(ResetCreditDeadline.upcoming(payload.resetCreditDeadlines, now: now))
+        XCTAssertEqual(deadline.scope, "Fable")
+        XCTAssertEqual(deadline.expiresAt, Timestamp.parse("2027-03-09T07:59:00Z"))
+        XCTAssertEqual(payload.windows.map(\.resetCredits), [0, 1])
+    }
+
     func testNullUtilizationOmitsWindow() throws {
         let windows = try ClaudeUsageParser.windows(from: Data(#"{"five_hour":{"utilization":null},"seven_day":{"utilization":3}}"#.utf8))
         XCTAssertEqual(windows.map(\.type), [.weekly])
@@ -57,6 +79,18 @@ final class ClaudeParserTests: XCTestCase {
 }
 
 final class CodexParserTests: XCTestCase {
+    func testCreditDetailsOnlyIncludeAvailableDatedCredits() throws {
+        let data = Data("""
+        {"credits":[
+          {"status":"available","expires_at":"2027-03-09T07:59:00Z"},
+          {"status":"redeemed","expires_at":"2027-03-08T07:59:00Z"},
+          {"status":"available","expires_at":null}
+        ]}
+        """.utf8)
+        let deadlines = try XCTUnwrap(CodexUsageParser.resetCreditDeadlines(from: data))
+        XCTAssertEqual(deadlines.map(\.expiresAt), [Timestamp.parse("2027-03-09T07:59:00Z")!])
+    }
+
     func testWeeklyOnlyPrimaryIsClassifiedByDuration() throws {
         let json = """
         { "plan_type": "plus",

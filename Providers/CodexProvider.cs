@@ -1,4 +1,6 @@
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Gauge.Localization;
 using Gauge.Models;
@@ -34,6 +36,12 @@ namespace Gauge.Providers;
 public sealed class CodexProvider : UsageProviderBase
 {
     private const string UsageUrl = "https://chatgpt.com/backend-api/wham/usage";
+    private const string ResetCreditsUrl = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
+    private static readonly TimeSpan ResetCreditRefreshInterval = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan ResetCreditTimeout = TimeSpan.FromSeconds(4);
+    private (string Identity, int Balance)? _creditCacheKey;
+    private long _lastCreditRead;
+    private IReadOnlyList<ResetCreditDeadline>? _creditDeadlines;
 
     private static readonly UsageFetchPolicy Policy = new()
     {
@@ -75,13 +83,7 @@ public sealed class CodexProvider : UsageProviderBase
     protected override async Task<UsageSnapshot> FetchSnapshotAsync(
         ToolCredential credential, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
-        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {credential.AccessToken}");
-        request.Headers.TryAddWithoutValidation("User-Agent", "Gauge/1.0");
-        if (!string.IsNullOrEmpty(credential.AccountId))
-        {
-            request.Headers.TryAddWithoutValidation("ChatGPT-Account-Id", credential.AccountId);
-        }
+        using var request = CreateRequest(UsageUrl, credential);
 
         // ResponseContentRead keeps HttpClient.Timeout over the body as well as the headers.
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
@@ -118,7 +120,67 @@ public sealed class CodexProvider : UsageProviderBase
             throw new UsageResponseShapeException(ToolName);
         }
 
-        return Snapshot(plan, windows, ParseResetCredits(root));
+        var credits = ParseResetCredits(root);
+        var deadlines = await ReadCreditDeadlinesAsync(credential, credits, cancellationToken);
+        return Snapshot(plan, windows, credits) with { ResetCreditDeadlines = deadlines };
+    }
+
+    private static HttpRequestMessage CreateRequest(string url, ToolCredential credential)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {credential.AccessToken}");
+        request.Headers.TryAddWithoutValidation("User-Agent", "Gauge/1.0");
+        if (!string.IsNullOrEmpty(credential.AccountId))
+            request.Headers.TryAddWithoutValidation("ChatGPT-Account-Id", credential.AccountId);
+        return request;
+    }
+
+    private async Task<IReadOnlyList<ResetCreditDeadline>?> ReadCreditDeadlinesAsync(
+        ToolCredential credential, int? credits, CancellationToken cancellationToken)
+    {
+        if (credits is not > 0)
+        {
+            _creditCacheKey = null;
+            _creditDeadlines = null;
+            return null;
+        }
+
+        var identity = credential.AccountId ?? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(credential.AccessToken)));
+        var key = (identity, credits.Value);
+        if (_creditCacheKey == key && Time.GetElapsedTime(_lastCreditRead) < ResetCreditRefreshInterval)
+            return _creditDeadlines;
+
+        // The supplemental endpoint is optional and runs at a lower cadence than quota polling.
+        _creditCacheKey = key;
+        _lastCreditRead = Time.GetTimestamp();
+        _creditDeadlines = null;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ResetCreditTimeout);
+        try
+        {
+            using var request = CreateRequest(ResetCreditsUrl, credential);
+            using var response = await _http.SendAsync(request, timeout.Token);
+            if (!response.IsSuccessStatusCode) return null;
+
+            await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token);
+            if (!document.RootElement.TryGetArray("credits", out var entries)) return null;
+
+            var deadlines = new HashSet<ResetCreditDeadline>();
+            foreach (var entry in entries.EnumerateArray())
+                if (entry.GetStringOrNull("status") == "available"
+                    && entry.GetDateTimeOffsetOrNull("expires_at") is { } expires)
+                    deadlines.Add(new(expires));
+
+            _creditDeadlines = deadlines.ToArray();
+            return _creditDeadlines;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException
+            || ex is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            DiagnosticsLog.Write("provider", $"Codex reset deadlines unavailable: {ex.GetType().Name}");
+            return null;
+        }
     }
 
     /// <summary>
@@ -126,7 +188,7 @@ public sealed class CodexProvider : UsageProviderBase
     /// <c>rate_limit_reset_credits: { available_count, applicable_available_count }</c>.
     /// <c>available_count</c> is the balance held; <c>applicable_available_count</c> is the
     /// subset spendable against the limit currently in force, so it reads 0 whenever nothing
-    /// is capped — the balance is what a status display wants. The object is absent on plans
+    /// is capped — the held balance is what manual-reset inference needs. The object is absent on plans
     /// without the feature, which stays null rather than becoming a zero balance.
     /// </summary>
     private static int? ParseResetCredits(JsonElement root)

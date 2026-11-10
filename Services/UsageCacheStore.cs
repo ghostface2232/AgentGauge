@@ -114,11 +114,13 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         ToolName = snapshot.ToolName,
         Plan = snapshot.Plan,
         ResetCredits = snapshot.ResetCredits,
+        ResetCreditDeadlines = snapshot.ResetCreditDeadlines,
         CapturedAt = snapshot.CapturedAt,
         Windows = snapshot.Windows.Select(w => new WindowDto
         {
             Id = w.Id,
             GroupLabel = w.GroupLabel,
+            ResetCredits = w.ResetCredits,
             LabelKey = w.LabelKey,
             Type = w.Type,
             UsedRatio = w.UsedRatio,
@@ -135,11 +137,13 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         ToolName = ToolCatalog.CurrentDisplayName(dto.ToolName),
         Plan = dto.Plan,
         ResetCredits = dto.ResetCredits,
+        ResetCreditDeadlines = dto.ResetCreditDeadlines,
         CapturedAt = dto.CapturedAt,
         Windows = (dto.Windows ?? new List<WindowDto>()).Select(w => new UsageWindow
         {
             Id = w.Id,
             GroupLabel = w.GroupLabel,
+            ResetCredits = w.ResetCredits,
             LabelKey = w.LabelKey,
             Type = w.Type,
             UsedRatio = w.UsedRatio,
@@ -170,6 +174,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         // Added after Version 4. Nullable and optional in both directions, so a cache
         // written by an older build simply rehydrates without it — no version bump needed.
         public int? ResetCredits { get; set; }
+        public IReadOnlyList<ResetCreditDeadline>? ResetCreditDeadlines { get; set; }
 
         public DateTimeOffset CapturedAt { get; set; }
         public List<WindowDto>? Windows { get; set; }
@@ -179,6 +184,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
     {
         public string? Id { get; set; }
         public string? GroupLabel { get; set; }
+        public int? ResetCredits { get; set; }
         public string? LabelKey { get; set; }
         public UsageWindowType Type { get; set; }
         public double UsedRatio { get; set; }

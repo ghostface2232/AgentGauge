@@ -37,6 +37,9 @@ public sealed record UsageWindow
     /// </summary>
     public string? GroupLabel { get; init; }
 
+    /// <summary>Observed manual resets that cover this window, when reported per scope.</summary>
+    public int? ResetCredits { get; init; }
+
     /// <summary>Usage as a fraction in [0, 1].</summary>
     public required double UsedRatio { get; init; }
 

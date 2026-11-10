@@ -121,8 +121,13 @@ internal static class Strings
         ["NoData"]            = ["데이터 없음",         "No data",           "データなし"],
         // Manual rate-limit resets the account holds. The chip is terse; the tooltip and
         // automation peer spell it out.
-        ["ResetCredits"]      = ["초기화 {0}회",        "{0} resets",        "リセット {0}回"],       // {0} = count
-        ["Tooltip_ResetCredits"] = ["사용량 초기화 {0}회 사용 가능", "{0} resets available", "使用量リセットが{0}回使えます"],
+        ["ResetCredit_Label"] = ["{0} 남은 초기화권", "Reset expires in {0}", "リセット期限まで{0}"],
+        ["ResetCredit_TwoDays"] = ["2일", "2 days", "2日"],
+        ["ResetCredit_Hours"] = ["{0}시간", "{0}h", "{0}時間"],
+        ["ResetCredit_UnderHour"] = ["1시간 미만", "<1h", "1時間未満"],
+        ["ResetCredit_Expiry"] = ["사용량 초기화권은 {0}에 만료됩니다.", "Your usage reset expires on {0}.", "使用量リセットは{0}に期限を迎えます。"],
+        ["ResetCredit_ScopedExpiry"] = ["{1} 초기화권은 {0}에 만료됩니다.", "Your {1} reset expires on {0}.", "{1}のリセットは{0}に期限を迎えます。"],
+        ["Notif_ResetCreditsTitle"] = ["{0} · 초기화권 만료 임박", "{0} · Reset expiring soon", "{0} · リセット期限間近"],
         ["Tray_NoData"]       = ["{0} 데이터 없음",     "{0} no data",       "{0} データなし"],       // {0} = tool
         ["Tray_Tooltip"] = ["{0}\n{1} 업데이트", "{0}\nUpdated {1}", "{0}\n{1} 更新"], // {0}=summary {1}=time
 
@@ -157,7 +162,7 @@ internal static class Strings
         ["Eta_InHours"]       = ["{0}시간 후 소진 예상",      "Runs out in ~{0}h",     "{0}時間後に使い切る見込み"],
         ["Eta_InMinutes"]     = ["{0}분 후 소진 예상",        "Runs out in ~{0}m",     "{0}分後に使い切る見込み"],
         // Per-kind notification toggles (settings, under the master notifications switch).
-        ["Settings_NotifyThresholds"] = ["한도 도달 알림", "Threshold alerts", "上限到達の通知"],
+        ["Settings_NotifyThresholds"] = ["한도·만료 알림", "Limit and expiry alerts", "上限・期限の通知"],
         ["Settings_NotifyResets"] = ["초기화 알림", "Reset alerts", "リセットの通知"],
         // In-app language switch (applies via automatic relaunch).
         ["Settings_Language"] = ["언어", "Language", "言語"],

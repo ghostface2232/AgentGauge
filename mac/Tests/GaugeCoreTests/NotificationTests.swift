@@ -13,6 +13,33 @@ final class NotificationEvaluatorTests: XCTestCase {
         return state
     }
 
+    func testResetExpiryAlertsOncePerDeadlineFromLiveObservations() {
+        var evaluator = UsageNotificationEvaluator()
+        let expiry = start + 2 * 86_400
+        func observe(_ hour: TimeInterval, _ deadline: Date?, failed: Bool = false, rehydrated: Bool = false) -> [UsageNotification] {
+            let captured = start + hour * 3600
+            let window = UsageWindow(type: .weekly, usedRatio: 0.6, resetTime: start + 7 * 86_400)
+            let snapshot = UsageSnapshot(tool: .codex, plan: nil, windows: [window],
+                                         resetCreditDeadlines: deadline.map { [ResetCreditDeadline(expiresAt: $0)] }, capturedAt: captured)
+            var state = ToolState(tool: .codex, snapshot: snapshot)
+            state.lastRefreshFailed = failed
+            state.isRehydrated = rehydrated
+            return evaluator.evaluate([state], now: captured)
+        }
+
+        XCTAssertTrue(observe(-1, expiry).isEmpty)
+        XCTAssertTrue(observe(0, expiry, failed: true).isEmpty)
+        XCTAssertTrue(observe(0, expiry, rehydrated: true).isEmpty)
+        let alert = observe(0, expiry)
+        XCTAssertEqual(alert.map(\.kind), [.resetCredits])
+        XCTAssertEqual(alert.map(\.level), [.caution])
+        XCTAssertNil(alert.first?.windowID)
+        XCTAssertTrue(observe(1, expiry).isEmpty)
+        XCTAssertTrue(observe(49, expiry).isEmpty)
+        XCTAssertTrue(observe(50, nil).isEmpty)
+        XCTAssertEqual(observe(51, start + 55 * 3600).map(\.level), [.danger])
+    }
+
     func testBaselineNeverAlerts() {
         var evaluator = UsageNotificationEvaluator()
         XCTAssertTrue(evaluator.evaluate([state(0.95, reset: start, at: start)], now: start).isEmpty)

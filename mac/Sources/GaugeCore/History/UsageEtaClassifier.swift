@@ -34,34 +34,20 @@ public enum UsageEtaClassifier {
     /// when there is no trustworthy upward trend.
     public static func projectExhaustion(samples: [UsageSample], now: Date) -> Date? {
         let cutoff = now.addingTimeInterval(-lookback)
-        var recent = samples.filter { $0.capturedAt >= cutoff && $0.capturedAt <= now }
+        let recent = samples.filter { $0.capturedAt >= cutoff && $0.capturedAt <= now }
+        guard let last = recent.last else { return nil }
 
-        // Samples before the newest cycle boundary belong to the previous allowance;
-        // averaging across it would fit the slope to a drop that never happened.
-        var start = 0
-        for index in recent.indices.dropFirst() where UsageCycleBoundary.isReset(recent[index - 1], recent[index]) {
-            start = index
+        var segments = [0]
+        for index in recent.indices.dropFirst() {
+            if recent[index].isManualReset(after: recent[index - 1]) {
+                segments.append(index)
+            } else if UsageCycleBoundary.isReset(recent[index - 1], recent[index]) {
+                // A scheduled rollover still discards the previous cycle's readings.
+                segments = [index]
+            }
         }
-        if start > 0 { recent = Array(recent[start...]) }
-
-        guard recent.count >= minimumSamples, let first = recent.first, let last = recent.last,
-              last.capturedAt.timeIntervalSince(first.capturedAt) >= minimumSpan else { return nil }
-
-        // Least-squares slope in ratio-per-second over (time, ratio). More stable than the
-        // endpoint difference when readings arrive at uneven intervals.
-        var sumX = 0.0, sumY = 0.0, sumXY = 0.0, sumXX = 0.0
-        for sample in recent {
-            let x = sample.capturedAt.timeIntervalSince(first.capturedAt)
-            let y = sample.usedRatio
-            sumX += x
-            sumY += y
-            sumXY += x * y
-            sumXX += x * x
-        }
-        let n = Double(recent.count)
-        let denominator = n * sumXX - sumX * sumX
-        guard denominator > 0 else { return nil }
-        let slope = (n * sumXY - sumX * sumY) / denominator
+        segments.append(recent.count)
+        let slope = fitSlope(samples: recent, segments: segments)
         guard slope.isFinite, slope > 0 else { return nil }
 
         let secondsToFull = (1 - min(max(last.usedRatio, 0), 1)) / slope
@@ -71,6 +57,46 @@ public enum UsageEtaClassifier {
         // A projection already in the past means the fit overshot the clamped ratio; the
         // percent and pace caption cover that state, so stay quiet.
         return eta > now ? eta : nil
+    }
+
+    // Fit a shared rate with a separate starting level for each allowance. The reset
+    // interval contributes neither usage nor time, and the projection uses the latest ratio.
+    private static func fitSlope(samples: [UsageSample], segments: [Int]) -> Double {
+        var observedCount = 0
+        var observedSpan: TimeInterval = 0
+        var covariance = 0.0, variance = 0.0
+        for segment in segments.indices.dropFirst() {
+            let start = segments[segment - 1]
+            var end = segments[segment]
+            // A window waiting at 100% before a manual reset cannot measure further demand.
+            if segment < segments.count - 1 {
+                while end - start >= 2, samples[end - 1].usedRatio >= 1, samples[end - 2].usedRatio >= 1 {
+                    end -= 1
+                }
+            }
+            let count = end - start
+            guard count >= 2 else { continue }
+
+            let origin = samples[start].capturedAt
+            observedCount += count
+            observedSpan += samples[end - 1].capturedAt.timeIntervalSince(origin)
+            var sumX = 0.0, sumY = 0.0, sumXY = 0.0, sumXX = 0.0
+            for sample in samples[start..<end] {
+                let x = sample.capturedAt.timeIntervalSince(origin)
+                let y = sample.usedRatio
+                sumX += x
+                sumY += y
+                sumXY += x * y
+                sumXX += x * x
+            }
+            // With one segment, keep the original arithmetic exactly.
+            let n = Double(count)
+            let divisor = segments.count == 2 ? 1 : n
+            covariance += (n * sumXY - sumX * sumY) / divisor
+            variance += (n * sumXX - sumX * sumX) / divisor
+        }
+        guard observedCount >= minimumSamples, observedSpan >= minimumSpan, variance > 0 else { return .nan }
+        return covariance / variance
     }
 
     private static func format(_ interval: TimeInterval) -> String {
