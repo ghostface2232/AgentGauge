@@ -17,6 +17,20 @@ public sealed class UsageNotificationEvaluatorTests
         Assert.Single(evaluator.Evaluate(crossing, Now));
     }
 
+    [Fact]
+    public void ResetCreditExpiryDeduplicatesByLoginAndNamesTheProfile()
+    {
+        var evaluator = new UsageNotificationEvaluator(_ => "Codex · Work");
+        var expiry = Now.AddDays(2);
+        var alice = State(UsageWindowType.Weekly, .2, null, Now, identity: "alice", creditExpiry: expiry);
+        var bob = State(UsageWindowType.Weekly, .2, null, Now, identity: "bob", creditExpiry: expiry);
+
+        Assert.Equal(UsageNotificationKind.ResetCredits, Assert.Single(evaluator.Evaluate(alice, Now)).Kind);
+        var alert = Assert.Single(evaluator.Evaluate(bob, Now));
+        Assert.Contains("Codex · Work", alert.Title);
+        Assert.Empty(evaluator.Evaluate(bob, Now));
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 6, 19, 12, 0, 0, TimeSpan.Zero);
 
     [Theory]
@@ -153,7 +167,7 @@ public sealed class UsageNotificationEvaluatorTests
         var danger = evaluator.Evaluate(State(UsageWindowType.BillingCycle, 0.91, Now.AddDays(20), Now.AddMinutes(3)), Now);
 
         Assert.Single(caution);
-        Assert.Equal(UsageWindowType.BillingCycle, caution[0].WindowType);
+        Assert.Equal<UsageWindowType?>(UsageWindowType.BillingCycle, caution[0].WindowType);
         Assert.Equal(UsageLevel.Caution, caution[0].Level);
         Assert.Empty(repeat);
         Assert.Single(danger);
@@ -364,6 +378,28 @@ public sealed class UsageNotificationEvaluatorTests
         Assert.Empty(evaluator.Evaluate(State(UsageWindowType.FiveHour, .02, Now.AddHours(25), Now.AddDays(1)), Now));
     }
 
+    [Fact]
+    public void ResetExpiryAlertsOncePerDeadlineFromLiveObservations()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        var expiry = Now.AddDays(2);
+        IReadOnlyList<UsageNotification> Observe(int hour, DateTimeOffset? deadline, bool failed = false, bool rehydrated = false)
+            => evaluator.Evaluate(State(UsageWindowType.Weekly, .6, Now.AddDays(7), Now.AddHours(hour),
+                failed: failed, rehydrated: rehydrated, creditExpiry: deadline), Now.AddHours(hour));
+
+        Assert.Empty(Observe(-1, expiry));
+        Assert.Empty(Observe(0, expiry, failed: true));
+        Assert.Empty(Observe(0, expiry, rehydrated: true));
+        var alert = Assert.Single(Observe(0, expiry));
+        Assert.Equal(UsageNotificationKind.ResetCredits, alert.Kind);
+        Assert.Equal(UsageLevel.Caution, alert.Level);
+        Assert.Null(alert.WindowType);
+        Assert.Empty(Observe(1, expiry));
+        Assert.Empty(Observe(49, expiry));
+        Assert.Empty(Observe(50, null));
+        Assert.Equal(UsageLevel.Danger, Assert.Single(Observe(51, Now.AddHours(55))).Level);
+    }
+
     private static UsageState State(
         UsageWindowType type,
         double ratio,
@@ -373,13 +409,15 @@ public sealed class UsageNotificationEvaluatorTests
         string? id = null,
         string? groupLabel = null,
         bool rehydrated = false,
-        string? identity = null)
+        string? identity = null,
+        DateTimeOffset? creditExpiry = null)
     {
         var snapshot = new UsageSnapshot
         {
             ToolName = "Codex",
             HistoryIdentity = identity,
             CapturedAt = captured,
+            ResetCreditDeadlines = creditExpiry is { } expiry ? [new(expiry)] : null,
             Windows =
             [
                 new UsageWindow

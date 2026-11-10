@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using Gauge.Localization;
@@ -23,8 +24,7 @@ namespace Gauge.Providers;
 /// 2→4→…→30-minute cooldown escalation on retryable statuses (Retry-After would win if
 /// Anthropic ever sent one), and the cached snapshot served on any failure so the card
 /// keeps its last good value instead of flipping to "no data". It also sends the
-/// <c>claude-code</c> User-Agent, which the endpoint buckets less aggressively than
-/// arbitrary agents.
+/// Claude CLI identity required to read the optional reset-grant fields.
 ///
 /// The plan label (Max 5x/20x, Pro, …) comes from the credentials file, so it is
 /// reported even before the first successful usage call.
@@ -37,12 +37,13 @@ namespace Gauge.Providers;
 public sealed class ClaudeProvider : UsageProviderBase
 {
     private const string UsageUrl = "https://api.anthropic.com/api/oauth/usage";
+    private const string ResetGrantQuery = "?cedar_ember=1";
 
     // Required beta header for the OAuth usage endpoint.
     private const string OAuthBetaHeader = "oauth-2025-04-20";
 
     // The endpoint buckets the claude-code product agent more leniently than others.
-    private const string UserAgent = "claude-code/2.1.179";
+    private const string UserAgent = "claude-cli/2.1.321 (external, cli)";
 
     private static readonly UsageFetchPolicy Policy = new()
     {
@@ -74,13 +75,7 @@ public sealed class ClaudeProvider : UsageProviderBase
     protected override async Task<UsageSnapshot> FetchSnapshotAsync(
         ToolCredential credential, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
-        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {credential.AccessToken}");
-        request.Headers.TryAddWithoutValidation("anthropic-beta", OAuthBetaHeader);
-        request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
-
-        // ResponseContentRead keeps HttpClient.Timeout over the body as well as the headers.
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
+        using var response = await ReadUsageAsync(credential, cancellationToken);
         EnsureUsageSuccess(response);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -99,7 +94,66 @@ public sealed class ClaudeProvider : UsageProviderBase
         }
         windows.AddRange(ParseScopedWeeklyLimits(root));
 
-        return Snapshot(credential.Plan, windows);
+        if (root.GetObjectOrNull("cedar_ember") is not { } program
+            || program.GetBoolOrNull("eligible") != true || !program.TryGetArray("grants", out var grants))
+        {
+            return Snapshot(credential.Plan, windows);
+        }
+
+        var now = Time.GetUtcNow();
+        var deadlines = new List<ResetCreditDeadline>();
+        var balances = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var grant in grants.EnumerateArray())
+        {
+            if (grant.GetInt64OrNull("resets_left") is not { } count || count is <= 0 or > int.MaxValue
+                || grant.GetBoolOrNull("paused") != false
+                || grant.GetDateTimeOffsetOrNull("starts_at") is not { } starts || starts > now
+                || grant.GetDateTimeOffsetOrNull("ends_at") is not { } ends || ends <= now) continue;
+
+            HashSet<string> clears = grant.TryGetArray("clears", out var scopes)
+                ? scopes.EnumerateArray().Where(scope => scope.ValueKind == JsonValueKind.String)
+                    .Select(scope => scope.GetString()!).ToHashSet(StringComparer.Ordinal)
+                : [];
+            deadlines.Add(new(ends, clears.SetEquals(["seven_day_overage_included"]) ? "Fable" : null));
+            foreach (var scope in clears)
+                balances[scope] = (int)Math.Min(balances.GetValueOrDefault(scope) + count, int.MaxValue);
+        }
+
+        for (var i = 0; i < windows.Count; i++)
+        {
+            var window = windows[i];
+            var scope = window.GroupLabel switch
+            {
+                "Fable" => "seven_day_overage_included",
+                null => window.Type == UsageWindowType.FiveHour ? "five_hour" : "seven_day",
+                _ => null,
+            };
+            if (scope is not null)
+                windows[i] = window with { ResetCredits = balances.GetValueOrDefault(scope) };
+        }
+
+        return Snapshot(credential.Plan, windows) with { ResetCreditDeadlines = deadlines.Distinct().ToArray() };
+    }
+
+    private async Task<HttpResponseMessage> ReadUsageAsync(ToolCredential credential, CancellationToken cancellationToken)
+    {
+        using var enriched = UsageRequest(UsageUrl + ResetGrantQuery, UserAgent, credential);
+        var response = await _http.SendAsync(enriched, HttpCompletionOption.ResponseContentRead, cancellationToken);
+        if (response.StatusCode != HttpStatusCode.BadRequest) return response;
+
+        // Keep ordinary usage available if an older backend rejects the optional query.
+        response.Dispose();
+        using var plain = UsageRequest(UsageUrl, "claude-code/2.1.179", credential);
+        return await _http.SendAsync(plain, HttpCompletionOption.ResponseContentRead, cancellationToken);
+    }
+
+    private static HttpRequestMessage UsageRequest(string url, string userAgent, ToolCredential credential)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {credential.AccessToken}");
+        request.Headers.TryAddWithoutValidation("anthropic-beta", OAuthBetaHeader);
+        request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
+        return request;
     }
 
     /// <summary>

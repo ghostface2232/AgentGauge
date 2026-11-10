@@ -3,6 +3,7 @@ import Foundation
 public enum UsageNotificationKind: Sendable {
     case threshold
     case reset
+    case resetCredits
 }
 
 public struct UsageNotification: Sendable, Equatable {
@@ -11,7 +12,7 @@ public struct UsageNotification: Sendable, Equatable {
     public var tool: ToolKind
     public var profileID: UUID? = nil
     public var accountKey: UsageAccountKey { UsageAccountKey(tool: tool, profileID: profileID) }
-    public var windowID: String
+    public var windowID: String?
     public var title: String
     public var message: String
 }
@@ -30,6 +31,8 @@ public struct UsageNotificationEvaluator: Sendable {
     private static let resetDropMinimum = 0.10
 
     private var observations: [Key: Observation] = [:]
+    private var deadlineCaptures: [String: Date] = [:]
+    private var warnedDeadlines = Set<DeadlineKey>()
     /// Tools just shown again, whose next snapshot is the coordinator's cache from before
     /// they were hidden.
     private var resumingAccounts = Set<UsageAccountKey>()
@@ -44,6 +47,7 @@ public struct UsageNotificationEvaluator: Sendable {
     /// re-enabled, so crossings from the silent period are never replayed).
     public mutating func resetBaseline() {
         observations.removeAll()
+        deadlineCaptures.removeAll()
         resumeBaseline.removeAll()
         resumingAccounts.removeAll()
     }
@@ -58,9 +62,12 @@ public struct UsageNotificationEvaluator: Sendable {
     public mutating func evaluate(_ states: [ToolState], now: Date) -> [UsageNotification] {
         var notifications: [UsageNotification] = []
         var present = Set<Key>()
+        var presentDeadlineAccounts = Set<String>()
 
         for state in states {
             guard let snapshot = state.snapshot else { continue }
+            let historyKey = state.id.historyKey(snapshot.historyIdentity)
+            presentDeadlineAccounts.insert(historyKey)
             let windows = snapshot.windows.filter(Self.isSupported)
 
             // Restored from disk at launch: it can be days old, so comparing the first live
@@ -81,6 +88,9 @@ public struct UsageNotificationEvaluator: Sendable {
             }
 
             let resuming = resumingAccounts.remove(state.id) != nil
+            if let alert = observeResetDeadline(state, snapshot: snapshot, historyKey: historyKey, resuming: resuming, now: now) {
+                notifications.append(alert)
+            }
             for window in windows {
                 let key = Key(account: state.id, identity: snapshot.historyIdentity, window: window.id)
                 present.insert(key)
@@ -128,7 +138,33 @@ public struct UsageNotificationEvaluator: Sendable {
         // A tool that is hidden or removed drops its history; showing it again is a fresh baseline.
         observations = observations.filter { present.contains($0.key) }
         resumeBaseline.formIntersection(present)
+        deadlineCaptures = deadlineCaptures.filter { presentDeadlineAccounts.contains($0.key) }
+        warnedDeadlines = warnedDeadlines.filter { $0.expiresAt > now }
         return notifications
+    }
+
+    private mutating func observeResetDeadline(
+        _ state: ToolState, snapshot: UsageSnapshot, historyKey: String, resuming: Bool, now: Date
+    ) -> UsageNotification? {
+        if let previous = deadlineCaptures[historyKey], snapshot.capturedAt <= previous { return nil }
+        deadlineCaptures[historyKey] = snapshot.capturedAt
+        guard !resuming, let deadline = ResetCreditDeadline.upcoming(snapshot.resetCreditDeadlines, now: now),
+              warnedDeadlines.insert(DeadlineKey(historyKey: historyKey, expiresAt: deadline.expiresAt)).inserted
+        else { return nil }
+
+        return UsageNotification(
+            kind: .resetCredits,
+            level: deadline.expiresAt.timeIntervalSince(now) <= 86_400 ? .danger : .caution,
+            tool: state.tool,
+            profileID: state.id.profileID,
+            windowID: nil,
+            title: L10n.format("Notif_ResetCreditsTitle", state.displayName),
+            message: ResetCreditText.description(deadline))
+    }
+
+    private struct DeadlineKey: Hashable, Sendable {
+        let historyKey: String
+        let expiresAt: Date
     }
 
     private static func isSupported(_ window: UsageWindow) -> Bool {

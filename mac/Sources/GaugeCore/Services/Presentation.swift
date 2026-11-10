@@ -63,28 +63,40 @@ public enum GaugeLayout {
     }
 }
 
-/// What the menu bar item shows: a tool's logo ring (`ring`), whose arcs carry its 5-hour and
-/// weekly windows. The chosen tool's, or — for "auto" — whichever tool has used the most of
-/// its quota right now, so the state is glanceable without opening the panel.
+/// The most-used account's ring in automatic mode, or one ring per selected account.
 public struct MenuBarSummary: Sendable, Equatable {
     public let highestUsedRatio: Double?
     /// The ring to draw, or nil when no shown tool has a usable window yet.
     public let ring: StatusRing?
+    /// Nil in automatic mode. An empty manual selection leaves the gauge as the panel entry point.
+    public let selectedRings: [StatusRing]?
     /// One line per tool ("Claude  5H 32% · W 15%"), for the hover tooltip.
     public let tooltip: String
 
-    public init(states: [ToolState], targetKey: String? = nil) {
-        let target = StatusTarget.account(from: targetKey)
-        // A target with no usable windows yet is unavailable (as in Settings), so the icon
-        // follows the most-used tool instead.
-        var chosen: StatusRing?
-        if let target, let state = states.first(where: { $0.id == target }) {
-            chosen = StatusRing(state: state)
+    public init(states: [ToolState], selectedAccounts: Set<UsageAccountKey>? = nil,
+                displayBasis: DisplayBasis = .used) {
+        let rings = states.compactMap { StatusRing(state: $0) }
+        if let selectedAccounts {
+            // Use catalog order for services and card order for accounts of the same service.
+            let knownKeys = states.map(\.id)
+            let ordered = knownKeys + selectedAccounts.subtracting(knownKeys).sorted { $0.storageKey < $1.storageKey }
+            let selected = ToolKind.allCases.flatMap { tool in
+                ordered.filter { $0.tool == tool && selectedAccounts.contains($0) }
+            }.map { key in
+                rings.first { $0.accountKey == key } ?? StatusRing(
+                    tool: key.tool, short: nil, long: nil, profileID: key.profileID,
+                    displayName: states.first { $0.id == key }?.displayName)
+            }
+            selectedRings = selected
+            ring = nil
+            highestUsedRatio = nil
+            tooltip = Self.tooltipText(for: selected, basis: displayBasis)
+            return
         }
-        if chosen == nil {
-            chosen = states.compactMap { StatusRing(state: $0) }.mostUsed
-        }
-        tooltip = Self.tooltipText(for: states)
+
+        selectedRings = nil
+        let chosen = rings.mostUsed
+        tooltip = Self.tooltipText(for: rings, basis: .used)
         if let chosen {
             ring = chosen
             // The level follows the arc that moves first: the 5-hour window, or the long one
@@ -100,13 +112,13 @@ public struct MenuBarSummary: Sendable, Equatable {
             .max()
     }
 
-    private static func tooltipText(for states: [ToolState]) -> String {
-        states.compactMap { state -> String? in
-            guard let ring = StatusRing(state: state) else { return nil }
+    private static func tooltipText(for rings: [StatusRing], basis: DisplayBasis) -> String {
+        rings.map { ring in
             let readings = [ring.short, ring.long].compactMap { window in
-                window.map { "\(WindowLabels.label(for: $0)) \(Int(($0.usedRatio * 100).rounded()))%" }
+                window.map { "\(WindowLabels.label(for: $0)) \(basis.percent(for: $0.usedRatio))%" }
             }
-            return "\(state.displayName)  \(readings.joined(separator: " · "))"
+            let detail = readings.isEmpty ? L10n.get("NoData") : readings.joined(separator: " · ")
+            return "\(ring.displayName)  \(detail)"
         }.joined(separator: "\n")
     }
 
@@ -125,7 +137,8 @@ public struct MenuBarSummary: Sendable, Equatable {
     /// One labelled percent per arc
     /// ("5H 32% | W 15%"); the long arc reads "M" for a billing cycle, which is monthly.
     public func percentText(basis: DisplayBasis) -> String? {
-        if let ring {
+        if let selectedRings, selectedRings.count != 1 { return nil }
+        if let ring = selectedRings?.first ?? ring {
             let parts = [("5H", ring.short), (ring.long?.type == .billingCycle ? "M" : "W", ring.long)]
                 .compactMap { label, window in
                     window.map { "\(label) \(basis.percent(for: $0.usedRatio))%" }
@@ -136,15 +149,39 @@ public struct MenuBarSummary: Sendable, Equatable {
     }
 }
 
-/// The menu bar target: empty for overall, otherwise the account's storage key. Earlier builds
-/// stored one window ("codex:weekly"); the ring shows a tool's windows together, so such a
-/// value is read as its tool.
-public enum StatusTarget {
-    public static func normalize(_ key: String?) -> String {
-        account(from: key)?.storageKey ?? (key.map { String($0.split(separator: ":", maxSplits: 1).first ?? "") } ?? "")
+public enum MenuBarSelection: Sendable, Equatable {
+    case automatic
+    case accounts(Set<UsageAccountKey>)
+
+    public init(savedValues: [String]?, legacyTarget: String? = nil) {
+        if let savedValues {
+            self = savedValues.contains("auto") ? .automatic : .accounts(Set(savedValues.compactMap { Self.account(from: $0) }))
+        } else {
+            self = Self.account(from: legacyTarget).map { .accounts([$0]) } ?? .automatic
+        }
     }
 
-    public static func account(from key: String?) -> UsageAccountKey? {
+    public var savedValues: [String] {
+        selectedAccounts?.map(\.storageKey).sorted() ?? ["auto"]
+    }
+
+    public var selectedAccounts: Set<UsageAccountKey>? {
+        if case .accounts(let accounts) = self { return accounts }
+        return nil
+    }
+
+    public mutating func set(_ account: UsageAccountKey, selected: Bool) {
+        var next = selectedAccounts ?? []
+        if selected {
+            next.insert(account)
+        } else {
+            next.remove(account)
+        }
+        self = .accounts(next)
+    }
+
+    /// Accepts account keys, service names, and older window keys such as "codex:weekly".
+    private static func account(from key: String?) -> UsageAccountKey? {
         guard let key, !key.isEmpty, key.caseInsensitiveCompare("all") != .orderedSame else { return nil }
         let parts = key.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let toolPart = String(parts[0].split(separator: ":", maxSplits: 1).first ?? "")
@@ -159,18 +196,21 @@ public enum StatusTarget {
         return UsageAccountKey(tool: tool)
     }
 
-    public static func tool(from key: String?) -> ToolKind? { account(from: key)?.tool }
 }
 
 /// A tool's logo ring: the top arc is the short (5-hour) window, the bottom arc the long one
 /// (weekly, or a billing cycle). A nil window leaves that arc as a bare track.
 public struct StatusRing: Sendable, Equatable {
-    public let tool: ToolKind
+    public let accountKey: UsageAccountKey
+    public let displayName: String
+    public var tool: ToolKind { accountKey.tool }
     public let short: UsageWindow?
     public let long: UsageWindow?
 
-    public init(tool: ToolKind, short: UsageWindow?, long: UsageWindow?) {
-        self.tool = tool
+    public init(tool: ToolKind, short: UsageWindow?, long: UsageWindow?,
+                profileID: UUID? = nil, displayName: String? = nil) {
+        accountKey = UsageAccountKey(tool: tool, profileID: profileID)
+        self.displayName = displayName ?? tool.displayName
         self.short = short
         self.long = long
     }
@@ -180,7 +220,7 @@ public struct StatusRing: Sendable, Equatable {
         guard let snapshot = state.snapshot else { return nil }
         let (short, long) = StatusRingSelection.select(snapshot.windows)
         guard short != nil || long != nil else { return nil }
-        self.init(tool: state.tool, short: short, long: long)
+        self.init(tool: state.tool, short: short, long: long, profileID: state.id.profileID, displayName: state.displayName)
     }
 
     /// The higher of the two arcs' used shares.

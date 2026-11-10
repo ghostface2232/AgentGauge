@@ -48,6 +48,31 @@ public sealed class ClaudeProviderTests
     }
 
     [Fact]
+    public async Task ReadsFableCreditExpiryAndOnlyTracksItsScopedBalance()
+    {
+        const string json = """
+        {
+          "seven_day": {"utilization": 10},
+          "limits": [{"kind":"weekly_scoped","group":"weekly","percent":50,
+            "scope":{"model":{"display_name":"Fable"}}}],
+          "cedar_ember": {"eligible":true,"grants":[
+            {"resets_left":1,"paused":false,"starts_at":"2000-01-01T00:00:00Z",
+              "ends_at":"2099-03-09T07:59:00Z","clears":["seven_day_overage_included"]},
+            {"resets_left":0,"paused":false,"starts_at":"2000-01-01T00:00:00Z",
+              "ends_at":"2099-03-09T07:59:00Z","clears":["seven_day_overage_included"]}
+          ]}
+        }
+        """;
+        var snapshot = await Snapshot(json, Available("t"));
+
+        var deadline = Assert.Single(snapshot.ResetCreditDeadlines!);
+        Assert.Equal("Fable", deadline.Scope);
+        Assert.Equal(new DateTimeOffset(2099, 3, 9, 7, 59, 0, TimeSpan.Zero), deadline.ExpiresAt);
+        Assert.Equal(0, Assert.Single(snapshot.Windows, w => w.GroupLabel is null).ResetCredits);
+        Assert.Equal(1, Assert.Single(snapshot.Windows, w => w.GroupLabel == "Fable").ResetCredits);
+    }
+
+    [Fact]
     public async Task ParsesFableFromScopedWeeklyLimitsArray()
     {
         const string json = """

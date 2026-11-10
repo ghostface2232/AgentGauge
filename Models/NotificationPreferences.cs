@@ -24,7 +24,7 @@ public readonly record struct NotificationPreferences(bool Thresholds, bool Rese
     /// <summary>Whether the given kind is delivered.</summary>
     public bool Allows(UsageNotificationKind kind) => kind switch
     {
-        UsageNotificationKind.Threshold => Thresholds,
+        UsageNotificationKind.Threshold or UsageNotificationKind.ResetCredits => Thresholds,
         UsageNotificationKind.Reset => Resets,
         _ => true,
     };
@@ -32,7 +32,7 @@ public readonly record struct NotificationPreferences(bool Thresholds, bool Rese
     /// <summary>Returns a copy with one kind flipped, leaving the other untouched.</summary>
     public NotificationPreferences With(UsageNotificationKind kind, bool enabled) => kind switch
     {
-        UsageNotificationKind.Threshold => this with { Thresholds = enabled },
+        UsageNotificationKind.Threshold or UsageNotificationKind.ResetCredits => this with { Thresholds = enabled },
         UsageNotificationKind.Reset => this with { Resets = enabled },
         _ => this,
     };

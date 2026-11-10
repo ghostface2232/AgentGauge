@@ -28,7 +28,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
         LogoGeometry = descriptor is null ? null : ToolLogoGeometry.For(descriptor.Kind);
         StatusText = string.Empty;
         Plan = string.Empty;
-        ResetCreditsText = string.Empty;
+        ResetCreditRemaining = string.Empty;
         ResetCreditsDescription = string.Empty;
         Update(cached);
     }
@@ -44,7 +44,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
     public bool HasLogo => LogoGeometry is not null;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowHeaderChipLabels))]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
     public partial bool HasServiceStatus { get; set; }
     [ObservableProperty]
     public partial string ServiceStatusText { get; set; } = "";
@@ -142,27 +142,19 @@ public sealed partial class ToolCardViewModel : ObservableObject
     [ObservableProperty]
     public partial bool HasPlan { get; set; }
 
-    /// <summary>Chip text for the manual rate-limit resets the account holds (e.g. "초기화 2회").</summary>
     [ObservableProperty]
-    public partial string ResetCreditsText { get; set; }
+    [NotifyPropertyChangedFor(nameof(HasResetCreditWarning), nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
+    public partial string ResetCreditRemaining { get; set; }
 
-    /// <summary>Spelled-out form of <see cref="ResetCreditsText"/> for the tooltip and the
-    /// automation peer, since the chip itself is deliberately terse.</summary>
     [ObservableProperty]
     public partial string ResetCreditsDescription { get; set; }
 
-    /// <summary>True when the tool reports at least one reset held (controls the chip).</summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowHeaderChipLabels))]
-    public partial bool HasResetCredits { get; set; }
+    public bool HasResetCreditWarning => ResetCreditRemaining.Length > 0;
 
-    /// <summary>
-    /// Whether the reset chip carries its text label. With the API-cost caption, the
-    /// service-status chip and the reset chip all shown, the header row is too narrow (it
-    /// does not trim), so the reset chip falls back to icon only; its tooltip and
-    /// automation name still spell everything out. The status chip is always icon only.
-    /// </summary>
-    public bool ShowHeaderChipLabels => !(HasApiCost && HasServiceStatus && HasResetCredits);
+    public bool ShowHeaderChipLabels => !(HasApiCost && HasServiceStatus && HasResetCreditWarning);
+
+    public string WarningResetCreditsText => ShowHeaderChipLabels
+        ? Loc.Format("ResetCredit_Label", ResetCreditRemaining) : ResetCreditRemaining;
 
     /// <summary>
     /// This month's API-equivalent cost beside the plan label ("≈ $12.34"), from the local
@@ -171,7 +163,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasApiCost))]
-    [NotifyPropertyChangedFor(nameof(ShowHeaderChipLabels))]
+    [NotifyPropertyChangedFor(nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
     public partial string ApiCostText { get; set; } = "";
 
     /// <summary>Spelled-out form for the tooltip.</summary>
@@ -257,13 +249,10 @@ public sealed partial class ToolCardViewModel : ObservableObject
         Plan = plan ?? string.Empty;
         HasPlan = !string.IsNullOrEmpty(plan);
 
-        // Like the plan label, this rides the retained snapshot so it survives a failed
-        // refresh. A zero balance is the ordinary state and carries no information, so the
-        // chip is shown only for a balance the user actually has.
-        var resets = cached.Snapshot?.ResetCredits ?? 0;
-        HasResetCredits = resets > 0;
-        ResetCreditsText = resets > 0 ? Loc.Format("ResetCredits", resets) : string.Empty;
-        ResetCreditsDescription = resets > 0 ? Loc.Format("Tooltip_ResetCredits", resets) : string.Empty;
+        var now = DateTimeOffset.UtcNow;
+        var deadline = ResetCreditDeadline.Upcoming(cached.Snapshot?.ResetCreditDeadlines, now);
+        ResetCreditRemaining = deadline is null ? string.Empty : ResetCreditText.Remaining(deadline, now);
+        ResetCreditsDescription = deadline is null ? string.Empty : ResetCreditText.Description(deadline);
 
         var windows = OrderForDisplay(cached.Snapshot?.Windows ?? Array.Empty<UsageWindow>());
         var historyKey = cached.Snapshot?.HistoryKey ?? ToolName;

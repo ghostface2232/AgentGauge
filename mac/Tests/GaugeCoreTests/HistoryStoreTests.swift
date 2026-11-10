@@ -61,10 +61,11 @@ final class UsageHistoryStoreTests: XCTestCase {
         return UsageHistoryStore(directory: directory, timeZone: timeZone ?? utc, now: { clock.now })
     }
 
-    private func snapshot(tool: ToolKind = .codex, _ ratio: Double, at captured: Date, reset: Date? = nil) -> UsageSnapshot {
+    private func snapshot(tool: ToolKind = .codex, _ ratio: Double, at captured: Date,
+                          reset: Date? = nil, credits: Int? = nil) -> UsageSnapshot {
         UsageSnapshot(tool: tool, plan: nil, windows: [
             UsageWindow(type: .fiveHour, usedRatio: ratio, resetTime: reset ?? captured.addingTimeInterval(2 * 3600)),
-        ], capturedAt: captured)
+        ], resetCredits: credits, capturedAt: captured)
     }
 
     private func recordAt(_ store: UsageHistoryStore, _ captured: Date, _ ratio: Double, reset: Date? = nil) {
@@ -146,6 +147,36 @@ final class UsageHistoryStoreTests: XCTestCase {
         XCTAssertEqual(samples.map(\.usedRatio), [0.20])
         XCTAssertTrue(store.recent(tool: .codex, windowID: "somethingElse", lookback: 3600).isEmpty)
         XCTAssertEqual(store.recent(tool: .claude, windowID: window).map(\.usedRatio), [0.90])
+    }
+
+    func testResetCreditsSurviveReopenAndManualResetIntervalIsNotLearned() {
+        let reset = start.addingTimeInterval(7200)
+        do {
+            let store = makeStore()
+            store.record(snapshot(0.60, at: start, reset: reset))
+            store.close()
+        }
+        // Recreate the schema that existing installs have, with their readings intact.
+        execute("""
+            ALTER TABLE samples DROP COLUMN reset_credits;
+            ALTER TABLE samples DROP COLUMN reset_credit_expiry;
+            """)
+
+        do {
+            clock.now = start + 3600
+            let store = makeStore()
+            store.record(snapshot(0.70, at: start + 900, reset: reset, credits: 2))
+            store.record(snapshot(0.80, at: start + 1800, reset: reset, credits: 2))
+            store.record(snapshot(0.10, at: start + 2700, reset: reset + 3600, credits: 1))
+            store.record(snapshot(0.15, at: start + 3600, reset: reset + 3600, credits: 1))
+            assertWeights(store.weekdayProfile(tool: .codex, windowID: window), monday: 0.25)
+            store.close()
+        }
+
+        let reopened = makeStore()
+        reopened.warm()
+        XCTAssertEqual(reopened.recent(tool: .codex, windowID: window).map(\.resetCredits), [nil, 2, 2, 1, 1])
+        assertWeights(reopened.weekdayProfile(tool: .codex, windowID: window), monday: 0.25)
     }
 
     func testRecentSamplesSurviveReopen() {

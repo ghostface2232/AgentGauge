@@ -375,7 +375,9 @@ struct ToolCard: View {
     private var apiCost: (text: String, detail: String, accessibility: String)? {
         state.account == nil ? model.apiCostText(for: state.tool) : nil
     }
-    private var credits: Int? { state.snapshot?.resetCredits.flatMap { $0 > 0 ? $0 : nil } }
+    private var creditWarning: ResetCreditDeadline? {
+        ResetCreditDeadline.upcoming(state.snapshot?.resetCreditDeadlines, now: model.now)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -393,9 +395,7 @@ struct ToolCard: View {
     }
 
     private var header: some View {
-        // With the cost caption, a status chip and a reset chip all present the row cannot fit
-        // both chip labels, so both drop to their icons; help and accessibility keep the text.
-        let chipLabels = !(apiCost != nil && status != nil && credits != nil)
+        let chipLabels = !(apiCost != nil && status != nil)
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             ToolLogoView(tool: state.tool)
                 .foregroundStyle(.primary)
@@ -438,11 +438,13 @@ struct ToolCard: View {
                 StatusChip(status: status)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             }
-            if let credits {
-                HeaderChip(systemImage: "arrow.counterclockwise",
-                           label: L10n.format("ResetCredits", credits),
-                           detail: L10n.format("Tooltip_ResetCredits", credits),
-                           tint: .accentColor, showsLabel: chipLabels)
+            if let creditWarning {
+                let remaining = ResetCreditText.remaining(creditWarning, now: model.now)
+                HeaderChip(systemImage: "clock",
+                           label: chipLabels ? L10n.format("ResetCredit_Label", remaining) : remaining,
+                           detail: ResetCreditText.description(creditWarning),
+                           tint: creditWarning.expiresAt.timeIntervalSince(model.now) <= 86_400 ? .red : .orange,
+                           showsLabel: true)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             }
         }
@@ -520,8 +522,7 @@ struct ToolCard: View {
     }
 }
 
-/// A small tinted capsule in the card header: an account-level balance (reset credits) or a
-/// flagged condition (service status). Icon-only when the header is crowded.
+/// A tinted capsule for an expiring reset or a service incident.
 struct HeaderChip: View {
     let systemImage: String
     let label: String

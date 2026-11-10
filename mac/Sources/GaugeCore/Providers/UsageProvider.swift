@@ -26,10 +26,11 @@ public protocol UsageEndpoint: Sendable {
 }
 
 public struct ClaudeEndpoint: UsageEndpoint {
-    static let url = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+    static let url = URL(string: "https://api.anthropic.com/api/oauth/usage?cedar_ember=1")!
+    static let plainURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     // The endpoint buckets the claude-code agent less aggressively than arbitrary ones —
     // the one place a known client's UA is matched, for interop, not deception.
-    static let userAgent = "claude-code/2.1.179"
+    static let userAgent = "claude-cli/2.1.321 (external, cli)"
 
     public init() {}
 
@@ -39,33 +40,79 @@ public struct ClaudeEndpoint: UsageEndpoint {
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await transport.send(request)
+        var (data, response) = try await transport.send(request)
+        if response.statusCode == 400 {
+            // An older backend may reject the optional query. Keep ordinary usage available.
+            request.url = Self.plainURL
+            request.setValue("claude-code/2.1.179", forHTTPHeaderField: "User-Agent")
+            (data, response) = try await transport.send(request)
+        }
         try HTTPStatus.ensureSuccess(response, now: now)
-        return UsagePayload(plan: credential.plan, windows: try ClaudeUsageParser.windows(from: data))
+        return try ClaudeUsageParser.payload(from: data, plan: credential.plan, now: now)
     }
 
     public func credentialPlan(_ credential: ToolCredential?) -> String? { credential?.plan }
 }
 
-public struct CodexEndpoint: UsageEndpoint {
+public actor CodexEndpoint: UsageEndpoint {
     static let url = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
+    static let resetCreditsURL = URL(string: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits")!
+    private static let resetCreditRefreshInterval: TimeInterval = 10 * 60
+    private var creditCache: (identity: String, balance: Int, checkedAt: TimeInterval, deadlines: [ResetCreditDeadline]?)?
 
     public init() {}
 
     public func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date) async throws -> UsagePayload {
-        var request = URLRequest(url: Self.url)
+        let (data, response) = try await transport.send(Self.request(Self.url, credential))
+        try HTTPStatus.ensureSuccess(response, now: now)
+        var payload = try CodexUsageParser.payload(from: data)
+        payload.resetCreditDeadlines = try await readCreditDeadlines(payload.resetCredits, credential: credential, transport: transport)
+        return payload
+    }
+
+    private static func request(_ url: URL, _ credential: ToolCredential) -> URLRequest {
+        var request = URLRequest(url: url)
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("Gauge/1.0", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let accountID = credential.accountID, !accountID.isEmpty {
             request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
         }
-        let (data, response) = try await transport.send(request)
-        try HTTPStatus.ensureSuccess(response, now: now)
-        return try CodexUsageParser.payload(from: data)
+        return request
     }
 
-    public func credentialPlan(_ credential: ToolCredential?) -> String? { nil }
+    private func readCreditDeadlines(_ balance: Int?, credential: ToolCredential, transport: any HTTPTransport)
+        async throws -> [ResetCreditDeadline]? {
+        guard let balance, balance > 0 else {
+            creditCache = nil
+            return nil
+        }
+
+        let identity = credential.historyIdentity ?? UsageIdentity.hash(subject: nil, token: credential.accessToken)
+        let now = ProcessInfo.processInfo.systemUptime
+        if let cached = creditCache, cached.identity == identity, cached.balance == balance,
+           now - cached.checkedAt < Self.resetCreditRefreshInterval { return cached.deadlines }
+
+        creditCache = (identity, balance, now, nil)
+        var request = Self.request(Self.resetCreditsURL, credential)
+        request.timeoutInterval = 4
+        do {
+            let (data, response) = try await transport.send(request)
+            guard (200..<300).contains(response.statusCode) else {
+                Log.write("provider", "Codex reset deadlines unavailable: HTTP \(response.statusCode)")
+                return nil
+            }
+            let deadlines = try CodexUsageParser.resetCreditDeadlines(from: data)
+            creditCache = (identity, balance, now, deadlines)
+            return deadlines
+        } catch {
+            try Task.checkCancellation()
+            Log.write("provider", "Codex reset deadlines unavailable: \(type(of: error))")
+            return nil
+        }
+    }
+
+    public nonisolated func credentialPlan(_ credential: ToolCredential?) -> String? { nil }
 }
 
 /// The shared fetch skeleton (the Windows app's `UsageProviderBase`): the credential read,
@@ -192,7 +239,8 @@ public actor HTTPUsageProvider: UsageProvider {
             let payload = try await endpoint.fetch(credential, transport: transport, now: wallClock())
             var snapshot = UsageSnapshot(
                 tool: tool, plan: payload.plan, windows: payload.windows,
-                resetCredits: payload.resetCredits, capturedAt: wallClock())
+                resetCredits: payload.resetCredits, resetCreditDeadlines: payload.resetCreditDeadlines,
+                capturedAt: wallClock())
             snapshot.historyIdentity = credential.historyIdentity
                 ?? (tool == .githubCopilot ? UsageIdentity.hash(subject: nil, token: credential.accessToken) : nil)
             gate?.recordSuccess()

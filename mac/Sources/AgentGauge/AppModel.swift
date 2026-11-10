@@ -22,8 +22,8 @@ final class AppModel {
         didSet { defaults.set(showPercentInMenuBar, forKey: Keys.showPercent) }
     }
 
-    var statusTarget: String {
-        didSet { defaults.set(statusTarget, forKey: Keys.statusTarget) }
+    var menuBarSelection: MenuBarSelection {
+        didSet { defaults.set(menuBarSelection.savedValues, forKey: Keys.menuBarSelection) }
     }
 
     var displayBasis: DisplayBasis {
@@ -76,8 +76,22 @@ final class AppModel {
     private var tracksNamedCopilotAccounts: Bool { accounts.contains { $0.tool == .githubCopilot } }
 
     var visibleTools: [ToolKind] { ToolKind.allCases.filter { !hiddenTools.contains($0) } }
+    var menuBarAccounts: [ToolState] {
+        let current = Dictionary(uniqueKeysWithValues: states.map { ($0.id, $0) })
+        return visibleTools.flatMap { tool in
+            let extras = accounts.filter { $0.tool == tool }.map { ToolState(tool: tool, account: $0) }
+            return tool == .githubCopilot && tracksNamedCopilotAccounts ? extras : [ToolState(tool: tool)] + extras
+        }.map { current[$0.id] ?? $0 }
+    }
+    var selectedMenuBarAccounts: Set<UsageAccountKey>? {
+        menuBarSelection.selectedAccounts?.intersection(menuBarAccounts.map(\.id))
+    }
     var menuBarSummary: MenuBarSummary {
-        MenuBarSummary(states: states.filter { !hiddenTools.contains($0.tool) }, targetKey: statusTarget)
+        let accounts = menuBarAccounts
+        return MenuBarSummary(
+            states: accounts,
+            selectedAccounts: menuBarSelection.selectedAccounts?.intersection(accounts.map(\.id)),
+            displayBasis: displayBasis)
     }
     var isRefreshing: Bool { states.contains(where: \.isRefreshing) }
 
@@ -113,7 +127,6 @@ final class AppModel {
     init() {
         defaults.register(defaults: [
             Keys.showPercent: true,
-            Keys.statusTarget: "",
             Keys.notifyThresholds: true,
             Keys.notifyResets: true,
             Keys.showSparkline: true,
@@ -121,8 +134,8 @@ final class AppModel {
             Keys.autoUpdate: true,
         ])
         showPercentInMenuBar = defaults.bool(forKey: Keys.showPercent)
-        // An older build stored one window ("codex:weekly"); the menu bar now follows a tool.
-        statusTarget = StatusTarget.normalize(defaults.string(forKey: Keys.statusTarget))
+        menuBarSelection = MenuBarSelection(savedValues: defaults.stringArray(forKey: Keys.menuBarSelection),
+                                            legacyTarget: defaults.string(forKey: Keys.statusTarget))
         displayBasis = DisplayBasis(rawValue: defaults.string(forKey: Keys.displayBasis) ?? "") ?? .used
         viewMode = UsageViewMode(rawValue: defaults.string(forKey: Keys.viewMode) ?? "") ?? .bar
         showSparkline = defaults.bool(forKey: Keys.showSparkline)
@@ -470,7 +483,7 @@ final class AppModel {
         // Detection stops entirely while every kind is off; re-enabling resets the baseline.
         guard notifyThresholds || notifyResets else { return }
         let alerts = evaluator.evaluate(newStates, now: now)
-        for alert in alerts where (alert.kind == .threshold && notifyThresholds) || (alert.kind == .reset && notifyResets) {
+        for alert in alerts where alert.kind == .reset ? notifyResets : notifyThresholds {
             notifier.post(alert)
         }
     }
@@ -565,6 +578,7 @@ final class AppModel {
     private enum Keys {
         static let showPercent = "showPercentInMenuBar"
         static let statusTarget = "statusTarget"
+        static let menuBarSelection = "menuBarSelection"
         static let displayBasis = "displayBasis"
         static let viewMode = "viewMode"
         static let showSparkline = "showSparkline"

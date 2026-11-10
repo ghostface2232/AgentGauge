@@ -303,25 +303,45 @@ private struct GeneralSettings: View {
 
 private struct DisplaySettings: View {
     @Environment(AppModel.self) private var model
+    @State private var choosingMenuBarAccounts = false
 
     var body: some View {
         @Bindable var model = model
+        let supportsPercent = model.selectedMenuBarAccounts.map { $0.count == 1 } ?? true
         Form {
             Section {
-                Toggle(L10n.get("Settings_ShowPercent"), isOn: $model.showPercentInMenuBar)
-                let activeStates = model.states.filter { !model.hiddenTools.contains($0.tool) }
-                let targetStates = activeStates.filter { $0.snapshot != nil }
-                let target = StatusTarget.account(from: model.statusTarget)
-                let hasMatchingTarget = target.map { key in targetStates.contains { $0.id == key } } ?? false
-                Picker(L10n.get("Settings_StatusTarget"), selection: $model.statusTarget) {
-                    Text(L10n.get("StatusTarget_All")).tag("")
-                    ForEach(targetStates) { state in
-                        Text(verbatim: state.displayName).tag(state.id.storageKey)
+                LabeledContent(L10n.get("Settings_StatusTarget")) {
+                    Button {
+                        choosingMenuBarAccounts.toggle()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(menuBarSelectionLabel)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .imageScale(.small)
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
+                        }
                     }
-                    if !model.statusTarget.isEmpty && model.statusTarget != "all" && !hasMatchingTarget {
-                        Text(L10n.get("StatusTarget_Unavailable")).tag(model.statusTarget)
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(L10n.get("Settings_StatusTarget"))
+                    .accessibilityValue(menuBarSelectionLabel)
+                    .popover(isPresented: $choosingMenuBarAccounts) {
+                        menuBarAccountChoices
                     }
                 }
+                Toggle(isOn: Binding(
+                    get: { supportsPercent && model.showPercentInMenuBar },
+                    set: { model.showPercentInMenuBar = $0 }
+                )) {
+                    Text(L10n.get("Settings_ShowPercent"))
+                    if !supportsPercent {
+                        Text(L10n.get("Settings_ShowPercentSingleHelp"))
+                    }
+                }
+                .disabled(!supportsPercent)
+            }
+            Section {
                 Picker(L10n.get("Settings_DisplayBasis"), selection: $model.displayBasis) {
                     Text(L10n.get("Basis_Used")).tag(DisplayBasis.used)
                     Text(L10n.get("Basis_Remaining")).tag(DisplayBasis.remaining)
@@ -351,6 +371,51 @@ private struct DisplaySettings: View {
             }
         }
         .settingsPane()
+    }
+
+    private var menuBarSelectionLabel: String {
+        guard let selected = model.selectedMenuBarAccounts else { return L10n.get("StatusTarget_All") }
+        if selected.isEmpty { return L10n.get("StatusTarget_None") }
+        if selected.count > 2 { return L10n.format("StatusTarget_Count", selected.count) }
+        return model.menuBarAccounts.filter { selected.contains($0.id) }.map(\.displayName).joined(separator: ", ")
+    }
+
+    private var menuBarAccountChoices: some View {
+        let accounts = model.menuBarAccounts
+        return VStack(alignment: .leading, spacing: 8) {
+            Toggle(L10n.get("StatusTarget_All"), isOn: Binding(
+                get: { model.menuBarSelection == .automatic },
+                set: { model.menuBarSelection = $0 ? .automatic : .accounts([]) }
+            ))
+            Divider()
+            if accounts.isEmpty {
+                Text(L10n.get("Settings_NoMenuBarServices"))
+                    .foregroundStyle(.secondary)
+            } else if accounts.count > 8 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        menuBarAccountToggles(accounts)
+                    }
+                }
+                .frame(height: 232)
+            } else {
+                menuBarAccountToggles(accounts)
+            }
+        }
+        .toggleStyle(.checkbox)
+        .frame(minWidth: 166, alignment: .leading)
+        .padding(12)
+    }
+
+    private func menuBarAccountToggles(_ accounts: [ToolState]) -> some View {
+        ForEach(accounts) { account in
+            Toggle(isOn: Binding(
+                get: { model.menuBarSelection.selectedAccounts?.contains(account.id) == true },
+                set: { model.menuBarSelection.set(account.id, selected: $0) }
+            )) {
+                Text(verbatim: account.displayName)
+            }
+        }
     }
 }
 

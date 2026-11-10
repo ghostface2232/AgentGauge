@@ -76,7 +76,7 @@ AgentGauge reads the local authentication state already maintained by each offic
 
 ### Multiple accounts
 
-Choose **Add Account** beside a shown Claude, Codex, or GitHub Copilot service in **Settings** on Windows or **Settings → Accounts** on macOS. Each account appears on its own usage card and can be selected as the tray or menu bar indicator. Usage history and alerts are tracked separately for each card.
+Choose **Add Account** beside a shown Claude, Codex, or GitHub Copilot service in **Settings** on Windows or **Settings → Accounts** on macOS. Each account appears on its own usage card, with separate usage history and alerts. Choose one account for the Windows tray indicator or select multiple accounts in **Settings → Display** on macOS to show their rings together.
 
 - **Claude and Codex** use the label you enter. Choose **Sign in** on the new account to open the official CLI login in a separate profile. The profiles live in `%LOCALAPPDATA%\Gauge\accounts` on Windows and `~/Library/Application Support/AgentGauge/accounts` on macOS. On macOS, Claude keeps the account's credentials in its own Keychain entry.
 - **GitHub Copilot** uses the GitHub.com usernames already signed in through `gh auth login`. Add each username you want to monitor. When the list is empty, the card follows the active GitHub CLI account.

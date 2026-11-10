@@ -139,3 +139,24 @@ public enum NotificationText {
         L10n.format("Notif_ResetMessage", Int(availablePercent.rounded()))
     }
 }
+
+public enum ResetCreditText {
+    public static func remaining(_ deadline: ResetCreditDeadline, now: Date) -> String {
+        let remaining = deadline.expiresAt.timeIntervalSince(now)
+        if remaining > 86_400 { return L10n.get("ResetCredit_TwoDays") }
+        if remaining < 3600 { return L10n.get("ResetCredit_UnderHour") }
+        return L10n.format("ResetCredit_Hours", Int(ceil(remaining / 3600)))
+    }
+
+    public static func description(_ deadline: ResetCreditDeadline) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = L10n.locale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        let expiry = formatter.string(from: deadline.expiresAt)
+        if let scope = deadline.scope {
+            return L10n.format("ResetCredit_ScopedExpiry", expiry, scope)
+        }
+        return L10n.format("ResetCredit_Expiry", expiry)
+    }
+}

@@ -99,10 +99,15 @@ public final class UsageHistoryStore: @unchecked Sendable {
             if let last = profiles[key]?.last?.capturedAt ?? tail[key]?.last?.capturedAt, captured <= last {
                 continue
             }
+            let creditExpiry = snapshot.resetCreditDeadlines?
+                .filter { $0.expiresAt > captured && ($0.scope == nil || $0.scope == window.groupLabel) }
+                .map(\.expiresAt).min()
             let sample = UsageSample(
                 capturedAt: captured,
                 usedRatio: window.usedRatio,
-                resetTime: window.resetTime.map(Self.roundedToMillisecond))
+                resetTime: window.resetTime.map(Self.roundedToMillisecond),
+                resetCredits: window.resetCredits ?? (window.groupLabel == nil ? snapshot.resetCredits : nil),
+                resetCreditExpiry: creditExpiry.map(Self.roundedToMillisecond))
             fresh.append((key, window, sample))
         }
         guard !fresh.isEmpty else { return }
@@ -113,8 +118,8 @@ public final class UsageHistoryStore: @unchecked Sendable {
                     """
                     INSERT OR IGNORE INTO samples
                         (tool, window_key, group_label, captured_at, used_ratio,
-                         reset_time, used_tokens, limit_tokens)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                         reset_time, used_tokens, limit_tokens, reset_credits, reset_credit_expiry)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                     """)
                 defer { insert.finalize() }
                 for entry in fresh {
@@ -127,6 +132,8 @@ public final class UsageHistoryStore: @unchecked Sendable {
                     insert.bind(6, entry.sample.resetTime.map(Self.milliseconds))
                     insert.bind(7, entry.window.usedCount)
                     insert.bind(8, entry.window.limitCount)
+                    insert.bind(9, entry.sample.resetCredits.map(Int64.init))
+                    insert.bind(10, entry.sample.resetCreditExpiry.map(Self.milliseconds))
                     try insert.run()
                 }
             }
@@ -190,7 +197,7 @@ public final class UsageHistoryStore: @unchecked Sendable {
             // credits each increase to the local weekday it was observed on.
             let query = try database.prepare(
                 """
-                SELECT tool, window_key, captured_at, used_ratio, reset_time FROM samples
+                SELECT tool, window_key, captured_at, used_ratio, reset_time, reset_credits, reset_credit_expiry FROM samples
                 WHERE captured_at >= ?1 ORDER BY tool, window_key, captured_at
                 """)
             defer { query.finalize() }
@@ -231,7 +238,7 @@ public final class UsageHistoryStore: @unchecked Sendable {
         withDatabase { database in
             let query = try database.prepare(
                 """
-                SELECT captured_at, used_ratio, reset_time FROM samples
+                SELECT captured_at, used_ratio, reset_time, reset_credits, reset_credit_expiry FROM samples
                 WHERE tool = ?1 AND window_key = ?2 AND captured_at >= ?3 ORDER BY captured_at
                 """)
             defer { query.finalize() }
@@ -262,7 +269,9 @@ public final class UsageHistoryStore: @unchecked Sendable {
         UsageSample(
             capturedAt: date(milliseconds: row.int64(column)),
             usedRatio: row.double(column + 1),
-            resetTime: row.optionalInt64(column + 2).map(date(milliseconds:)))
+            resetTime: row.optionalInt64(column + 2).map(date(milliseconds:)),
+            resetCredits: row.optionalInt64(column + 3).map(Int.init),
+            resetCreditExpiry: row.optionalInt64(column + 4).map(date(milliseconds:)))
     }
 
     // MARK: - Pruning
@@ -321,11 +330,20 @@ public final class UsageHistoryStore: @unchecked Sendable {
                     used_ratio   REAL    NOT NULL,
                     reset_time   INTEGER NULL,
                     used_tokens  INTEGER NULL,
-                    limit_tokens INTEGER NULL
+                    limit_tokens INTEGER NULL,
+                    reset_credits INTEGER NULL,
+                    reset_credit_expiry INTEGER NULL
                 )
                 """)
             try opened.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_samples_identity ON samples (tool, window_key, captured_at)")
+            for column in ["reset_credits", "reset_credit_expiry"] {
+                let schema = try opened.prepare("SELECT 1 FROM pragma_table_info('samples') WHERE name = ?1")
+                schema.bind(1, column)
+                let exists = try schema.step()
+                schema.finalize()
+                if !exists { try opened.execute("ALTER TABLE samples ADD COLUMN \(column) INTEGER NULL") }
+            }
         } catch {
             // Ownership passes to `database` only once initialization succeeded; until then
             // this handle must be closed before corrupt-file recovery deletes the file.
@@ -395,7 +413,8 @@ final class WeekdayAccumulator {
         let weekday = (local.weekday ?? 1) - 1
         days[(local.year ?? 0) * 10_000 + (local.month ?? 0) * 100 + (local.day ?? 0)] = weekday
         guard let previous,
-              current.capturedAt.timeIntervalSince(previous.capturedAt) <= UsageHistoryStore.maximumProfileGap
+              current.capturedAt.timeIntervalSince(previous.capturedAt) <= UsageHistoryStore.maximumProfileGap,
+              !current.isManualReset(after: previous)
         else { return }
         var delta = current.usedRatio - previous.usedRatio
         if delta < 0, let reset = current.resetTime, let lastReset = previous.resetTime,

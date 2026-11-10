@@ -52,9 +52,8 @@ struct AgentGaugeApp: App {
     }
 }
 
-/// The menu bar item: the Windows tray gauge, whose needle follows the highest usage level,
-/// optionally followed by that window's percentage. It is drawn as a template (monochrome,
-/// tinted by the menu bar) rather than in the Windows tray's level colours.
+/// The menu bar item shows a single gauge or ring with optional percentages, or a strip of
+/// selected service rings. A single template image keeps every mode on one status button.
 ///
 /// The two are drawn into one template image rather than handed to the status item as an
 /// Image + Text pair: the status button lays a title out on its own line box, which leaves
@@ -67,10 +66,10 @@ struct MenuBarLabel: View {
     let showPercent: Bool
 
     var body: some View {
-        let percent = showPercent ? summary.percentText(basis: basis) : nil
-        Image(nsImage: Self.image(summary: summary, basis: basis, text: percent))
+        let text = showPercent ? summary.percentText(basis: basis) : nil
+        Image(nsImage: Self.image(summary: summary, basis: basis, text: text))
             .accessibilityLabel("AgentGauge")
-            .accessibilityValue(summary.percentText(basis: basis) ?? "")
+            .accessibilityValue(summary.selectedRings == nil ? summary.percentText(basis: basis) ?? "" : summary.tooltip)
             .help(summary.tooltip)
     }
 
@@ -138,10 +137,34 @@ struct MenuBarLabel: View {
     /// The chosen tool's ring when there is one, otherwise the gauge. The ring fills its box
     /// symmetrically, so it needs none of the gauge's optical drop.
     private static func image(summary: MenuBarSummary, basis: DisplayBasis, text: String?) -> NSImage {
+        if let selected = summary.selectedRings, !selected.isEmpty {
+            if selected.count == 1, let text {
+                return render(icon: (ringImage(selected[0], basis: basis), ringSize), drop: 0, text: text)
+            }
+            return image(rings: selected, basis: basis)
+        }
         if let ring = summary.ring {
             return render(icon: (ringImage(ring, basis: basis), ringSize), drop: 0, text: text)
         }
         return render(icon: icon(for: summary), drop: iconDrop, text: text)
+    }
+
+    private static func image(rings: [StatusRing], basis: DisplayBasis) -> NSImage {
+        let icons = rings.map { ring in
+            (image: ringImage(ring, basis: basis),
+             opacity: ring.short == nil && ring.long == nil ? Ring.unavailableOpacity : 1)
+        }
+        let step = ringSize.width + spacing
+        let size = NSSize(width: CGFloat(icons.count) * step - spacing, height: ringSize.height)
+        let image = NSImage(size: size, flipped: false) { _ in
+            for (index, icon) in icons.enumerated() {
+                let rect = NSRect(origin: CGPoint(x: CGFloat(index) * step, y: 0), size: ringSize)
+                icon.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: icon.opacity)
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     private static func render(icon: (image: NSImage, size: NSSize), drop: CGFloat, text: String?) -> NSImage {
@@ -174,6 +197,7 @@ struct MenuBarLabel: View {
         static let minStroke: CGFloat = 1.25
         static let gapDegrees: CGFloat = 28
         static let trackAlpha: CGFloat = 0.3
+        static let unavailableOpacity: CGFloat = 0.55
         static let logoPaddingShare: CGFloat = 0.06
         static let logoSpan: CGFloat = 1.7
         // Antigravity's arch has wide feet that read as touching the bottom arc when it is

@@ -4,7 +4,7 @@ A native menu bar app that shows the real usage limits of **Claude** and **Codex
 
 - Click the gauge in the menu bar to see each tool's 5-hour and weekly windows (and model-scoped limits such as Fable), when they reset, and whether you are ahead of or behind pace — an even pace, workdays only, or (after two weeks of history) your own weekday rhythm.
 - Bars or circular gauges. In bar view, a sparkline traces the last six hours of remaining quota (hover it to read a past reading), and a measured burn rate projects when a window will run out.
-- The menu bar symbol's needle follows the busiest window; the percentage beside it can be turned off.
+- In Settings › Display, choose one or more accounts for the menu bar, or use Auto to follow the account with the highest usage. A single ring can show percentages alongside it.
 - Bars turn orange above 70% and red above 90%. Optional alerts when a limit is nearly used or resets.
 - A chip flags a provider's public service incident, and an optional estimate shows what this month's Claude Code and Codex work would cost at API list prices.
 - Updates itself from GitHub Releases when you click **Update** (Settings › About, or the panel footer).

@@ -18,6 +18,8 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
     private static readonly TimeSpan CycleAdvanceMinimum = TimeSpan.FromHours(1);
 
     private readonly Dictionary<WindowKey, Observation> _observations = new();
+    private readonly Dictionary<string, DateTimeOffset> _deadlineCaptures = new();
+    private readonly HashSet<(string HistoryKey, DateTimeOffset ExpiresAt)> _warnedDeadlines = new();
 
     /// <summary>
     /// Drops all prior observations so the next state establishes a fresh baseline.
@@ -27,6 +29,7 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
     public void ResetBaseline()
     {
         _observations.Clear();
+        _deadlineCaptures.Clear();
         _resumeBaseline.Clear();
     }
 
@@ -48,6 +51,7 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
     {
         var notifications = new List<UsageNotification>();
         var present = new HashSet<WindowKey>();
+        var presentDeadlineAccounts = new HashSet<string>();
 
         foreach (var tool in state.Tools)
         {
@@ -56,8 +60,10 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
                 continue;
             }
 
+            presentDeadlineAccounts.Add(snapshot.HistoryKey);
             if (_hidden.Contains(tool.ToolName))
             {
+                ObserveResetDeadline(snapshot, hidden: true, now, notifications);
                 // Track the newest snapshot seen while hidden (e.g. an in-flight request
                 // that completed after hiding). Otherwise, after showing, a cache re-serve
                 // of that snapshot would look newer than the stale baseline, consume the
@@ -98,6 +104,7 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
                 continue;
             }
 
+            ObserveResetDeadline(snapshot, hidden: false, now, notifications);
             foreach (var window in snapshot.Windows.Where(IsSupportedWindow))
             {
                 var key = new WindowKey(snapshot.ToolName, window.Key, snapshot.HistoryIdentity);
@@ -174,7 +181,32 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
             _resumeBaseline.Remove(stale);
         }
 
+        foreach (var stale in _deadlineCaptures.Keys.Where(account => !presentDeadlineAccounts.Contains(account)).ToList())
+            _deadlineCaptures.Remove(stale);
+        _warnedDeadlines.RemoveWhere(deadline => deadline.ExpiresAt <= now);
+
         return notifications;
+    }
+
+    private void ObserveResetDeadline(
+        UsageSnapshot snapshot, bool hidden, DateTimeOffset now, List<UsageNotification> notifications)
+    {
+        var historyKey = snapshot.HistoryKey;
+        if (_deadlineCaptures.TryGetValue(historyKey, out var previous) && snapshot.CapturedAt <= previous)
+            return;
+        _deadlineCaptures[historyKey] = snapshot.CapturedAt;
+        if (hidden || ResetCreditDeadline.Upcoming(snapshot.ResetCreditDeadlines, now) is not { } deadline
+            || !_warnedDeadlines.Add((historyKey, deadline.ExpiresAt))) return;
+
+        notifications.Add(new UsageNotification
+        {
+            Kind = UsageNotificationKind.ResetCredits,
+            Level = deadline.ExpiresAt - now <= TimeSpan.FromDays(1) ? UsageLevel.Danger : UsageLevel.Caution,
+            ToolName = snapshot.ToolName,
+            Title = Loc.Format("Notif_ResetCreditsTitle", displayToolName?.Invoke(snapshot.ToolName) ?? snapshot.ToolName),
+            Message = ResetCreditText.Description(deadline),
+            CreatedAt = now,
+        });
     }
 
     private static bool IsSupportedWindow(UsageWindow window)

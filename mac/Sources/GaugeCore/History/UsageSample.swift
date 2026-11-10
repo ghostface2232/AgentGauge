@@ -11,10 +11,27 @@ public struct UsageSample: Sendable, Hashable {
     public var usedRatio: Double
     public var resetTime: Date?
 
-    public init(capturedAt: Date, usedRatio: Double, resetTime: Date? = nil) {
+    public var resetCredits: Int?
+    public var resetCreditExpiry: Date?
+
+    private static let minimumManualResetDrop = 0.05
+
+    public init(capturedAt: Date, usedRatio: Double, resetTime: Date? = nil,
+                resetCredits: Int? = nil, resetCreditExpiry: Date? = nil) {
         self.capturedAt = capturedAt
         self.usedRatio = usedRatio
         self.resetTime = resetTime
+        self.resetCredits = resetCredits
+        self.resetCreditExpiry = resetCreditExpiry
+    }
+
+    func isManualReset(after previous: UsageSample) -> Bool {
+        // A balance change alone does not identify the affected window, and a drop
+        // after its scheduled reset cannot be separated from an ordinary rollover.
+        guard capturedAt > previous.capturedAt, let resetCredits, let prior = previous.resetCredits,
+              resetCredits < prior, usedRatio <= previous.usedRatio - Self.minimumManualResetDrop else { return false }
+        return (previous.resetTime.map { capturedAt < $0 } ?? true)
+            && (previous.resetCreditExpiry.map { capturedAt < $0 } ?? true)
     }
 }
 

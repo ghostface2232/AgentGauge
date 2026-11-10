@@ -13,6 +13,47 @@ final class NotificationEvaluatorTests: XCTestCase {
         return state
     }
 
+    func testResetExpiryAlertsOncePerDeadlineFromLiveObservations() {
+        var evaluator = UsageNotificationEvaluator()
+        let expiry = start + 2 * 86_400
+        func observe(_ hour: TimeInterval, _ deadline: Date?, failed: Bool = false, rehydrated: Bool = false) -> [UsageNotification] {
+            let captured = start + hour * 3600
+            let window = UsageWindow(type: .weekly, usedRatio: 0.6, resetTime: start + 7 * 86_400)
+            let snapshot = UsageSnapshot(tool: .codex, plan: nil, windows: [window],
+                                         resetCreditDeadlines: deadline.map { [ResetCreditDeadline(expiresAt: $0)] }, capturedAt: captured)
+            var state = ToolState(tool: .codex, snapshot: snapshot)
+            state.lastRefreshFailed = failed
+            state.isRehydrated = rehydrated
+            return evaluator.evaluate([state], now: captured)
+        }
+
+        XCTAssertTrue(observe(-1, expiry).isEmpty)
+        XCTAssertTrue(observe(0, expiry, failed: true).isEmpty)
+        XCTAssertTrue(observe(0, expiry, rehydrated: true).isEmpty)
+        let alert = observe(0, expiry)
+        XCTAssertEqual(alert.map(\.kind), [.resetCredits])
+        XCTAssertEqual(alert.map(\.level), [.caution])
+        XCTAssertNil(alert.first?.windowID)
+        XCTAssertTrue(observe(1, expiry).isEmpty)
+        XCTAssertTrue(observe(49, expiry).isEmpty)
+        XCTAssertTrue(observe(50, nil).isEmpty)
+        XCTAssertEqual(observe(51, start + 55 * 3600).map(\.level), [.danger])
+    }
+
+    func testResetExpiryAlertsIndependentlyForAccountsWithTheSameDeadline() {
+        var evaluator = UsageNotificationEvaluator()
+        let work = ToolAccount(tool: .codex, label: "Work")
+        let snapshot = UsageSnapshot(tool: .codex, plan: nil, windows: [],
+            resetCreditDeadlines: [ResetCreditDeadline(expiresAt: start + 3600)], capturedAt: start)
+        let states = [ToolState(tool: .codex, snapshot: snapshot),
+                      ToolState(tool: .codex, snapshot: snapshot, account: work)]
+        let alerts = evaluator.evaluate(states, now: start)
+
+        XCTAssertEqual(alerts.map(\.accountKey), [UsageAccountKey(tool: .codex), work.key])
+        XCTAssertTrue(alerts.last?.title.contains(work.displayName) == true)
+        XCTAssertTrue(evaluator.evaluate(states, now: start).isEmpty)
+    }
+
     func testBaselineNeverAlerts() {
         var evaluator = UsageNotificationEvaluator()
         XCTAssertTrue(evaluator.evaluate([state(0.95, reset: start, at: start)], now: start).isEmpty)
@@ -236,7 +277,7 @@ final class MenuBarSummaryTests: XCTestCase {
         XCTAssertNil(MenuBarSummary(states: [ToolState(tool: .codex, snapshot: scoped)]).ring)
     }
 
-    func testTargetKeySelectsToolRing() {
+    func testManualAndAutomaticServiceSelection() {
         let codexSnapshot = UsageSnapshot(tool: .codex, plan: nil, windows: [
             UsageWindow(type: .fiveHour, usedRatio: 0.2),
             UsageWindow(type: .weekly, usedRatio: 0.75),
@@ -251,32 +292,25 @@ final class MenuBarSummaryTests: XCTestCase {
         ]
 
         // The ring carries both arcs, and the text beside it labels both.
-        let codex = MenuBarSummary(states: states, targetKey: "codex")
-        XCTAssertEqual(codex.ring?.tool, .codex)
-        XCTAssertEqual(codex.ring?.short?.usedRatio, 0.2)
-        XCTAssertEqual(codex.ring?.long?.usedRatio, 0.75)
+        let codex = MenuBarSummary(states: states, selectedAccounts: [UsageAccountKey(tool: .codex)])
+        XCTAssertEqual(codex.selectedRings?.first?.tool, .codex)
+        XCTAssertEqual(codex.selectedRings?.first?.short?.usedRatio, 0.2)
+        XCTAssertEqual(codex.selectedRings?.first?.long?.usedRatio, 0.75)
         XCTAssertEqual(codex.percentText(basis: .used), "5H 20% | W 75%")
         XCTAssertEqual(codex.percentText(basis: .remaining), "5H 80% | W 25%")
 
         // A tool with only a billing cycle shows that arc alone.
         let cursor = MenuBarSummary(states: [ToolState(tool: .cursor, snapshot: UsageSnapshot(
             tool: .cursor, plan: nil, windows: [UsageWindow(type: .billingCycle, usedRatio: 0.4)], capturedAt: Date()))],
-            targetKey: "cursor")
+            selectedAccounts: [UsageAccountKey(tool: .cursor)])
         XCTAssertEqual(cursor.percentText(basis: .used), "M 40%")
 
-        // A window target from an older build and the display name both name the tool.
-        XCTAssertEqual(MenuBarSummary(states: states, targetKey: "claude:weekly").ring?.tool, .claude)
-        XCTAssertEqual(MenuBarSummary(states: states, targetKey: "Claude").ring?.tool, .claude)
-
-        // A tool with no state, and "auto", follow the most-used tool (Claude at 95%).
-        let missing = MenuBarSummary(states: states, targetKey: "cursor")
-        XCTAssertEqual(missing.ring?.tool, .claude)
-        XCTAssertEqual(missing.percentText(basis: .used), "5H 95% | W 10%")
-        // A target whose first read failed has a state but no snapshot: also the most used.
-        let unread = MenuBarSummary(states: states + [ToolState(tool: .cursor, snapshot: nil)], targetKey: "cursor")
-        XCTAssertEqual(unread.ring?.tool, .claude)
-        XCTAssertEqual(unread.percentText(basis: .used), "5H 95% | W 10%")
-        let auto = MenuBarSummary(states: states, targetKey: "")
+        // An explicit selection stays in place even if the service has no reading.
+        let missing = MenuBarSummary(states: states, selectedAccounts: [UsageAccountKey(tool: .cursor)])
+        XCTAssertEqual(missing.selectedRings?.first?.tool, .cursor)
+        XCTAssertNil(missing.percentText(basis: .used))
+        let auto = MenuBarSummary(states: states)
+        XCTAssertNil(auto.selectedRings)
         XCTAssertEqual(auto.ring?.tool, .claude)
         XCTAssertEqual(auto.level, .danger)
 
@@ -294,11 +328,65 @@ final class MenuBarSummaryTests: XCTestCase {
         XCTAssertTrue(auto.tooltip.contains("20%"))
     }
 
-    func testTargetNormalizesLegacyWindowKeys() {
-        XCTAssertEqual(StatusTarget.normalize("codex:weekly"), "codex")
-        XCTAssertEqual(StatusTarget.normalize("Claude"), "claude")
-        XCTAssertEqual(StatusTarget.normalize(""), "")
-        XCTAssertEqual(StatusTarget.normalize(nil), "")
+    func testSelectingAServiceLeavesAutoAndSavedSelectionsOverrideLegacyTargets() {
+        var selection = MenuBarSelection(savedValues: nil, legacyTarget: "")
+        XCTAssertEqual(selection, .automatic)
+
+        let claude = UsageAccountKey(tool: .claude)
+        let codex = UsageAccountKey(tool: .codex)
+        selection.set(claude, selected: true)
+        selection.set(codex, selected: true)
+        XCTAssertEqual(selection, .accounts([claude, codex]))
+        XCTAssertEqual(MenuBarSelection(savedValues: selection.savedValues), selection)
+        selection = .automatic
+        XCTAssertNil(selection.selectedAccounts)
+        XCTAssertEqual(MenuBarSelection(savedValues: selection.savedValues, legacyTarget: "codex"), .automatic)
+
+        XCTAssertEqual(MenuBarSelection(savedValues: nil, legacyTarget: "codex:weekly"), .accounts([codex]))
+        XCTAssertEqual(MenuBarSelection(savedValues: nil, legacyTarget: "Claude"), .accounts([claude]))
+        XCTAssertEqual(MenuBarSelection(savedValues: [], legacyTarget: "Claude"), .accounts([]))
+    }
+
+    func testMenuBarSelectionKeepsTwoAccountsOfTheSameServiceAndMigratesAnAccountTarget() {
+        let work = ToolAccount(tool: .codex, label: "Work")
+        let primary = UsageAccountKey(tool: .codex)
+        var selection = MenuBarSelection(savedValues: nil, legacyTarget: work.key.storageKey)
+        XCTAssertEqual(selection.selectedAccounts, [work.key])
+        selection.set(primary, selected: true)
+        XCTAssertEqual(MenuBarSelection(savedValues: selection.savedValues), selection)
+
+        let snapshot = UsageSnapshot(tool: .codex, plan: nil, windows: [UsageWindow(type: .fiveHour, usedRatio: 0.2)],
+                                     capturedAt: Date())
+        let states = [ToolState(tool: .codex, snapshot: snapshot), ToolState(tool: .codex, account: work)]
+        let summary = MenuBarSummary(states: states, selectedAccounts: selection.selectedAccounts)
+        XCTAssertEqual(summary.selectedRings?.map(\.accountKey), [primary, work.key])
+        XCTAssertNil(summary.selectedRings?.last?.short)
+        XCTAssertTrue(summary.tooltip.contains("Codex · Work"))
+    }
+
+    func testMultipleRingsFollowSelectionInServiceOrderWithoutPercentText() {
+        let states = [
+            ToolState(tool: .codex, snapshot: UsageSnapshot(tool: .codex, plan: nil,
+                windows: [UsageWindow(type: .fiveHour, usedRatio: 0.95)], capturedAt: Date())),
+            ToolState(tool: .claude, snapshot: UsageSnapshot(tool: .claude, plan: nil,
+                windows: [UsageWindow(type: .weekly, usedRatio: 0.25)], capturedAt: Date())),
+        ]
+        let summary = MenuBarSummary(states: states,
+            selectedAccounts: [UsageAccountKey(tool: .cursor), UsageAccountKey(tool: .claude)], displayBasis: .remaining)
+
+        XCTAssertEqual(summary.selectedRings?.map(\.tool), [.claude, .cursor])
+        XCTAssertEqual(summary.selectedRings?.first?.long?.usedRatio, 0.25)
+        XCTAssertNil(summary.selectedRings?.last?.long)
+        XCTAssertNil(summary.percentText(basis: .remaining))
+        XCTAssertTrue(summary.tooltip.contains("75%"))
+        XCTAssertTrue(summary.tooltip.contains("Cursor  \(L10n.get("NoData"))"))
+        XCTAssertFalse(summary.tooltip.contains("Codex"))
+
+        let empty = MenuBarSummary(states: states, selectedAccounts: [])
+        XCTAssertEqual(empty.selectedRings, [])
+        XCTAssertNil(empty.ring)
+        XCTAssertNil(empty.percentText(basis: .used))
+        XCTAssertTrue(empty.tooltip.isEmpty)
     }
 }
 

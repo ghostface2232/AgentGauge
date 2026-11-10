@@ -4,11 +4,14 @@ public struct UsagePayload: Sendable, Equatable {
     public var plan: String?
     public var windows: [UsageWindow]
     public var resetCredits: Int?
+    public var resetCreditDeadlines: [ResetCreditDeadline]?
 
-    public init(plan: String?, windows: [UsageWindow], resetCredits: Int? = nil) {
+    public init(plan: String?, windows: [UsageWindow], resetCredits: Int? = nil,
+                resetCreditDeadlines: [ResetCreditDeadline]? = nil) {
         self.plan = plan
         self.windows = windows
         self.resetCredits = resetCredits
+        self.resetCreditDeadlines = resetCreditDeadlines
     }
 }
 
@@ -17,12 +20,41 @@ public struct UsagePayload: Sendable, Equatable {
 /// additive `limits[]`. Shapes come from live responses, not memory.
 public enum ClaudeUsageParser {
     public static func windows(from data: Data) throws -> [UsageWindow] {
+        try payload(from: data).windows
+    }
+
+    static func payload(from data: Data, plan: String? = nil, now: Date = Date()) throws -> UsagePayload {
         let root = try JSONObject.parse(data)
         var windows: [UsageWindow] = []
         if let window = window(root, "five_hour", .fiveHour) { windows.append(window) }
         if let window = window(root, "seven_day", .weekly) { windows.append(window) }
         windows += scopedWeeklyLimits(root)
-        return windows
+        guard let program = root.object("cedar_ember"), program.bool("eligible") == true,
+              let grants = program.objects("grants") else { return UsagePayload(plan: plan, windows: windows) }
+
+        var deadlines: [ResetCreditDeadline] = []
+        var balances: [String: Int] = [:]
+        for grant in grants {
+            guard let count = grant.int64("resets_left"), count > 0, count <= Int64(Int32.max),
+                  grant.bool("paused") == false,
+                  let starts = grant.date("starts_at"), starts <= now,
+                  let ends = grant.date("ends_at"), ends > now else { continue }
+            let clears = Set(grant.storage["clears"] as? [String] ?? [])
+            let deadline = ResetCreditDeadline(expiresAt: ends, scope: clears == ["seven_day_overage_included"] ? "Fable" : nil)
+            if !deadlines.contains(deadline) { deadlines.append(deadline) }
+            for scope in clears { balances[scope] = min(balances[scope, default: 0] + Int(count), Int(Int32.max)) }
+        }
+
+        for index in windows.indices {
+            let scope = switch windows[index].groupLabel {
+            case "Fable": "seven_day_overage_included"
+            case nil: windows[index].type == .fiveHour ? "five_hour" : "seven_day"
+            default: nil as String?
+            }
+            if let scope { windows[index].resetCredits = balances[scope, default: 0] }
+        }
+
+        return UsagePayload(plan: plan, windows: windows, resetCreditDeadlines: deadlines)
     }
 
     /// A null/absent object, or a null utilization, means the window has no data.
@@ -87,6 +119,17 @@ public enum CodexUsageParser {
             plan: ProviderText.planLabel(root.string("plan_type"), known: knownPlans),
             windows: windows,
             resetCredits: resetCredits(root))
+    }
+
+    static func resetCreditDeadlines(from data: Data) throws -> [ResetCreditDeadline]? {
+        try JSONObject.parse(data).objects("credits").map { entries in
+            var seen = Set<Date>()
+            return entries.compactMap { entry in
+                guard entry.string("status") == "available", let expires = entry.date("expires_at"),
+                      seen.insert(expires).inserted else { return nil }
+                return ResetCreditDeadline(expiresAt: expires)
+            }
+        }
     }
 
     /// `available_count` is the balance held; the sibling `applicable_available_count` is
