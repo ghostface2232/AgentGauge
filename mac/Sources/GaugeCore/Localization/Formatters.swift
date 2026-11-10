@@ -112,19 +112,27 @@ public enum PaceClassifier {
 /// model-scoped windows of one type never produce indistinguishable alerts.
 public enum NotificationText {
     public static func thresholdTitle(tool: ToolKind, window: UsageWindow, percent: Int) -> String {
+        thresholdTitle(toolName: tool.displayName, window: window, percent: percent)
+    }
+
+    static func thresholdTitle(toolName: String, window: UsageWindow, percent: Int) -> String {
         let label = WindowLabels.label(for: window)
         if let group = ProviderText.normalize(window.groupLabel) {
-            return L10n.format("Notif_ThresholdScopedTitle", tool.displayName, group, label, percent)
+            return L10n.format("Notif_ThresholdScopedTitle", toolName, group, label, percent)
         }
-        return L10n.format("Notif_ThresholdTitle", tool.displayName, label, percent)
+        return L10n.format("Notif_ThresholdTitle", toolName, label, percent)
     }
 
     public static func resetTitle(tool: ToolKind, window: UsageWindow) -> String {
+        resetTitle(toolName: tool.displayName, window: window)
+    }
+
+    static func resetTitle(toolName: String, window: UsageWindow) -> String {
         let label = WindowLabels.label(for: window)
         if let group = ProviderText.normalize(window.groupLabel) {
-            return L10n.format("Notif_ResetScopedTitle", tool.displayName, group, label)
+            return L10n.format("Notif_ResetScopedTitle", toolName, group, label)
         }
-        return L10n.format("Notif_ResetTitle", tool.displayName, label)
+        return L10n.format("Notif_ResetTitle", toolName, label)
     }
 
     public static func resetMessage(availablePercent: Double) -> String {

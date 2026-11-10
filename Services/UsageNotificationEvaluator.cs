@@ -9,7 +9,7 @@ namespace Gauge.Services;
 /// The first observation establishes a baseline, so launching Gauge above a threshold
 /// never replays an old alert.
 /// </summary>
-public sealed class UsageNotificationEvaluator
+public sealed class UsageNotificationEvaluator(Func<string, string>? displayToolName = null)
 {
     private const double ResetDropMinimum = 0.10;
 
@@ -19,7 +19,7 @@ public sealed class UsageNotificationEvaluator
 
     private readonly Dictionary<WindowKey, Observation> _observations = new();
     private readonly Dictionary<string, DateTimeOffset> _deadlineCaptures = new();
-    private readonly HashSet<(string ToolName, DateTimeOffset ExpiresAt)> _warnedDeadlines = new();
+    private readonly HashSet<(string HistoryKey, DateTimeOffset ExpiresAt)> _warnedDeadlines = new();
 
     /// <summary>
     /// Drops all prior observations so the next state establishes a fresh baseline.
@@ -51,7 +51,7 @@ public sealed class UsageNotificationEvaluator
     {
         var notifications = new List<UsageNotification>();
         var present = new HashSet<WindowKey>();
-        var presentDeadlineTools = new HashSet<string>();
+        var presentDeadlineAccounts = new HashSet<string>();
 
         foreach (var tool in state.Tools)
         {
@@ -60,7 +60,7 @@ public sealed class UsageNotificationEvaluator
                 continue;
             }
 
-            presentDeadlineTools.Add(snapshot.ToolName);
+            presentDeadlineAccounts.Add(snapshot.HistoryKey);
             if (_hidden.Contains(tool.ToolName))
             {
                 ObserveResetDeadline(snapshot, hidden: true, now, notifications);
@@ -70,14 +70,14 @@ public sealed class UsageNotificationEvaluator
                 // resume baseline, and let the first live poll replay an old crossing.
                 foreach (var window in snapshot.Windows.Where(IsSupportedWindow))
                 {
-                    var key = new WindowKey(snapshot.ToolName, window.Key);
+                    var key = new WindowKey(snapshot.ToolName, window.Key, snapshot.HistoryIdentity);
                     if (!_observations.TryGetValue(key, out var existing)
                         || snapshot.CapturedAt > existing.CapturedAt)
                     {
                         _observations[key] = Observation.CreateBaseline(window, snapshot.CapturedAt);
                     }
                 }
-                foreach (var key in _observations.Keys.Where(k => k.ToolName == tool.ToolName))
+                foreach (var key in _observations.Keys.Where(k => k.ToolName == tool.ToolName && k.Identity == snapshot.HistoryIdentity))
                 {
                     present.Add(key);
                     _resumeBaseline.Add(key);
@@ -99,7 +99,7 @@ public sealed class UsageNotificationEvaluator
             {
                 foreach (var cachedWindow in snapshot.Windows.Where(IsSupportedWindow))
                 {
-                    present.Add(new WindowKey(snapshot.ToolName, cachedWindow.Key));
+                    present.Add(new WindowKey(snapshot.ToolName, cachedWindow.Key, snapshot.HistoryIdentity));
                 }
                 continue;
             }
@@ -107,7 +107,7 @@ public sealed class UsageNotificationEvaluator
             ObserveResetDeadline(snapshot, hidden: false, now, notifications);
             foreach (var window in snapshot.Windows.Where(IsSupportedWindow))
             {
-                var key = new WindowKey(snapshot.ToolName, window.Key);
+                var key = new WindowKey(snapshot.ToolName, window.Key, snapshot.HistoryIdentity);
                 present.Add(key);
 
                 if (!_observations.TryGetValue(key, out var previous))
@@ -181,7 +181,7 @@ public sealed class UsageNotificationEvaluator
             _resumeBaseline.Remove(stale);
         }
 
-        foreach (var stale in _deadlineCaptures.Keys.Where(tool => !presentDeadlineTools.Contains(tool)).ToList())
+        foreach (var stale in _deadlineCaptures.Keys.Where(account => !presentDeadlineAccounts.Contains(account)).ToList())
             _deadlineCaptures.Remove(stale);
         _warnedDeadlines.RemoveWhere(deadline => deadline.ExpiresAt <= now);
 
@@ -191,18 +191,19 @@ public sealed class UsageNotificationEvaluator
     private void ObserveResetDeadline(
         UsageSnapshot snapshot, bool hidden, DateTimeOffset now, List<UsageNotification> notifications)
     {
-        if (_deadlineCaptures.TryGetValue(snapshot.ToolName, out var previous) && snapshot.CapturedAt <= previous)
+        var historyKey = snapshot.HistoryKey;
+        if (_deadlineCaptures.TryGetValue(historyKey, out var previous) && snapshot.CapturedAt <= previous)
             return;
-        _deadlineCaptures[snapshot.ToolName] = snapshot.CapturedAt;
+        _deadlineCaptures[historyKey] = snapshot.CapturedAt;
         if (hidden || ResetCreditDeadline.Upcoming(snapshot.ResetCreditDeadlines, now) is not { } deadline
-            || !_warnedDeadlines.Add((snapshot.ToolName, deadline.ExpiresAt))) return;
+            || !_warnedDeadlines.Add((historyKey, deadline.ExpiresAt))) return;
 
         notifications.Add(new UsageNotification
         {
             Kind = UsageNotificationKind.ResetCredits,
             Level = deadline.ExpiresAt - now <= TimeSpan.FromDays(1) ? UsageLevel.Danger : UsageLevel.Caution,
             ToolName = snapshot.ToolName,
-            Title = Loc.Format("Notif_ResetCreditsTitle", snapshot.ToolName),
+            Title = Loc.Format("Notif_ResetCreditsTitle", displayToolName?.Invoke(snapshot.ToolName) ?? snapshot.ToolName),
             Message = ResetCreditText.Description(deadline),
             CreatedAt = now,
         });
@@ -266,7 +267,7 @@ public sealed class UsageNotificationEvaluator
             ? ThresholdMask.Danger
             : ThresholdMask.Caution;
 
-    private static UsageNotification CreateThreshold(
+    private UsageNotification CreateThreshold(
         string toolName, UsageWindow window, double threshold, DateTimeOffset now)
     {
         var percent = (int)Math.Round(threshold * 100);
@@ -278,13 +279,13 @@ public sealed class UsageNotificationEvaluator
                 : UsageLevel.Caution,
             ToolName = toolName,
             WindowType = window.Type,
-            Title = NotificationText.ThresholdTitle(toolName, window, percent),
+            Title = NotificationText.ThresholdTitle(displayToolName?.Invoke(toolName) ?? toolName, window, percent),
             Message = ResetTimeFormatter.ForNotification(window.ResetTime, now),
             CreatedAt = now,
         };
     }
 
-    private static UsageNotification CreateReset(
+    private UsageNotification CreateReset(
         string toolName, UsageWindow window, DateTimeOffset now)
     {
         var availablePercent = Math.Clamp((1 - window.UsedRatio) * 100, 0, 100);
@@ -294,7 +295,7 @@ public sealed class UsageNotificationEvaluator
             Level = UsageLevel.Ok,
             ToolName = toolName,
             WindowType = window.Type,
-            Title = NotificationText.ResetTitle(toolName, window),
+            Title = NotificationText.ResetTitle(displayToolName?.Invoke(toolName) ?? toolName, window),
             Message = NotificationText.ResetMessage(availablePercent),
             CreatedAt = now,
         };
@@ -302,7 +303,7 @@ public sealed class UsageNotificationEvaluator
 
     // Keyed by the window's provider-stable Key, not its Type, so a tool with two windows
     // of the same Type (e.g. Antigravity's two 5-hour limits) tracks each independently.
-    private readonly record struct WindowKey(string ToolName, string Window);
+    private readonly record struct WindowKey(string ToolName, string Window, string? Identity);
 
     private sealed record Observation(
         double Ratio,

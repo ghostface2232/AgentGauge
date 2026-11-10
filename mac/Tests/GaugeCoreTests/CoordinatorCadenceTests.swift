@@ -177,6 +177,60 @@ final class CoordinatorDeadlineTests: XCTestCase {
 }
 
 final class CoordinatorRehydrationTests: XCTestCase {
+    func testNamedCopilotAccountsReplaceTheActiveFallback() async throws {
+        let primary = CountingProvider(.githubCopilot)
+        let secondary = CountingProvider(.githubCopilot)
+        let coordinator = UsageCoordinator(providers: [primary], cache: nil)
+        let recorder = StatesRecorder()
+        await coordinator.setListener { recorder.append($0) }
+        await coordinator.setEnabledTools([.githubCopilot])
+        await coordinator.refresh(.launch)
+        let label = try XCTUnwrap(ToolAccount.validatedLabel("mona-cat_octo", for: .githubCopilot))
+        let account = ToolAccount(tool: .githubCopilot, label: label)
+        await coordinator.addAccount(AccountUsageProvider(account: account, provider: secondary))
+        await coordinator.refresh(.toolsChanged, account: account.key)
+        XCTAssertEqual(primary.fetches, 1)
+        XCTAssertEqual(secondary.fetches, 1)
+        XCTAssertEqual(recorder.all.last?.map(\.id), [account.key])
+
+        await coordinator.removeAccount(account.key)
+        let fallback = UsageAccountKey(tool: .githubCopilot)
+        await coordinator.refresh(.toolsChanged, account: fallback)
+        XCTAssertEqual(primary.fetches, 2)
+        XCTAssertEqual(recorder.all.last?.map(\.id), [fallback])
+    }
+
+    func testAdditionalAccountHasSeparateCacheAndCanBeRemovedIndependently() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = UsageCacheStore(directory: directory)
+        let account = ToolAccount(tool: .codex, label: "Work")
+        let primary = CountingProvider(.codex)
+        let secondary = CountingProvider(.codex)
+        let extra = AccountUsageProvider(account: account, provider: secondary)
+        let coordinator = UsageCoordinator(providers: [primary], cache: cache, additionalProviders: [extra])
+        await coordinator.setEnabledTools([.codex])
+        await coordinator.refresh(.launch)
+        XCTAssertEqual(primary.fetches, 1)
+        XCTAssertEqual(secondary.fetches, 1)
+        XCTAssertEqual(Set(cache.load().map(\.accountKey)), [UsageAccountKey(tool: .codex), account.key])
+
+        let restarted = UsageCoordinator(providers: [primary], cache: cache, additionalProviders: [extra])
+        await restarted.setEnabledTools([.codex])
+        let recorder = StatesRecorder()
+        await restarted.setListener { recorder.append($0) }
+        let rehydrated = try XCTUnwrap(recorder.all.last)
+        XCTAssertEqual(rehydrated.map(\.displayName), ["Codex", "Codex · Work"])
+        XCTAssertTrue(rehydrated.allSatisfy(\.isRehydrated))
+
+        await restarted.refresh(.toolsChanged, account: account.key)
+        XCTAssertEqual(primary.fetches, 1)
+        XCTAssertEqual(secondary.fetches, 2)
+        await restarted.removeAccount(account.key)
+        XCTAssertEqual(cache.load().map(\.accountKey), [UsageAccountKey(tool: .codex)])
+        XCTAssertEqual(recorder.all.last?.map(\.displayName), ["Codex"])
+    }
+
     func testRestoredSnapshotStaysMarkedUntilTheFirstSuccessfulRead() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: directory) }

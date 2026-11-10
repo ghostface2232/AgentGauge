@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Security
 
@@ -198,6 +199,8 @@ public actor ClaudeCredentialSource: CredentialSource {
     public static let keychainService = "Claude Code-credentials"
 
     private let keychain: any KeychainReading
+    private let service: String
+    private let scopeHistory: Bool
     private let fileURL: URL
     private let profileURL: URL
     private let now: @Sendable () -> Date
@@ -212,33 +215,45 @@ public actor ClaudeCredentialSource: CredentialSource {
         keychain: any KeychainReading = SecurityToolKeychain(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        scopedConfigDirectory: URL? = nil
     ) {
         self.keychain = keychain
-        let configDirectory = ProviderText.normalize(environment["CLAUDE_CONFIG_DIR"])
+        let customDirectory = scopedConfigDirectory ?? ProviderText.normalize(environment["CLAUDE_CONFIG_DIR"])
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? homeDirectory.appending(path: ".claude", directoryHint: .isDirectory)
+        let configDirectory = customDirectory ?? homeDirectory.appending(path: ".claude", directoryHint: .isDirectory)
+        // An added account must never fall back to the default Keychain item.
+        service = scopedConfigDirectory.map(Self.serviceName) ?? Self.keychainService
+        scopeHistory = scopedConfigDirectory != nil
         fileURL = configDirectory.appending(path: ".credentials.json")
         // Claude Code keeps the profile inside the config directory when CLAUDE_CONFIG_DIR is
         // set, and in the home directory otherwise.
-        profileURL = (ProviderText.normalize(environment["CLAUDE_CONFIG_DIR"]) != nil ? configDirectory : homeDirectory)
+        profileURL = (customDirectory ?? homeDirectory)
             .appending(path: ".claude.json")
         self.now = now
+    }
+
+    static func serviceName(for directory: URL) -> String {
+        let digest = SHA256.hash(data: Data(directory.path.precomposedStringWithCanonicalMapping.utf8))
+        let suffix = digest.prefix(4).map { String(format: "%02x", Int($0)) }.joined()
+        return "\(keychainService)-\(suffix)"
     }
 
     public func read(interactive: Bool) async -> CredentialRead {
         let result = await readCredential(interactive: interactive)
         // Applied after the cached read, not inside it: the profile moves without the
         // keychain item's modification date doing so.
-        guard case .available(var credential) = result,
-              let data = try? Data(contentsOf: profileURL),
-              let plan = CredentialParsing.claudeProfilePlan(from: data) else { return result }
-        credential.plan = plan
+        guard case .available(var credential) = result else { return result }
+        let profile = (try? Data(contentsOf: profileURL)).map(CredentialParsing.claudeProfile)
+        credential.plan = profile?.plan ?? credential.plan
+        if scopeHistory {
+            credential.historyIdentity = UsageIdentity.hash(subject: profile?.subject, token: credential.accessToken)
+        }
         return .available(credential)
     }
 
     private func readCredential(interactive: Bool) async -> CredentialRead {
-        switch await keychain.newestItem(service: Self.keychainService) {
+        switch await keychain.newestItem(service: service) {
         case .found(let item):
             return await readKeychain(item, interactive: interactive)
         case .failed(let status):
@@ -272,7 +287,7 @@ public actor ClaudeCredentialSource: CredentialSource {
 
         let result: CredentialRead
         cachedDocument = nil
-        switch await keychain.password(service: Self.keychainService, account: item.account) {
+        switch await keychain.password(service: service, account: item.account) {
         case .data(let data):
             result = parse(data)
             if case .available = result { cachedDocument = data }

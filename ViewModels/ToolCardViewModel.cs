@@ -18,11 +18,13 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// <summary>Recent recorded readings for the ETA projection; null in tests / when absent.</summary>
     private readonly IUsageHistorySource? _history;
 
-    public ToolCardViewModel(CachedUsage cached, IUsageHistorySource? history = null)
+    public ToolCardViewModel(CachedUsage cached, IUsageHistorySource? history = null, string? accountLabel = null)
     {
         _history = history;
         ToolName = cached.ToolName;
-        var descriptor = ToolCatalog.All.FirstOrDefault(d => d.DisplayName == ToolName);
+        var descriptor = StatusTargetMatcher.Descriptor(ToolName);
+        DisplayName = descriptor?.DisplayName ?? ToolName;
+        AccountLabel = accountLabel;
         LogoGeometry = descriptor is null ? null : ToolLogoGeometry.For(descriptor.Kind);
         StatusText = string.Empty;
         Plan = string.Empty;
@@ -33,6 +35,9 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
     /// <summary>Stable across updates; used to reconcile cards.</summary>
     public string ToolName { get; }
+    public string DisplayName { get; }
+    public string? AccountLabel { get; }
+    public bool HasAccountLabel => AccountLabel is not null;
 
     /// <summary>XAML path data of the tool's logo; null for a tool the catalog does not know.</summary>
     public string? LogoGeometry { get; }
@@ -45,7 +50,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
     public partial string ServiceStatusText { get; set; } = "";
     [ObservableProperty]
     public partial string ServiceStatusDescription { get; set; } = "";
-    public Uri? StatusPageUrl => ToolCatalog.All.FirstOrDefault(d => d.DisplayName == ToolName)?.StatusPageUrl;
+    public Uri? StatusPageUrl => StatusTargetMatcher.Descriptor(ToolName)?.StatusPageUrl;
 
     public void ApplyServiceStatus(ProviderStatus? status)
     {
@@ -250,6 +255,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
         ResetCreditsDescription = deadline is null ? string.Empty : ResetCreditText.Description(deadline);
 
         var windows = OrderForDisplay(cached.Snapshot?.Windows ?? Array.Empty<UsageWindow>());
+        var historyKey = cached.Snapshot?.HistoryKey ?? ToolName;
 
         if (windows.Count == 0)
         {
@@ -279,7 +285,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
             // recorded burn rate. Both history reads are memory-backed after the first, so
             // this stays cheap on the UI thread. The profile is set before Update so an
             // existing row derives its caption once, against the current profile.
-            var profile = _history?.GetWeekdayProfile(ToolName, window.Key);
+            var profile = _history?.GetWeekdayProfile(historyKey, window.Key);
             var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
@@ -294,7 +300,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
                 existing.WeekdayProfile = profile;
                 existing.Update(window);
             }
-            var samples = _history?.GetRecent(ToolName, window.Key, UsageBurndown.Lookback) ?? [];
+            var samples = _history?.GetRecent(historyKey, window.Key, UsageBurndown.Lookback) ?? [];
             existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
             // The row re-resolves any active hover against the new points itself.
             existing.Burndown = UsageBurndown.Build(window, samples, DateTimeOffset.UtcNow);

@@ -401,15 +401,18 @@ public actor DelegatedTokenRefresher: DelegatedRefreshing {
     private let locator: any CLILocating
     private let runner: any ProcessRunning
     private let clock: any MonotonicClock
+    private let account: AccountCLIProfile?
     private var cooldownUntil: TimeInterval?
 
     public init(command: CLICommand, timeout: TimeInterval, locator: any CLILocating,
-                runner: any ProcessRunning, clock: any MonotonicClock = SystemMonotonicClock()) {
+                runner: any ProcessRunning, clock: any MonotonicClock = SystemMonotonicClock(),
+                account: AccountCLIProfile? = nil) {
         self.command = command
         self.timeout = timeout
         self.locator = locator
         self.runner = runner
         self.clock = clock
+        self.account = account
     }
 
     public func tryRefresh() async -> Bool {
@@ -422,7 +425,8 @@ public actor DelegatedTokenRefresher: DelegatedRefreshing {
             cooldownUntil = clock.now() + Self.successCooldown
             return false
         }
-        let environment = await locator.environment(for: executable)
+        let inherited = await locator.environment(for: executable)
+        let environment = account?.applying(to: inherited) ?? inherited
         let result = await runner.run(executable, arguments: command.arguments, environment: environment,
                                       timeout: timeout, captureOutput: false)
         guard result.launched else {

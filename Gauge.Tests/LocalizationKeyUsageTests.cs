@@ -42,12 +42,12 @@ public sealed class LocalizationKeyUsageTests
 
     private static IEnumerable<string> SourceFiles(string pattern)
     {
-        var sep = Path.DirectorySeparatorChar;
-        return Directory.EnumerateFiles(RepoRoot(), pattern, SearchOption.AllDirectories)
-            .Where(p => !p.Contains($"{sep}obj{sep}")
-                     && !p.Contains($"{sep}bin{sep}")
-                     && !p.Contains($"{sep}Gauge.Tests{sep}")
-                     && !p.Contains($"{sep}Ref{sep}"));
+        var root = RepoRoot();
+        var excluded = new HashSet<string>(["obj", "bin", "Gauge.Tests", "Ref"], StringComparer.OrdinalIgnoreCase);
+        // SDK globs exclude dot directories, which can contain other Git worktrees.
+        return Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories)
+            .Where(file => !Path.GetRelativePath(root, file).Split(Path.DirectorySeparatorChar).SkipLast(1)
+                .Any(directory => directory.StartsWith('.') || excluded.Contains(directory)));
     }
 
     // Walk up from the test binary until the directory containing Gauge.csproj — robust to

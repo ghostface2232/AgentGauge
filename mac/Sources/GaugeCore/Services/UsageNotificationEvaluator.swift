@@ -10,6 +10,8 @@ public struct UsageNotification: Sendable, Equatable {
     public var kind: UsageNotificationKind
     public var level: UsageLevel
     public var tool: ToolKind
+    public var profileID: UUID? = nil
+    public var accountKey: UsageAccountKey { UsageAccountKey(tool: tool, profileID: profileID) }
     public var windowID: String?
     public var title: String
     public var message: String
@@ -29,11 +31,11 @@ public struct UsageNotificationEvaluator: Sendable {
     private static let resetDropMinimum = 0.10
 
     private var observations: [Key: Observation] = [:]
-    private var deadlineCaptures: [ToolKind: Date] = [:]
+    private var deadlineCaptures: [String: Date] = [:]
     private var warnedDeadlines = Set<DeadlineKey>()
     /// Tools just shown again, whose next snapshot is the coordinator's cache from before
     /// they were hidden.
-    private var resumingTools = Set<ToolKind>()
+    private var resumingAccounts = Set<UsageAccountKey>()
     /// Windows whose baseline came from such a snapshot: the next newer observation replaces
     /// it rather than being compared with it, so a reset or crossing that happened while the
     /// tool was hidden is never replayed when it comes back.
@@ -47,24 +49,25 @@ public struct UsageNotificationEvaluator: Sendable {
         observations.removeAll()
         deadlineCaptures.removeAll()
         resumeBaseline.removeAll()
-        resumingTools.removeAll()
+        resumingAccounts.removeAll()
     }
 
     /// A hidden tool was shown again. Hidden tools are not emitted, so their history is
     /// already gone; this makes sure the stale cache that arrives first cannot become the
     /// baseline the first live read is compared against.
-    public mutating func toolShown(_ tool: ToolKind) {
-        resumingTools.insert(tool)
+    public mutating func toolShown(_ tool: ToolKind, profileID: UUID? = nil) {
+        resumingAccounts.insert(UsageAccountKey(tool: tool, profileID: profileID))
     }
 
     public mutating func evaluate(_ states: [ToolState], now: Date) -> [UsageNotification] {
         var notifications: [UsageNotification] = []
         var present = Set<Key>()
-        var presentDeadlineTools = Set<ToolKind>()
+        var presentDeadlineAccounts = Set<String>()
 
         for state in states {
             guard let snapshot = state.snapshot else { continue }
-            presentDeadlineTools.insert(snapshot.tool)
+            let historyKey = state.id.historyKey(snapshot.historyIdentity)
+            presentDeadlineAccounts.insert(historyKey)
             let windows = snapshot.windows.filter(Self.isSupported)
 
             // Restored from disk at launch: it can be days old, so comparing the first live
@@ -73,23 +76,23 @@ public struct UsageNotificationEvaluator: Sendable {
             // tool's resume mark is for, so this uses it up; left set, it would make the first
             // live reading a throwaway baseline and swallow the second one too.
             if state.isRehydrated {
-                resumingTools.remove(snapshot.tool)
+                resumingAccounts.remove(state.id)
                 continue
             }
 
             // A failed refresh re-serves the last good snapshot: keep its keys alive without
             // evaluating cached values as new transitions.
             if state.lastRefreshFailed {
-                windows.forEach { present.insert(Key(tool: snapshot.tool, window: $0.id)) }
+                windows.forEach { present.insert(Key(account: state.id, identity: snapshot.historyIdentity, window: $0.id)) }
                 continue
             }
 
-            let resuming = resumingTools.remove(snapshot.tool) != nil
-            if let alert = observeResetDeadline(snapshot, resuming: resuming, now: now) {
+            let resuming = resumingAccounts.remove(state.id) != nil
+            if let alert = observeResetDeadline(state, snapshot: snapshot, historyKey: historyKey, resuming: resuming, now: now) {
                 notifications.append(alert)
             }
             for window in windows {
-                let key = Key(tool: snapshot.tool, window: window.id)
+                let key = Key(account: state.id, identity: snapshot.historyIdentity, window: window.id)
                 present.insert(key)
                 guard let previous = observations[key], !resuming else {
                     observations[key] = .baseline(window, capturedAt: snapshot.capturedAt)
@@ -106,7 +109,7 @@ public struct UsageNotificationEvaluator: Sendable {
                 let reset = Self.isReset(previous, window)
                 if reset, Self.supportsResetNotification(window.type),
                    previous.highestRatio >= Self.minimumThreshold(window.type) {
-                    notifications.append(Self.resetNotification(snapshot.tool, window))
+                    notifications.append(Self.resetNotification(state, window))
                 }
 
                 // A new cycle re-arms its thresholds even when no reset toast is due: usage can
@@ -116,7 +119,7 @@ public struct UsageNotificationEvaluator: Sendable {
                 var crossed: Set<Double> = newCycle ? [] : previous.crossed
                 for threshold in Self.thresholds(window.type)
                 where !crossed.contains(threshold) && previous.ratio < threshold && window.usedRatio >= threshold {
-                    notifications.append(Self.thresholdNotification(snapshot.tool, window, threshold: threshold, now: now))
+                    notifications.append(Self.thresholdNotification(state, window, threshold: threshold, now: now))
                     crossed.insert(threshold)
                 }
                 // A polling gap that spans a reset into an already-high cycle is marked
@@ -135,29 +138,32 @@ public struct UsageNotificationEvaluator: Sendable {
         // A tool that is hidden or removed drops its history; showing it again is a fresh baseline.
         observations = observations.filter { present.contains($0.key) }
         resumeBaseline.formIntersection(present)
-        deadlineCaptures = deadlineCaptures.filter { presentDeadlineTools.contains($0.key) }
+        deadlineCaptures = deadlineCaptures.filter { presentDeadlineAccounts.contains($0.key) }
         warnedDeadlines = warnedDeadlines.filter { $0.expiresAt > now }
         return notifications
     }
 
-    private mutating func observeResetDeadline(_ snapshot: UsageSnapshot, resuming: Bool, now: Date) -> UsageNotification? {
-        if let previous = deadlineCaptures[snapshot.tool], snapshot.capturedAt <= previous { return nil }
-        deadlineCaptures[snapshot.tool] = snapshot.capturedAt
+    private mutating func observeResetDeadline(
+        _ state: ToolState, snapshot: UsageSnapshot, historyKey: String, resuming: Bool, now: Date
+    ) -> UsageNotification? {
+        if let previous = deadlineCaptures[historyKey], snapshot.capturedAt <= previous { return nil }
+        deadlineCaptures[historyKey] = snapshot.capturedAt
         guard !resuming, let deadline = ResetCreditDeadline.upcoming(snapshot.resetCreditDeadlines, now: now),
-              warnedDeadlines.insert(DeadlineKey(tool: snapshot.tool, expiresAt: deadline.expiresAt)).inserted
+              warnedDeadlines.insert(DeadlineKey(historyKey: historyKey, expiresAt: deadline.expiresAt)).inserted
         else { return nil }
 
         return UsageNotification(
             kind: .resetCredits,
             level: deadline.expiresAt.timeIntervalSince(now) <= 86_400 ? .danger : .caution,
-            tool: snapshot.tool,
+            tool: state.tool,
+            profileID: state.id.profileID,
             windowID: nil,
-            title: L10n.format("Notif_ResetCreditsTitle", snapshot.tool.displayName),
+            title: L10n.format("Notif_ResetCreditsTitle", state.displayName),
             message: ResetCreditText.description(deadline))
     }
 
     private struct DeadlineKey: Hashable, Sendable {
-        let tool: ToolKind
+        let historyKey: String
         let expiresAt: Date
     }
 
@@ -198,28 +204,31 @@ public struct UsageNotificationEvaluator: Sendable {
         Set(thresholds(window.type).filter { window.usedRatio >= $0 })
     }
 
-    private static func thresholdNotification(_ tool: ToolKind, _ window: UsageWindow, threshold: Double, now: Date) -> UsageNotification {
+    private static func thresholdNotification(_ state: ToolState, _ window: UsageWindow, threshold: Double, now: Date) -> UsageNotification {
         UsageNotification(
             kind: .threshold,
             level: threshold >= UsageLevel.dangerThreshold ? .danger : .caution,
-            tool: tool,
+            tool: state.tool,
+            profileID: state.id.profileID,
             windowID: window.id,
-            title: NotificationText.thresholdTitle(tool: tool, window: window, percent: Int((threshold * 100).rounded())),
+            title: NotificationText.thresholdTitle(toolName: state.displayName, window: window, percent: Int((threshold * 100).rounded())),
             message: ResetTimeFormatter.notification(window.resetTime, now: now))
     }
 
-    private static func resetNotification(_ tool: ToolKind, _ window: UsageWindow) -> UsageNotification {
+    private static func resetNotification(_ state: ToolState, _ window: UsageWindow) -> UsageNotification {
         UsageNotification(
             kind: .reset,
             level: .ok,
-            tool: tool,
+            tool: state.tool,
+            profileID: state.id.profileID,
             windowID: window.id,
-            title: NotificationText.resetTitle(tool: tool, window: window),
+            title: NotificationText.resetTitle(toolName: state.displayName, window: window),
             message: NotificationText.resetMessage(availablePercent: min(max((1 - window.usedRatio) * 100, 0), 100)))
     }
 
     private struct Key: Hashable, Sendable {
-        var tool: ToolKind
+        var account: UsageAccountKey
+        var identity: String?
         var window: String
     }
 

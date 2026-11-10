@@ -18,6 +18,13 @@ internal static class Strings
         //                       { Korean,            English,             Japanese }
         ["Settings"]          = ["설정",             "Settings",          "設定"],
         ["Tooltip_Disconnect"] = ["연결 해제",        "Disconnect",        "接続解除"],
+        ["Account_Add"] = ["계정 추가", "Add account", "アカウントを追加"],
+        ["Account_Name"] = ["계정 이름", "Account label", "アカウント名"],
+        ["Account_GitHubUsername"] = ["GitHub 사용자 이름", "GitHub username", "GitHub ユーザー名"],
+        ["Account_InvalidName"] = ["유효한 새 이름을 입력해 주세요.", "Enter a valid, unused name.", "未使用の有効な名前を入力してください。"],
+        ["Account_CopilotSignIn"] = ["이 계정으로 GitHub CLI에서 gh auth login을 실행해 주세요.", "Run gh auth login in GitHub CLI for this account.", "このアカウントで GitHub CLI の gh auth login を実行してください。"],
+        ["Account_CopilotNamedOnly"] = ["추가한 GitHub 사용자만 표시됩니다. 보려는 계정의 사용자 이름을 각각 추가해 주세요.", "Only added GitHub users are shown. Add each username you want to monitor.", "追加した GitHub ユーザーのみ表示します。確認したいユーザー名をそれぞれ追加してください。"],
+        ["Auth_CodexLoginBusy"] = ["진행 중인 Codex 로그인을 완료한 뒤 다시 시도해 주세요.", "Finish the current Codex sign-in before trying again.", "進行中の Codex サインインが終わってから再試行してください。"],
         ["Tooltip_Refresh"]   = ["새로고침",          "Refresh",           "更新"],
         ["Status_RefreshIssue"] = ["갱신 실패",        "Refresh failed",    "更新失敗"],
         ["Tooltip_RefreshIssue"] = ["갱신하지 못해 이전 값을 보여주고 있어요", "Couldn't refresh · showing the last values", "更新できず、前回の値を表示しています"],

@@ -26,12 +26,14 @@ public sealed class ToolRegistry
     // always see a consistent snapshot, never a torn mid-resize state.
     private volatile ReadOnlyCollection<ToolKind> _enabled;
     private volatile ReadOnlyCollection<ToolKind> _hidden;
+    private volatile IReadOnlyList<ToolAccount> _accounts;
 
     public ToolRegistry(IToolRegistryStore store)
     {
         _store = store;
         _enabled = store.Load().Distinct().ToList().AsReadOnly();
         _hidden = store.LoadHidden().Where(_enabled.Contains).Distinct().ToList().AsReadOnly();
+        _accounts = store.LoadAccounts().ToList().AsReadOnly();
     }
 
     /// <summary>Raised after the registered SET changes (add/remove), post-persist. The usage
@@ -44,6 +46,50 @@ public sealed class ToolRegistry
     public event EventHandler? OrderChanged;
 
     public event EventHandler<ToolKind>? VisibilityChanged;
+    public event EventHandler<string>? AccountsChanged;
+    public IReadOnlyList<ToolAccount> Accounts => _accounts;
+    public bool TracksNamedCopilotAccounts => _accounts.Any(account => account.Tool == ToolKind.GitHubCopilot);
+
+    public bool IsRegistered(string key) => key.Contains(ToolAccount.KeySeparator)
+        ? _accounts.Any(account => account.Key == key && IsEnabled(account.Tool))
+        : StatusTargetMatcher.Descriptor(key) is { } descriptor && IsEnabled(descriptor.Kind)
+            && (descriptor.Kind != ToolKind.GitHubCopilot || !TracksNamedCopilotAccounts);
+
+    public bool IsActive(string key) => IsRegistered(key)
+        && StatusTargetMatcher.Descriptor(key) is { } descriptor && !IsHidden(descriptor.Kind);
+
+    public ToolAccount? FindAccount(string key) => _accounts.FirstOrDefault(account => account.Key == key);
+
+    public string DisplayName(string key) => FindAccount(key)?.DisplayName ?? key;
+
+    public IEnumerable<string> AccountKeysFor(ToolKind tool) =>
+        _accounts.Where(account => account.Tool == tool).Select(account => account.Key)
+            .Prepend(ToolCatalog.For(tool).DisplayName);
+
+    public bool CanAddAccount(ToolKind tool, string label) =>
+        IsEnabled(tool) && ToolAccount.SupportsAdditionalAccounts(tool) && ToolAccount.IsValidLabel(tool, label)
+        && !_accounts.Any(account => account.Tool == tool
+            && string.Equals(account.Label, label, StringComparison.OrdinalIgnoreCase));
+
+    public bool AddAccount(ToolKind tool, string label)
+    {
+        if (!CanAddAccount(tool, label)) return false;
+        var account = new ToolAccount(Guid.NewGuid(), tool, label);
+        return SaveAccounts(_accounts.Append(account), account.Key);
+    }
+
+    public bool RemoveAccount(string key) =>
+        FindAccount(key) is not null && SaveAccounts(_accounts.Where(account => account.Key != key), key);
+
+    private bool SaveAccounts(IEnumerable<ToolAccount> accounts, string changedKey)
+    {
+        var next = accounts.ToList().AsReadOnly();
+        if (!_store.TrySaveAccounts(next)) return false;
+        _accounts = next;
+        AccountsChanged?.Invoke(this, changedKey);
+        return true;
+    }
+
     public bool IsHidden(ToolKind kind) => _hidden.Contains(kind);
     public bool IsActive(ToolKind kind) => IsEnabled(kind) && !IsHidden(kind);
 
@@ -180,6 +226,7 @@ public sealed class ToolRegistry
     {
         _store.Save(_enabled);
         _store.TrySaveHidden(_hidden);
+        if (_accounts.Count > 0) _store.TrySaveAccounts(_accounts);
     }
 
     private void Persist(bool membershipChanged)

@@ -63,7 +63,7 @@ public enum GaugeLayout {
     }
 }
 
-/// The chosen or most-used tool's ring in single mode, or one ring per selected tool in multi mode.
+/// The most-used account's ring in automatic mode, or one ring per selected account.
 public struct MenuBarSummary: Sendable, Equatable {
     public let highestUsedRatio: Double?
     /// The ring to draw, or nil when no shown tool has a usable window yet.
@@ -73,12 +73,19 @@ public struct MenuBarSummary: Sendable, Equatable {
     /// One line per tool ("Claude  5H 32% · W 15%"), for the hover tooltip.
     public let tooltip: String
 
-    public init(states: [ToolState], selectedTools: Set<ToolKind>? = nil,
+    public init(states: [ToolState], selectedAccounts: Set<UsageAccountKey>? = nil,
                 displayBasis: DisplayBasis = .used) {
         let rings = states.compactMap { StatusRing(state: $0) }
-        if let selectedTools {
-            let selected = ToolKind.allCases.filter { selectedTools.contains($0) }.map { tool in
-                rings.first { $0.tool == tool } ?? StatusRing(tool: tool, short: nil, long: nil)
+        if let selectedAccounts {
+            // Use catalog order for services and card order for accounts of the same service.
+            let knownKeys = states.map(\.id)
+            let ordered = knownKeys + selectedAccounts.subtracting(knownKeys).sorted { $0.storageKey < $1.storageKey }
+            let selected = ToolKind.allCases.flatMap { tool in
+                ordered.filter { $0.tool == tool && selectedAccounts.contains($0) }
+            }.map { key in
+                rings.first { $0.accountKey == key } ?? StatusRing(
+                    tool: key.tool, short: nil, long: nil, profileID: key.profileID,
+                    displayName: states.first { $0.id == key }?.displayName)
             }
             selectedRings = selected
             ring = nil
@@ -111,7 +118,7 @@ public struct MenuBarSummary: Sendable, Equatable {
                 window.map { "\(WindowLabels.label(for: $0)) \(basis.percent(for: $0.usedRatio))%" }
             }
             let detail = readings.isEmpty ? L10n.get("NoData") : readings.joined(separator: " · ")
-            return "\(ring.tool.displayName)  \(detail)"
+            return "\(ring.displayName)  \(detail)"
         }.joined(separator: "\n")
     }
 
@@ -144,55 +151,66 @@ public struct MenuBarSummary: Sendable, Equatable {
 
 public enum MenuBarSelection: Sendable, Equatable {
     case automatic
-    case services(Set<ToolKind>)
+    case accounts(Set<UsageAccountKey>)
 
     public init(savedValues: [String]?, legacyTarget: String? = nil) {
         if let savedValues {
-            self = savedValues.contains("auto") ? .automatic : .services(Set(savedValues.compactMap(ToolKind.init(rawValue:))))
+            self = savedValues.contains("auto") ? .automatic : .accounts(Set(savedValues.compactMap { Self.account(from: $0) }))
         } else {
-            self = Self.legacyTool(from: legacyTarget).map { .services([$0]) } ?? .automatic
+            self = Self.account(from: legacyTarget).map { .accounts([$0]) } ?? .automatic
         }
     }
 
     public var savedValues: [String] {
-        tools?.map(\.rawValue).sorted() ?? ["auto"]
+        selectedAccounts?.map(\.storageKey).sorted() ?? ["auto"]
     }
 
-    public var tools: Set<ToolKind>? {
-        if case .services(let tools) = self { return tools }
+    public var selectedAccounts: Set<UsageAccountKey>? {
+        if case .accounts(let accounts) = self { return accounts }
         return nil
     }
 
-    public mutating func set(_ tool: ToolKind, selected: Bool) {
-        var next = tools ?? []
+    public mutating func set(_ account: UsageAccountKey, selected: Bool) {
+        var next = selectedAccounts ?? []
         if selected {
-            next.insert(tool)
+            next.insert(account)
         } else {
-            next.remove(tool)
+            next.remove(account)
         }
-        self = .services(next)
+        self = .accounts(next)
     }
 
-    /// An older install may store a tool's display name or a window key such as "codex:weekly".
-    private static func legacyTool(from key: String?) -> ToolKind? {
+    /// Accepts account keys, service names, and older window keys such as "codex:weekly".
+    private static func account(from key: String?) -> UsageAccountKey? {
         guard let key, !key.isEmpty, key.caseInsensitiveCompare("all") != .orderedSame else { return nil }
-        let toolPart = String(key.split(separator: ":", maxSplits: 1).first ?? "")
-        return ToolKind.allCases.first {
+        let parts = key.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        let toolPart = String(parts[0].split(separator: ":", maxSplits: 1).first ?? "")
+        guard let tool = ToolKind.allCases.first(where: {
             $0.rawValue.caseInsensitiveCompare(toolPart) == .orderedSame ||
                 $0.displayName.caseInsensitiveCompare(toolPart) == .orderedSame
+        }) else { return nil }
+        if parts.count == 2 {
+            guard let profileID = UUID(uuidString: String(parts[1])) else { return nil }
+            return UsageAccountKey(tool: tool, profileID: profileID)
         }
+        return UsageAccountKey(tool: tool)
     }
+
 }
 
 /// A tool's logo ring: the top arc is the short (5-hour) window, the bottom arc the long one
 /// (weekly, or a billing cycle). A nil window leaves that arc as a bare track.
 public struct StatusRing: Sendable, Equatable {
-    public let tool: ToolKind
+    public let accountKey: UsageAccountKey
+    public let displayName: String
+    public var tool: ToolKind { accountKey.tool }
     public let short: UsageWindow?
     public let long: UsageWindow?
 
-    public init(tool: ToolKind, short: UsageWindow?, long: UsageWindow?) {
-        self.tool = tool
+    public init(tool: ToolKind, short: UsageWindow?, long: UsageWindow?,
+                profileID: UUID? = nil, displayName: String? = nil) {
+        accountKey = UsageAccountKey(tool: tool, profileID: profileID)
+        self.displayName = displayName ?? tool.displayName
         self.short = short
         self.long = long
     }
@@ -202,7 +220,7 @@ public struct StatusRing: Sendable, Equatable {
         guard let snapshot = state.snapshot else { return nil }
         let (short, long) = StatusRingSelection.select(snapshot.windows)
         guard short != nil || long != nil else { return nil }
-        self.init(tool: state.tool, short: short, long: long)
+        self.init(tool: state.tool, short: short, long: long, profileID: state.id.profileID, displayName: state.displayName)
     }
 
     /// The higher of the two arcs' used shares.

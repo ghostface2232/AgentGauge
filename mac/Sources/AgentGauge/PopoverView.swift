@@ -287,8 +287,14 @@ struct PopoverView: View {
                 ForEach(model.states) { state in
                     ToolCard(
                         state: state,
-                        onSignIn: { model.signIn(state.tool) },
-                        onRetry: { model.refreshNow() })
+                        onSignIn: {
+                            if let account = state.account { model.signIn(account) }
+                            else { model.signIn(state.tool) }
+                        },
+                        onRetry: {
+                            if state.account != nil { model.refreshAccount(state.id) }
+                            else { model.refreshNow() }
+                        })
                 }
             }
         }
@@ -366,7 +372,9 @@ struct ToolCard: View {
 
     private var windows: [UsageWindow] { state.snapshot?.windows ?? [] }
     private var status: ProviderStatus? { model.serviceStatuses[state.tool].flatMap { $0.isVisible ? $0 : nil } }
-    private var apiCost: (text: String, detail: String, accessibility: String)? { model.apiCostText(for: state.tool) }
+    private var apiCost: (text: String, detail: String, accessibility: String)? {
+        state.account == nil ? model.apiCostText(for: state.tool) : nil
+    }
     private var creditWarning: ResetCreditDeadline? {
         ResetCreditDeadline.upcoming(state.snapshot?.resetCreditDeadlines, now: model.now)
     }
@@ -374,6 +382,11 @@ struct ToolCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
+            if let account = state.account {
+                Text(verbatim: account.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             content
         }
         .padding(Metrics.cardPadding)
@@ -445,7 +458,7 @@ struct ToolCard: View {
             let groups = WindowGrouping.groups(windows)
             switch model.effectiveViewMode {
             case .gauge:
-                GaugeGroupsView(groups: groups, basis: model.displayBasis) { model.details(for: state.tool, window: $0) }
+                GaugeGroupsView(groups: groups, basis: model.displayBasis) { model.details(for: state, window: $0) }
             case .bar:
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     if index > 0 { Divider() }
@@ -456,7 +469,7 @@ struct ToolCard: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(group.windows) { window in
-                            UsageRow(window: window, details: model.details(for: state.tool, window: window),
+                            UsageRow(window: window, details: model.details(for: state, window: window),
                                      basis: model.displayBasis, showsSparkline: model.showSparkline)
                         }
                     }
@@ -468,12 +481,18 @@ struct ToolCard: View {
     @ViewBuilder
     private var placeholder: some View {
         switch state.auth {
-        case .signedOut:
-            message(AuthText.missing(state.tool), action: AuthText.signInAction(state.tool), perform: onSignIn)
-        case .rejected:
-            message(AuthText.expired(state.tool), action: AuthText.signInAction(state.tool), perform: onSignIn)
-        case .unreadable:
-            message(AuthText.readFailed(state.tool), action: AuthText.signInAction(state.tool), perform: onSignIn)
+        case .signedOut, .rejected, .unreadable:
+            let text = state.auth == .signedOut ? AuthText.missing(state.tool)
+                : (state.auth == .rejected ? AuthText.expired(state.tool) : AuthText.readFailed(state.tool))
+            if state.account != nil && state.tool == .githubCopilot {
+                message(L10n.get("Account_CopilotSignIn"), action: L10n.get("Action_TryAgain"), perform: onRetry)
+            } else if model.signingIn.contains(state.id) {
+                Text(L10n.get("Account_LoginRunning")).font(.callout).foregroundStyle(.secondary)
+            } else {
+                let failed = model.failedAccountSignIns.contains(state.id)
+                message(failed ? L10n.get("Account_LoginFailed") : text,
+                        action: AuthText.signInAction(state.tool), enabled: model.canSignIn(state.id), perform: onSignIn)
+            }
         case .keychainDenied:
             message(L10n.get("Auth_KeychainDenied"), action: L10n.get("Action_TryAgain"), perform: onRetry)
         case .unknown, .signedIn:
@@ -491,13 +510,13 @@ struct ToolCard: View {
         }
     }
 
-    private func message(_ text: String, action: String, perform: @escaping () -> Void) -> some View {
+    private func message(_ text: String, action: String, enabled: Bool = true, perform: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(text)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(action, action: perform)
+            Button(action, action: perform).disabled(!enabled)
                 .cardActionStyle()
         }
     }

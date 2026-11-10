@@ -67,7 +67,7 @@ public sealed class UsageCoordinator : IDisposable
     private readonly Dictionary<string, CachedUsage> _cache = new();
     private readonly List<string> _toolOrder = new();
     // Monotonic timestamps, so the intervals below survive a wall-clock change.
-    private readonly Dictionary<ToolKind, long> _lastProviderAttemptTimestamps = new();
+    private readonly Dictionary<string, long> _lastProviderAttemptTimestamps = new();
 
     private long _lastRefreshStartedTimestamp = NeverRefreshed;
     private Task? _loopTask;
@@ -102,6 +102,7 @@ public sealed class UsageCoordinator : IDisposable
     /// sticky per token fingerprint) can be cleared once the token is accepted again.
     /// </summary>
     public event EventHandler<ToolKind>? AuthenticationRecovered;
+    internal event EventHandler<(string Key, bool Accepted)>? AccountAuthenticationChanged;
 
     public UsageCoordinator(
         UsageService usageService,
@@ -141,9 +142,10 @@ public sealed class UsageCoordinator : IDisposable
             return;
         }
 
+        var registered = _usageService.GetRegisteredToolNames();
         foreach (var snapshot in _persistence.Load())
         {
-            if (_cache.ContainsKey(snapshot.ToolName))
+            if (_cache.ContainsKey(snapshot.ToolName) || !registered.Contains(snapshot.ToolName))
             {
                 continue;
             }
@@ -181,7 +183,7 @@ public sealed class UsageCoordinator : IDisposable
     /// Requests an immediate refresh, e.g. when the popover opens. Debounced: if a
     /// refresh ran within the last 10s, the cached state is re-emitted instead.
     /// </summary>
-    public async Task RefreshAsync(RefreshReason reason)
+    public async Task RefreshAsync(RefreshReason reason, string? accountKey = null)
     {
         // A wake/unlock handler can race DisposePipeline and call in after teardown;
         // that must be a quiet no-op, not an ObjectDisposedException from _cts.
@@ -207,7 +209,8 @@ public sealed class UsageCoordinator : IDisposable
 
         await RefreshGuardedAsync(
             reason,
-            waitForExisting: reason is RefreshReason.AuthenticationChanged or RefreshReason.ToolsChanged);
+            waitForExisting: reason is RefreshReason.AuthenticationChanged or RefreshReason.ToolsChanged,
+            accountKey);
     }
 
     /// <summary>
@@ -216,7 +219,7 @@ public sealed class UsageCoordinator : IDisposable
     /// (or silently kill the loop), so cancellation and disposal are treated as normal
     /// shutdown races and anything unexpected is logged instead of rethrown.
     /// </summary>
-    private async Task RefreshGuardedAsync(RefreshReason reason, bool waitForExisting = false)
+    private async Task RefreshGuardedAsync(RefreshReason reason, bool waitForExisting = false, string? accountKey = null)
     {
         try
         {
@@ -226,7 +229,7 @@ public sealed class UsageCoordinator : IDisposable
             // thread, and a cycle does blocking work: WMI queries, credential parsing, SQLite
             // commits and the cache write. Every event it raises goes through the dispatcher.
             var cancellationToken = _cts.Token;
-            await Task.Run(() => RefreshCoreAsync(reason, cancellationToken, waitForExisting), cancellationToken);
+            await Task.Run(() => RefreshCoreAsync(reason, cancellationToken, waitForExisting, accountKey), cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -266,7 +269,8 @@ public sealed class UsageCoordinator : IDisposable
     private async Task RefreshCoreAsync(
         RefreshReason reason,
         CancellationToken cancellationToken,
-        bool waitForExisting = false)
+        bool waitForExisting,
+        string? accountKey)
     {
         // Serialize cycles: if a refresh is already running, don't start another;
         // re-emit the current state so callers still get a fresh notification.
@@ -283,16 +287,21 @@ public sealed class UsageCoordinator : IDisposable
         try
         {
             var enabledProviders = _usageService.GetEnabledProviders();
+            if (accountKey is not null)
+                enabledProviders = enabledProviders.Where(provider => provider.ToolName == accountKey).ToList();
+            var registeredAtStart = _usageService.GetRegisteredToolNames();
+            foreach (var key in _lastProviderAttemptTimestamps.Keys.Where(key => !registeredAtStart.Contains(key)).ToList())
+                _lastProviderAttemptTimestamps.Remove(key);
             var attemptTimestamp = _time.GetTimestamp();
             var adaptive = reason == RefreshReason.Periodic ? GetAdaptiveDecision(attemptTimestamp) : default;
             var providersToRefresh = reason switch
             {
                 RefreshReason.Periodic => enabledProviders
-                    .Where(provider => IsDue(provider.Tool, attemptTimestamp,
+                    .Where(provider => IsDue(provider.ToolName, attemptTimestamp,
                         adaptive.IntervalFor(PeriodicIntervalFor(provider.Tool))))
                     .ToList(),
                 RefreshReason.PopoverOpened => enabledProviders
-                    .Where(provider => IsDue(provider.Tool, attemptTimestamp, ForcedIntervalFor(provider.Tool)))
+                    .Where(provider => IsDue(provider.ToolName, attemptTimestamp, ForcedIntervalFor(provider.Tool)))
                     .ToList(),
                 _ => enabledProviders,
             };
@@ -326,7 +335,7 @@ public sealed class UsageCoordinator : IDisposable
             Interlocked.Exchange(ref _lastRefreshStartedTimestamp, attemptTimestamp);
             foreach (var provider in providersToRefresh)
             {
-                _lastProviderAttemptTimestamps[provider.Tool] = attemptTimestamp;
+                _lastProviderAttemptTimestamps[provider.ToolName] = attemptTimestamp;
             }
 
             fetchingTools = providersToRefresh.Select(provider => provider.ToolName).ToList();
@@ -339,9 +348,10 @@ public sealed class UsageCoordinator : IDisposable
             {
                 priorCaptured = _cache.ToDictionary(kv => kv.Key, kv => kv.Value.Snapshot?.CapturedAt);
             }
-            var results = await _usageService.GetSnapshotsAsync(
+            var attempted = await _usageService.GetSnapshotsAsync(
                 providersToRefresh, cancellationToken, InteractionFor(reason));
             var enabledToolNames = _usageService.GetRegisteredToolNames();
+            var results = attempted.Where(result => enabledToolNames.Contains(result.ToolName)).ToList();
             var purgedTools = MergeIntoCache(results, enabledToolNames);
             ReportAuthenticationOutcomes(results, priorCaptured);
             RecordHistory(results, priorCaptured);
@@ -373,9 +383,9 @@ public sealed class UsageCoordinator : IDisposable
         return true;
     }
 
-    private bool IsDue(ToolKind tool, long nowTimestamp, TimeSpan interval)
+    private bool IsDue(string key, long nowTimestamp, TimeSpan interval)
         => interval <= TimeSpan.Zero
-            || !_lastProviderAttemptTimestamps.TryGetValue(tool, out var previous)
+            || !_lastProviderAttemptTimestamps.TryGetValue(key, out var previous)
             || _time.GetElapsedTime(previous, nowTimestamp) >= interval;
 
     private AdaptiveRefreshDecision GetAdaptiveDecision(long nowTimestamp)
@@ -430,6 +440,15 @@ public sealed class UsageCoordinator : IDisposable
     {
         foreach (var result in results)
         {
+            if (result.ToolName.Contains(ToolAccount.KeySeparator))
+            {
+                if (result.Error is AuthenticationRequiredException)
+                    RaiseAccountAuthenticationChanged(result.ToolName, accepted: false);
+                else if (IsLiveServerSuccess(result, priorCaptured))
+                    RaiseAccountAuthenticationChanged(result.ToolName, accepted: true);
+                continue;
+            }
+
             if (result.Error is AuthenticationRequiredException authError)
             {
                 Raise(AuthenticationRequired, authError.Tool);
@@ -504,6 +523,14 @@ public sealed class UsageCoordinator : IDisposable
         if (handler is null) return;
         if (_dispatcher is not null) _dispatcher.TryEnqueue(() => handler(this, tool));
         else handler(this, tool);
+    }
+
+    private void RaiseAccountAuthenticationChanged(string key, bool accepted)
+    {
+        var handler = AccountAuthenticationChanged;
+        if (handler is null) return;
+        if (_dispatcher is not null) _dispatcher.TryEnqueue(() => handler(this, (key, accepted)));
+        else handler(this, (key, accepted));
     }
 
     private void RaiseToolListEvent(EventHandler<IReadOnlyList<string>>? handler, IReadOnlyList<string> toolNames)

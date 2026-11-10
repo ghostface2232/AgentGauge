@@ -291,6 +291,34 @@ public sealed class CodexProviderTests
         Assert.Equal(1, handler.ResetReads);
     }
 
+    [Fact]
+    public async Task ReadsDeadlinesAgainAfterChangingLoginInTheSameWorkspace()
+    {
+        const string usage = """
+        { "rate_limit": {}, "rate_limit_reset_credits": { "available_count": 1 } }
+        """;
+        var handler = new StubHandler(usage, resetDetails: """{ "credits": [] }""");
+        var credential = new ToolCredential
+        {
+            Tool = ToolKind.Codex, Owner = CredentialOwner.CliLocal, Source = CredentialSource.CliLocal,
+            AccountId = "workspace", AccessToken = "alice-token", HistoryIdentity = "alice",
+        };
+        var source = new StubSource(new CredentialReadResult
+        {
+            Tool = ToolKind.Codex, Status = CredentialReadStatus.Available, Credential = credential,
+        });
+        var provider = new CodexProvider(new HttpClient(handler), source);
+        await provider.GetSnapshotAsync(default);
+
+        source.Result = source.Result with { Credential = credential with { AccessToken = "rotated-token" } };
+        await provider.GetSnapshotAsync(default);
+        Assert.Equal(1, handler.ResetReads);
+
+        source.Result = source.Result with { Credential = credential with { AccessToken = "bob-token", HistoryIdentity = "bob" } };
+        await provider.GetSnapshotAsync(default);
+        Assert.Equal(2, handler.ResetReads);
+    }
+
     [Theory]
     [InlineData("""{ "rate_limit": {}, "rate_limit_reset_credits": { "available_count": 0 } }""", 0)]
     [InlineData("""{ "rate_limit": {}, "rate_limit_reset_credits": {} }""", null)]
@@ -339,10 +367,11 @@ public sealed class CodexProviderTests
 
     private sealed class StubSource(CredentialReadResult result) : ICredentialSource
     {
+        public CredentialReadResult Result { get; set; } = result;
         public CredentialOwner Owner => CredentialOwner.CliLocal;
         public CredentialSource Source => CredentialSource.CliLocal;
         public Task<CredentialReadResult> ReadAsync(ToolKind tool, CancellationToken cancellationToken = default)
-            => Task.FromResult(result);
+            => Task.FromResult(Result);
     }
 
     private sealed class StubHandler(

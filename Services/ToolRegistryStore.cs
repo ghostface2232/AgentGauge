@@ -9,6 +9,8 @@ public interface IToolRegistryStore
     void Save(IReadOnlyCollection<ToolKind> enabled);
     IReadOnlyCollection<ToolKind> LoadHidden() => Array.Empty<ToolKind>();
     bool TrySaveHidden(IReadOnlyCollection<ToolKind> hidden);
+    IReadOnlyList<ToolAccount> LoadAccounts() => [];
+    bool TrySaveAccounts(IReadOnlyList<ToolAccount> accounts) => false;
 }
 
 /// <summary>
@@ -50,6 +52,18 @@ public sealed class ToolRegistryStore : IToolRegistryStore
 
     public bool TrySaveHidden(IReadOnlyCollection<ToolKind> hidden) =>
         AppSettingsFile.TrySave(_directory(), dto => dto.HiddenTools = hidden.Select(k => k.ToString()).ToList());
+
+    public IReadOnlyList<ToolAccount> LoadAccounts() =>
+        (AppSettingsFile.Load(_directory()).AdditionalAccounts ?? [])
+            .Where(account => account is not null && account.Id != Guid.Empty
+                && ToolAccount.SupportsAdditionalAccounts(account.Tool)
+                && ToolAccount.IsValidLabel(account.Tool, account.Label))
+            .DistinctBy(account => account.Id)
+            .DistinctBy(account => (account.Tool, account.Label.ToUpperInvariant()))
+            .ToList();
+
+    public bool TrySaveAccounts(IReadOnlyList<ToolAccount> accounts) =>
+        AppSettingsFile.TrySave(_directory(), dto => dto.AdditionalAccounts = accounts.ToList());
 
     public void Save(IReadOnlyCollection<ToolKind> enabled)
         => AppSettingsFile.Save(_directory(),

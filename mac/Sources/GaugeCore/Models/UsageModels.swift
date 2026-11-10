@@ -187,10 +187,16 @@ public struct ResetCreditDeadline: Codable, Sendable, Hashable {
     }
 }
 
-/// One tool's usage at one point in time — the single model the UI depends on, so a data
+/// One tool account's usage at one point in time — the single model the UI depends on, so a data
 /// source can be swapped without touching the UI.
 public struct UsageSnapshot: Codable, Sendable, Hashable {
     public var tool: ToolKind
+    /// Nil for the default login and for caches written before accounts were supported.
+    public var profileID: UUID?
+    public var accountKey: UsageAccountKey { UsageAccountKey(tool: tool, profileID: profileID) }
+    /// Opaque partition for trends and alert baselines when a profile changes login.
+    public internal(set) var historyIdentity: String?
+    var historyKey: String { accountKey.historyKey(historyIdentity) }
     /// Plan label (e.g. "Max 5x", "Plus"); can be present without any window data.
     public var plan: String?
     public var windows: [UsageWindow]
@@ -201,8 +207,9 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     public var capturedAt: Date
 
     public init(tool: ToolKind, plan: String?, windows: [UsageWindow], resetCredits: Int? = nil,
-                resetCreditDeadlines: [ResetCreditDeadline]? = nil, capturedAt: Date) {
+                resetCreditDeadlines: [ResetCreditDeadline]? = nil, capturedAt: Date, profileID: UUID? = nil) {
         self.tool = tool
+        self.profileID = profileID
         self.plan = plan
         self.windows = windows
         self.resetCredits = resetCredits

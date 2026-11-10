@@ -12,6 +12,7 @@ public enum AuthState: Sendable, Equatable {
 
 public struct ToolState: Sendable, Equatable, Identifiable {
     public var tool: ToolKind
+    public let account: ToolAccount?
     /// The last good snapshot; kept through failures and shown with its capture time.
     public var snapshot: UsageSnapshot?
     public var lastRefreshFailed = false
@@ -24,11 +25,13 @@ public struct ToolState: Sendable, Equatable, Identifiable {
     /// True until this run has read the tool successfully: `snapshot` came from the disk cache.
     public var isRehydrated = false
 
-    public var id: ToolKind { tool }
+    public var id: UsageAccountKey { account?.key ?? UsageAccountKey(tool: tool) }
+    public var displayName: String { account?.displayName ?? tool.displayName }
 
-    public init(tool: ToolKind, snapshot: UsageSnapshot? = nil) {
+    public init(tool: ToolKind, snapshot: UsageSnapshot? = nil, account: ToolAccount? = nil) {
         self.tool = tool
         self.snapshot = snapshot
+        self.account = account
     }
 }
 
@@ -70,18 +73,22 @@ public actor UsageCoordinator {
     /// refresh (up to 30 s, plus the login-shell probe) and the HTTP read's 30 s.
     public static let defaultFetchDeadline: Duration = .seconds(150)
 
-    private let providers: [ToolKind: any UsageProvider]
+    private var providers: [UsageAccountKey: any UsageProvider]
+    private var accounts: [ToolAccount]
     private let cache: UsageCacheStore?
     private let clock: any MonotonicClock
     private let fetchDeadline: Duration
     private var listener: Listener?
     private var enabled: [ToolKind] = []
-    private var states: [ToolKind: ToolState] = [:]
-    private var lastAttempt: [ToolKind: TimeInterval] = [:]
+    private var states: [UsageAccountKey: ToolState] = [:]
+    private var lastAttempt: [UsageAccountKey: TimeInterval] = [:]
     /// Tools whose read has not actually ended, which can outlast its deadline.
-    private var inFlight = Set<ToolKind>()
+    private var inFlight = Set<UsageAccountKey>()
+    /// A sign-in may finish while this account is still returning its earlier reading.
+    private var pendingAccountRefreshes = Set<UsageAccountKey>()
+    private var signingIn = Set<UsageAccountKey>()
     /// The `refresh` calls still waiting on a tool's read: resumed at its end or its deadline.
-    private var readWaiters: [ToolKind: CheckedContinuation<Void, Never>] = [:]
+    private var readWaiters: [UsageAccountKey: CheckedContinuation<Void, Never>] = [:]
     /// When a refresh last started fetching anything, whatever asked for it. A refresh that
     /// fetched nothing does not count, so it cannot hold back one that would.
     private var lastFetchStarted: TimeInterval?
@@ -93,18 +100,25 @@ public actor UsageCoordinator {
 
     public init(providers: [any UsageProvider], cache: UsageCacheStore?, clock: any MonotonicClock = SystemMonotonicClock(),
                 wallClock: @escaping @Sendable () -> Date = { Date() },
-                fetchDeadline: Duration = UsageCoordinator.defaultFetchDeadline) {
+                fetchDeadline: Duration = UsageCoordinator.defaultFetchDeadline,
+                additionalProviders: [AccountUsageProvider] = []) {
         self.wallClock = wallClock
         self.fetchDeadline = fetchDeadline
-        var byTool: [ToolKind: any UsageProvider] = [:]
-        for provider in providers { byTool[provider.tool] = provider }
-        self.providers = byTool
+        var byAccount: [UsageAccountKey: any UsageProvider] = [:]
+        for provider in providers { byAccount[UsageAccountKey(tool: provider.tool)] = provider }
+        for provider in additionalProviders { byAccount[provider.account.key] = provider }
+        self.providers = byAccount
+        self.accounts = additionalProviders.map(\.account)
         self.cache = cache
         self.clock = clock
-        for snapshot in cache?.load() ?? [] where byTool[snapshot.tool] != nil {
-            var state = ToolState(tool: snapshot.tool, snapshot: snapshot)
+        let profiles = additionalProviders.map(\.account)
+        for snapshot in cache?.load() ?? [] where byAccount[snapshot.accountKey] != nil {
+            if snapshot.tool == .githubCopilot, snapshot.profileID == nil,
+               profiles.contains(where: { $0.tool == .githubCopilot }) { continue }
+            let account = profiles.first { $0.key == snapshot.accountKey }
+            var state = ToolState(tool: snapshot.tool, snapshot: snapshot, account: account)
             state.isRehydrated = true
-            states[snapshot.tool] = state
+            states[snapshot.accountKey] = state
         }
     }
 
@@ -116,13 +130,60 @@ public actor UsageCoordinator {
     /// The shown tools in display order. Hidden tools keep their cached state but are not
     /// polled or emitted.
     public func setEnabledTools(_ tools: [ToolKind]) {
-        enabled = tools.filter { providers[$0] != nil }
+        enabled = tools.filter { providers[UsageAccountKey(tool: $0)] != nil }
         emit()
+    }
+
+    public func addAccount(_ provider: AccountUsageProvider) {
+        let account = provider.account
+        guard providers[account.key] == nil else { return }
+        providers[account.key] = provider
+        accounts.append(account)
+        if account.tool == .githubCopilot {
+            let fallback = UsageAccountKey(tool: .githubCopilot)
+            states.removeValue(forKey: fallback)
+            lastAttempt.removeValue(forKey: fallback)
+            pendingAccountRefreshes.remove(fallback)
+            persistCache()
+        }
+        emit()
+    }
+
+    public func removeAccount(_ key: UsageAccountKey) {
+        guard key.profileID != nil else { return }
+        accounts.removeAll { $0.key == key }
+        providers.removeValue(forKey: key)
+        states.removeValue(forKey: key)
+        lastAttempt.removeValue(forKey: key)
+        pendingAccountRefreshes.remove(key)
+        readWaiters.removeValue(forKey: key)?.resume()
+        persistCache()
+        emit()
+    }
+
+    private var enabledAccounts: [UsageAccountKey] {
+        enabled.flatMap { tool in
+            [UsageAccountKey(tool: tool)] + accounts.filter { $0.tool == tool }.map(\.key)
+        }.filter(tracks)
+    }
+
+    private func tracks(_ key: UsageAccountKey) -> Bool {
+        providers[key] != nil && (key.tool != .githubCopilot || key.profileID != nil
+                                  || !accounts.contains { $0.tool == .githubCopilot })
+    }
+
+    private func emptyState(_ key: UsageAccountKey) -> ToolState {
+        ToolState(tool: key.tool, account: accounts.first { $0.key == key })
     }
 
     /// Low Power Mode or a locked session stretch the periodic cadence.
     public func setSignals(_ signals: AdaptiveRefreshSignals) {
         self.signals = signals
+    }
+
+    public func setSigningIn(_ active: Bool, account: UsageAccountKey) {
+        if active { signingIn.insert(account) }
+        else { signingIn.remove(account) }
     }
 
     public func start() {
@@ -137,7 +198,11 @@ public actor UsageCoordinator {
         }
     }
 
-    public func refresh(_ reason: RefreshReason) async {
+    public func refresh(_ reason: RefreshReason, account: UsageAccountKey? = nil) async {
+        if reason == .toolsChanged, let account, enabledAccounts.contains(account), inFlight.contains(account) {
+            pendingAccountRefreshes.insert(account)
+            return
+        }
         let now = clock.now()
         // Even a debounced open counts as interaction: someone is looking.
         if reason == .popoverOpened { lastPanelOpened = now }
@@ -147,14 +212,14 @@ public actor UsageCoordinator {
         }
 
         let decision = reason == .scheduled ? adaptiveDecision(now: now) : nil
-        let due = enabled.filter { tool in
-            guard !inFlight.contains(tool) else { return false }
-            guard let last = lastAttempt[tool] else { return true }
+        let due = enabledAccounts.filter { key in
+            guard (account == nil || key == account), !inFlight.contains(key), !signingIn.contains(key) else { return false }
+            guard let last = lastAttempt[key] else { return true }
             switch reason {
             case .scheduled:
-                return now - last >= (decision?.interval(for: tool.refreshInterval) ?? tool.refreshInterval)
+                return now - last >= (decision?.interval(for: key.tool.refreshInterval) ?? key.tool.refreshInterval)
             case .popoverOpened:
-                return now - last >= tool.forcedRefreshFloor
+                return now - last >= key.tool.forcedRefreshFloor
             default:
                 return true
             }
@@ -165,19 +230,19 @@ public actor UsageCoordinator {
         }
 
         lastFetchStarted = now
-        for tool in due {
-            inFlight.insert(tool)
-            lastAttempt[tool] = now
-            states[tool, default: ToolState(tool: tool)].isRefreshing = true
-            states[tool, default: ToolState(tool: tool)].refreshStartedAt = now
+        for key in due {
+            inFlight.insert(key)
+            lastAttempt[key] = now
+            states[key, default: emptyState(key)].isRefreshing = true
+            states[key, default: emptyState(key)].refreshStartedAt = now
         }
         emit()
 
         let interaction = reason.interaction
         await withTaskGroup(of: Void.self) { group in
-            for tool in due {
-                guard let provider = providers[tool] else { continue }
-                group.addTask { await self.read(tool, from: provider, interaction: interaction) }
+            for key in due {
+                guard let provider = providers[key] else { continue }
+                group.addTask { await self.read(key, from: provider, interaction: interaction) }
             }
         }
     }
@@ -185,9 +250,13 @@ public actor UsageCoordinator {
     /// One provider read, waited on until it ends or `fetchDeadline` passes. The read runs in
     /// its own unstructured task because a task group cannot leave a child behind: a read that
     /// ignores cancellation would hold the group, and with it the scheduler and every other tool.
-    private func read(_ tool: ToolKind, from provider: any UsageProvider, interaction: FetchInteraction) async {
+    private func read(_ key: UsageAccountKey, from provider: any UsageProvider, interaction: FetchInteraction) async {
+        guard tracks(key) else {
+            inFlight.remove(key)
+            return
+        }
         await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
-            readWaiters[tool] = waiter
+            readWaiters[key] = waiter
             let deadline = fetchDeadline
             let work = Task.detached { () async -> Result<ProviderOutcome, any Error> in
                 do {
@@ -200,12 +269,12 @@ public actor UsageCoordinator {
                 try? await Task.sleep(for: deadline)
                 guard !Task.isCancelled else { return }
                 work.cancel()
-                await self.deadlinePassed(tool)
+                await self.deadlinePassed(key)
             }
             Task.detached {
                 let result = await work.value
                 timer.cancel()
-                await self.readEnded(tool, result)
+                await self.readEnded(key, result)
             }
         }
     }
@@ -213,24 +282,31 @@ public actor UsageCoordinator {
     /// The read counts as failed from here on, but the tool stays in flight until it really
     /// ends: nothing else may start beside it, because providers rely on never running two
     /// fetches of one tool at once and a hung read must not pile up more of itself.
-    private func deadlinePassed(_ tool: ToolKind) {
-        guard let waiter = readWaiters.removeValue(forKey: tool) else { return }
-        apply(.failure(UsageFetchError.timedOut), to: tool)
-        emit()
+    private func deadlinePassed(_ key: UsageAccountKey) {
+        guard let waiter = readWaiters.removeValue(forKey: key) else { return }
+        if tracks(key) {
+            apply(.failure(UsageFetchError.timedOut), to: key)
+            emit()
+        }
         waiter.resume()
     }
 
     /// Also takes a read that ended past its deadline. Its result is still real: a success
     /// replaces the failure shown meanwhile, and the expected cancellation changes nothing.
-    private func readEnded(_ tool: ToolKind, _ result: Result<ProviderOutcome, any Error>) {
-        inFlight.remove(tool)
-        apply(result, to: tool)
-        emit()
-        readWaiters.removeValue(forKey: tool)?.resume()
+    private func readEnded(_ key: UsageAccountKey, _ result: Result<ProviderOutcome, any Error>) {
+        inFlight.remove(key)
+        if tracks(key) {
+            apply(result, to: key)
+            emit()
+        }
+        readWaiters.removeValue(forKey: key)?.resume()
+        if pendingAccountRefreshes.remove(key) != nil {
+            Task { await refresh(.toolsChanged, account: key) }
+        }
     }
 
-    private func apply(_ result: Result<ProviderOutcome, any Error>, to tool: ToolKind) {
-        var state = states[tool] ?? ToolState(tool: tool)
+    private func apply(_ result: Result<ProviderOutcome, any Error>, to key: UsageAccountKey) {
+        var state = states[key] ?? emptyState(key)
         state.isRefreshing = false
         state.refreshStartedAt = nil
         switch result {
@@ -238,6 +314,7 @@ public actor UsageCoordinator {
             state.lastRefreshFailed = false
             state.isRehydrated = false
             state.snapshot = outcome.snapshot
+            state.snapshot?.profileID = key.profileID
             if !outcome.signedIn {
                 state.auth = .signedOut
             } else if outcome.isLive && !outcome.snapshot.windows.isEmpty {
@@ -247,11 +324,11 @@ public actor UsageCoordinator {
             } else if state.auth != .rejected {
                 state.auth = .signedIn
             }
-            states[tool] = state
+            states[key] = state
             if outcome.isLive || !outcome.signedIn { persistCache() }
         case .failure(let error):
             if HTTPUsageProvider.isCancellation(error) {
-                states[tool] = state
+                states[key] = state
                 return
             }
             state.lastRefreshFailed = true
@@ -263,9 +340,9 @@ public actor UsageCoordinator {
             case .credentialUnreadable:
                 state.auth = .unreadable
             default:
-                Log.write("coordinator", "\(tool.displayName) refresh failed: \(Self.describe(error))")
+                Log.write("coordinator", "\(key.tool.displayName) refresh failed: \(Self.describe(error))")
             }
-            states[tool] = state
+            states[key] = state
         }
     }
 
@@ -289,7 +366,7 @@ public actor UsageCoordinator {
     }
 
     private func emit() {
-        let current = enabled.map { states[$0] ?? ToolState(tool: $0) }
+        let current = enabledAccounts.map { states[$0] ?? emptyState($0) }
         listener?(current)
     }
 
@@ -340,7 +417,7 @@ public struct UsageCacheStore: Sendable {
         encoder.outputFormatting = [.sortedKeys]
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let ordered = snapshots.sorted { $0.tool.rawValue < $1.tool.rawValue }
+            let ordered = snapshots.sorted { $0.accountKey.storageKey < $1.accountKey.storageKey }
             try encoder.encode(CacheDocument(snapshots: ordered)).write(to: url, options: .atomic)
         } catch {
             Log.write("cache", "Usage cache write failed: \(type(of: error))")

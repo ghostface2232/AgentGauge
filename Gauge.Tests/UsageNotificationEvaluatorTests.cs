@@ -5,6 +5,32 @@ namespace Gauge.Tests;
 
 public sealed class UsageNotificationEvaluatorTests
 {
+    [Fact]
+    public void NewLoginInTheSameProfileStartsAFreshAlertBaseline()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        var reset = Now.AddDays(4);
+        evaluator.Evaluate(State(UsageWindowType.Weekly, .2, reset, Now, identity: "alice"), Now);
+        var switched = State(UsageWindowType.Weekly, .8, reset, Now.AddMinutes(1), identity: "bob");
+        Assert.Empty(evaluator.Evaluate(switched, Now));
+        var crossing = State(UsageWindowType.Weekly, .95, reset, Now.AddMinutes(2), identity: "bob");
+        Assert.Single(evaluator.Evaluate(crossing, Now));
+    }
+
+    [Fact]
+    public void ResetCreditExpiryDeduplicatesByLoginAndNamesTheProfile()
+    {
+        var evaluator = new UsageNotificationEvaluator(_ => "Codex · Work");
+        var expiry = Now.AddDays(2);
+        var alice = State(UsageWindowType.Weekly, .2, null, Now, identity: "alice", creditExpiry: expiry);
+        var bob = State(UsageWindowType.Weekly, .2, null, Now, identity: "bob", creditExpiry: expiry);
+
+        Assert.Equal(UsageNotificationKind.ResetCredits, Assert.Single(evaluator.Evaluate(alice, Now)).Kind);
+        var alert = Assert.Single(evaluator.Evaluate(bob, Now));
+        Assert.Contains("Codex · Work", alert.Title);
+        Assert.Empty(evaluator.Evaluate(bob, Now));
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 6, 19, 12, 0, 0, TimeSpan.Zero);
 
     [Theory]
@@ -383,11 +409,13 @@ public sealed class UsageNotificationEvaluatorTests
         string? id = null,
         string? groupLabel = null,
         bool rehydrated = false,
+        string? identity = null,
         DateTimeOffset? creditExpiry = null)
     {
         var snapshot = new UsageSnapshot
         {
             ToolName = "Codex",
+            HistoryIdentity = identity,
             CapturedAt = captured,
             ResetCreditDeadlines = creditExpiry is { } expiry ? [new(expiry)] : null,
             Windows =

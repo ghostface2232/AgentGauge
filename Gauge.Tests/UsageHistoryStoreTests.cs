@@ -14,6 +14,22 @@ public sealed class UsageHistoryStoreTests : IDisposable
     private readonly MutableTime _time = new(new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero));
 
     [Fact]
+    public void DifferentLoginsInTheSameProfileKeepSeparateHistoryAfterReopening()
+    {
+        var alice = Snapshot("Codex#profile", .2, _time.Now) with { HistoryIdentity = "alice" };
+        var bob = Snapshot("Codex#profile", .8, _time.Now) with { HistoryIdentity = "bob" };
+        using (var store = new UsageHistoryStore(_dir, _time))
+        {
+            store.Record(alice);
+            store.Record(bob);
+        }
+        using var reopened = new UsageHistoryStore(_dir, _time);
+        var window = UsageWindowType.FiveHour.ToString();
+        Assert.Equal(.2, Assert.Single(reopened.GetRecent(alice.HistoryKey, window, TimeSpan.FromHours(1))).UsedRatio);
+        Assert.Equal(.8, Assert.Single(reopened.GetRecent(bob.HistoryKey, window, TimeSpan.FromHours(1))).UsedRatio);
+    }
+
+    [Fact]
     public void RecordThenGetRecentReturnsSamplesOldestFirst()
     {
         using var store = new UsageHistoryStore(_dir, _time);

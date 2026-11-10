@@ -8,6 +8,103 @@ namespace Gauge.Tests;
 public sealed class UsageCoordinatorTests
 {
     [Fact]
+    public async Task NamedCopilotAccountsReplaceTheActiveFallback()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "GaugeTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var registry = new ToolRegistry(new ToolRegistryStore(() => directory));
+            registry.Add(ToolKind.GitHubCopilot);
+            var fallback = new StubProvider("GitHub Copilot");
+            var named = new StubProvider("GitHub Copilot");
+            var service = new UsageService([fallback], registry.IsEnabled, registry.IsActive,
+                isRegisteredAccount: registry.IsRegistered);
+            using var coordinator = new UsageCoordinator(service);
+            var state = UsageState.Empty;
+            coordinator.Updated += (_, latest) => state = latest;
+            await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+            Assert.Equal("GitHub Copilot", Assert.Single(state.Tools).ToolName);
+
+            Assert.True(registry.AddAccount(ToolKind.GitHubCopilot, "mona-cat_octo"));
+            var account = Assert.Single(registry.Accounts);
+            service.SetAdditionalProviders([new AccountUsageProvider(account, named)]);
+            await coordinator.RefreshAsync(RefreshReason.ToolsChanged, account.Key);
+            Assert.Equal(1, fallback.CallCount);
+            Assert.Equal(1, named.CallCount);
+            Assert.Equal(account.Key, Assert.Single(state.Tools).ToolName);
+
+            Assert.True(registry.RemoveAccount(account.Key));
+            service.SetAdditionalProviders([]);
+            await coordinator.RefreshAsync(RefreshReason.ToolsChanged, fallback.ToolName);
+            Assert.Equal(2, fallback.CallCount);
+            Assert.Equal(fallback.ToolName, Assert.Single(state.Tools).ToolName);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task AdditionalAccountKeepsSeparateCacheAndAuthenticationState()
+    {
+        var account = new ToolAccount(Guid.NewGuid(), ToolKind.Codex, "Work");
+        var primary = new StubProvider("Codex");
+        var secondary = new StubProvider("Codex");
+        var service = new UsageService([primary]);
+        service.SetAdditionalProviders([new AccountUsageProvider(account, secondary)]);
+        var persistence = new FakePersistence();
+        using var coordinator = new UsageCoordinator(service, persistence: persistence);
+        var state = UsageState.Empty;
+        var defaultRejections = new List<ToolKind>();
+        var accountRejections = new List<string>();
+        coordinator.Updated += (_, updated) => state = updated;
+        coordinator.AuthenticationRequired += (_, tool) => defaultRejections.Add(tool);
+        coordinator.AccountAuthenticationChanged += (_, result) =>
+        {
+            if (!result.Accepted) accountRejections.Add(result.Key);
+        };
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Equal(new[] { "Codex", account.Key }, persistence.Saved.Select(snapshot => snapshot.ToolName));
+        var lastGood = Assert.Single(state.Tools, tool => tool.ToolName == account.Key).Snapshot;
+        secondary.ThrowAuth = true;
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Empty(defaultRejections);
+        Assert.Equal(account.Key, Assert.Single(accountRejections));
+        Assert.False(Assert.Single(state.Tools, tool => tool.ToolName == "Codex").LastRefreshFailed);
+        var failed = Assert.Single(state.Tools, tool => tool.ToolName == account.Key);
+        Assert.True(failed.LastRefreshFailed);
+        Assert.Same(lastGood, failed.Snapshot);
+
+        service.SetAdditionalProviders([]);
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged, account.Key);
+        Assert.Equal(2, primary.CallCount);
+        Assert.Equal("Codex", Assert.Single(state.Tools).ToolName);
+        Assert.Equal("Codex", Assert.Single(persistence.Saved).ToolName);
+    }
+
+    [Fact]
+    public async Task RemovingAnAccountDuringFetchDiscardsItsResult()
+    {
+        var account = new ToolAccount(Guid.NewGuid(), ToolKind.Codex, "Work");
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new UsageService([]);
+        service.SetAdditionalProviders([new AccountUsageProvider(account, new StubProvider("Codex") { Block = release })]);
+        using var coordinator = new UsageCoordinator(service);
+        var state = UsageState.Empty;
+        coordinator.Updated += (_, updated) => state = updated;
+        coordinator.RefreshStarted += (_, _) => started.TrySetResult();
+
+        var refresh = coordinator.RefreshAsync(RefreshReason.Manual);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        service.SetAdditionalProviders([]);
+        release.SetResult();
+        await refresh;
+
+        Assert.Empty(state.Tools);
+    }
+
+    [Fact]
     public async Task HiddenToolKeepsCacheButStopsPolling()
     {
         var active = true;
@@ -698,6 +795,7 @@ public sealed class UsageCoordinatorTests
         {
             "Codex" => ToolKind.Codex,
             "Antigravity" => ToolKind.Antigravity,
+            "GitHub Copilot" => ToolKind.GitHubCopilot,
             _ => ToolKind.ClaudeCode,
         };
         public string ToolName => name;

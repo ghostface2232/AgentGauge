@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Gauge.Models;
 
 namespace Gauge.Services;
 
@@ -25,8 +26,15 @@ public sealed class GitHubCliTokenReader : IGitHubCliTokenReader
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
     private readonly ICliLocator _locator;
+    private readonly string? _user;
 
-    public GitHubCliTokenReader(ICliLocator? locator = null) => _locator = locator ?? new CliLocator();
+    public GitHubCliTokenReader(ICliLocator? locator = null, string? user = null)
+    {
+        if (user is not null && !ToolAccount.IsValidLabel(ToolKind.GitHubCopilot, user))
+            throw new ArgumentException("Expected a GitHub username.", nameof(user));
+        _locator = locator ?? new CliLocator();
+        _user = user;
+    }
 
     public async Task<string?> ReadTokenAsync(CancellationToken cancellationToken)
     {
@@ -46,10 +54,17 @@ public sealed class GitHubCliTokenReader : IGitHubCliTokenReader
             WorkingDirectory = CliProcessRunner.NeutralWorkingDirectory,
         };
 
-        // `--hostname github.com` pins the account even when gh has several. A .cmd/.bat shim
+        // Pin github.com and, for an additional account, select a stored user without
+        // switching gh's active account. A .cmd/.bat shim
         // can't be started directly once UseShellExecute is false, so route those through
         // cmd.exe (the /s + outer-quote form keeps a quoted path with spaces intact).
-        const string args = "auth token --hostname github.com";
+        var args = "auth token --hostname github.com";
+        if (_user is not null)
+        {
+            args += $" --user {_user}";
+            startInfo.Environment.Remove("GH_TOKEN");
+            startInfo.Environment.Remove("GITHUB_TOKEN");
+        }
         var extension = Path.GetExtension(executable);
         if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))

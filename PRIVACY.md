@@ -31,6 +31,8 @@ AgentGauge reads the following **read-only on your device**, solely to display u
 
 **Delegated refresh.** AgentGauge never writes or deletes credential files itself, and it does not log or store tokens or login output. When a CLI's stored token has expired, AgentGauge may briefly run that official CLI in the background (`claude mcp list`, `codex doctor`) so the CLI refreshes its **own** token and rewrites its **own** credentials, exactly as it would on next use. That refresh and its network traffic belong to the CLI, and AgentGauge discards the output unread. Signing in always runs the official CLI where you can see it, or opens the tool's own app.
 
+**Account history.** To keep usage records from different logins separate, the local cache and history use a one-way fingerprint of the CLI's account and workspace identifiers where available, or of the access token when those identifiers are unavailable. The fingerprint stays on the device.
+
 ### macOS only
 - **Keychain, Claude Code.** AgentGauge reads the `Claude Code-credentials` item's attributes on every refresh, which never prompts. It reads the secret only when the item has changed, by running `/usr/bin/security find-generic-password`, the tool Claude Code itself uses, so normally no prompt appears. If that tool cannot be used, it falls back to the Security framework, and macOS asks for your permission. If you deny access, only a refresh you start yourself asks again.
 - **Keychain and database, Cursor.** AgentGauge reads the `cursorAuth/accessToken` value from `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`. Cursor 3.27 and later store that value encrypted. AgentGauge then reads the "Cursor Safe Storage" Keychain password and uses it to decrypt the token in memory. This is a deliberate exception to AgentGauge's rule against opening other apps' encrypted stores, made because Cursor offers no CLI or other readable source. Background refreshes never show the access prompt for this item; only a refresh you start can. The user ID sent to Cursor comes from the token itself.
@@ -57,7 +59,8 @@ For Antigravity, AgentGauge itself makes **no external network call**: it talks 
 ## 4. Data Stored on the Device
 
 ### Windows
-- `%APPDATA%\Gauge\settings.json`: **app preferences** only. These are the registered and hidden tools, UI language, notification kinds, card display choices, the tray icon's tool, weekly pace model, API-cost and automatic-update switches, and the Windows foreground-lock timeout value AgentGauge restores when it exits.
+- `%APPDATA%\Gauge\settings.json`: **app preferences** only. These include the registered and hidden tools, labels or GitHub usernames entered for additional accounts, UI language, notification kinds, card display choices, the tray icon's target, weekly pace model, API-cost and automatic-update switches, and the Windows foreground-lock timeout value AgentGauge restores when it exits.
+- `%LOCALAPPDATA%\Gauge\accounts\`: separate CLI profiles for additional Claude and Codex accounts. The official CLIs create and manage their sign-in files here. AgentGauge reads them in the same way it reads the default CLI credentials. The files remain on disk after removing an account card or uninstalling AgentGauge.
 - `%APPDATA%\Gauge\settings.corrupt-<date>-<time>.json`: if `settings.json` stops being valid JSON and you open Settings, AgentGauge keeps the unreadable file as this copy and writes a new `settings.json`. The copy holds whatever the old file held and is not deleted automatically.
 - `%APPDATA%\Gauge\usage-cache.json`: the **last good usage values** (tool name, plan label, window percentages and counts, scheduled reset times, and saved-reset balances and deadlines), so cards can show a last-known value after a reboot. It holds no tokens or credentials.
 - `%APPDATA%\Gauge\usage-history.db`: a local SQLite database of **usage samples** (tool, window, percentage, scheduled reset time, timestamp, and available saved-reset metadata for detecting manual resets), kept for **90 days** and pruned automatically, for trends and forecasts. It holds no tokens.
@@ -70,10 +73,11 @@ For Antigravity, AgentGauge itself makes **no external network call**: it talks 
 The uninstaller removes the program and the Run value. The `%APPDATA%\Gauge` folder and `%TEMP%\Gauge` stay until you delete them.
 
 ### macOS
-- **Preferences** are stored in UserDefaults under `io.github.ghostface2232.agentgauge`. They cover the same kinds of choices as on Windows, except the language, which follows macOS.
+- **Preferences** are stored in UserDefaults under `io.github.ghostface2232.agentgauge`. They include labels or GitHub usernames entered for additional accounts. The display language follows macOS.
+- `~/Library/Application Support/AgentGauge/accounts/` holds separate profiles managed by the official Claude and Codex CLIs. Claude uses a separate Keychain entry for each profile. Removing an account from AgentGauge leaves its CLI sign-in data in place.
 - `~/Library/Application Support/AgentGauge/` holds `usage-cache.json`, `usage-history.db` (90 days) and, once the option has been turned on, `api-cost-ledger.json`. These have the same contents as on Windows, so **the ledger's paths can contain your macOS account name and project names**.
 - **Diagnostics** go to the macOS unified log (subsystem `io.github.ghostface2232.agentgauge`), under the same rule: no tokens, credentials or CLI output. macOS manages how long they are kept, and they do not leave your device through AgentGauge.
-- `$TMPDIR/AgentGauge/<cli>-login.command`: the sign-in script described in Section 2.
+- `$TMPDIR/AgentGauge/`: the sign-in scripts described in Section 2. A sign-in for an additional account writes a temporary success or failure marker here and the app removes it when the attempt ends.
 - **Open at login** is registered with macOS as a login item, if you enable it.
 - While updating, the download is unpacked under `$TMPDIR/AgentGauge-update-<id>` and staged as `.AgentGauge-update-<version>.app` next to the installed app. Both are gone once the update finishes.
 

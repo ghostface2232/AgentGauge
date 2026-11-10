@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Gauge.Models;
 using Gauge.Services;
 
@@ -14,6 +15,57 @@ public sealed class CredentialSourceTests : IDisposable
         var source = Source();
         var result = await source.ReadAsync(ToolKind.ClaudeCode);
         Assert.Equal(CredentialReadStatus.Missing, result.Status);
+    }
+
+    [Fact]
+    public async Task ScopedClaudeReadsItsOwnCredentialAndPlanWithoutDefaultFallback()
+    {
+        Write(".claude/.credentials.json", """{"claudeAiOauth":{"accessToken":"default"}}""");
+        Write(".claude.json", """{"oauthAccount":{"organizationType":"claude_pro"}}""");
+        var config = Path.Combine(_root, "work");
+        var source = new CliCredentialSource(() => _root, claudeConfig: () => config);
+        Assert.Equal(CredentialReadStatus.Missing, (await source.ReadAsync(ToolKind.ClaudeCode)).Status);
+
+        Write("work/.credentials.json", """{"claudeAiOauth":{"accessToken":"work","subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}""");
+        var credential = (await source.ReadAsync(ToolKind.ClaudeCode)).Credential;
+        Assert.Equal("work", credential?.AccessToken);
+        Assert.Equal("Max 5x", credential?.Plan);
+    }
+
+    [Fact]
+    public async Task ScopedClaudeHistoryFollowsTheAccountAcrossTokenRotation()
+    {
+        var source = new CliCredentialSource(() => _root, claudeConfig: () => Path.Combine(_root, "work"), scopeHistory: true);
+        Write("work/.claude.json", """{"oauthAccount":{"accountUuid":"alice","organizationUuid":"team"}}""");
+        Write("work/.credentials.json", """{"claudeAiOauth":{"accessToken":"first"}}""");
+        var original = (await source.ReadAsync(ToolKind.ClaudeCode)).Credential!.HistoryIdentity;
+        Assert.NotNull(original);
+
+        Write("work/.credentials.json", """{"claudeAiOauth":{"accessToken":"rotated"}}""");
+        Assert.Equal(original, (await source.ReadAsync(ToolKind.ClaudeCode)).Credential!.HistoryIdentity);
+
+        Write("work/.claude.json", """{"oauthAccount":{"accountUuid":"bob","organizationUuid":"team"}}""");
+        Write("work/.credentials.json", """{"claudeAiOauth":{"accessToken":"new-login"}}""");
+        Assert.NotEqual(original, (await source.ReadAsync(ToolKind.ClaudeCode)).Credential!.HistoryIdentity);
+    }
+
+    [Fact]
+    public async Task ScopedCodexHistorySeparatesTwoUsersInOneWorkspace()
+    {
+        var source = new CliCredentialSource(() => _root, () => null, scopeHistory: true);
+        async Task<string?> Read(string user, string token)
+        {
+            var claims = Convert.ToBase64String(Encoding.UTF8.GetBytes($$"""{"sub":"{{user}}"}""")).TrimEnd('=');
+            Write(".codex/auth.json", JsonSerializer.Serialize(new
+            {
+                tokens = new { id_token = $"e30.{claims}.sig", access_token = token, account_id = "team" },
+            }));
+            return (await source.ReadAsync(ToolKind.Codex)).Credential!.HistoryIdentity;
+        }
+        var alice = await Read("alice", "first");
+        Assert.NotNull(alice);
+        Assert.Equal(alice, await Read("alice", "rotated"));
+        Assert.NotEqual(alice, await Read("bob", "new-login"));
     }
 
     [Fact]

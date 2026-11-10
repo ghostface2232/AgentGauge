@@ -2,7 +2,7 @@ import Foundation
 
 public protocol GitHubTokenReading: Sendable {
     /// The gh CLI's OAuth token for github.com, or nil when gh is missing, signed out, or fails.
-    func token() async -> String?
+    func token() async throws -> String?
 }
 
 /// Reads the token with `gh auth token`. gh owns the token's storage (its keychain item or
@@ -13,23 +13,33 @@ public struct GitHubCLITokenReader: GitHubTokenReading {
 
     private let locator: any CLILocating
     private let runner: any ProcessRunning
+    private let username: String?
 
-    public init(locator: any CLILocating, runner: any ProcessRunning) {
+    public init(locator: any CLILocating, runner: any ProcessRunning, username: String? = nil) {
         self.locator = locator
         self.runner = runner
+        self.username = username
     }
 
-    public func token() async -> String? {
+    public func token() async throws -> String? {
         guard let executable = await locator.locate("gh") else { return nil }
-        let environment = await locator.environment(for: executable)
-        // `--hostname github.com` pins the account even when gh holds several hosts.
+        var environment = await locator.environment(for: executable)
+        var arguments = ["auth", "token", "--hostname", "github.com"]
+        if let username {
+            arguments += ["--user", username]
+            environment.removeValue(forKey: "GH_TOKEN")
+            environment.removeValue(forKey: "GITHUB_TOKEN")
+        }
         let result = await runner.run(
-            executable, arguments: ["auth", "token", "--hostname", "github.com"],
+            executable, arguments: arguments,
             environment: environment, timeout: Self.timeout, captureOutput: true)
+        if username != nil && (!result.launched || result.timedOut) { throw ReadError.unavailable }
         // Only a clean exit yields a token; a non-zero exit means gh is signed out.
         guard result.exitCode == 0, !result.timedOut, let output = result.output else { return nil }
         return ProviderText.normalize(String(data: output, encoding: .utf8))
     }
+
+    private enum ReadError: Error { case unavailable }
 }
 
 /// Copilot's GitHub OAuth token has no single fixed home, so the sources a Copilot user is
@@ -45,9 +55,14 @@ public struct GitHubCopilotCredentialSource: CredentialSource {
     public init(
         tokenReader: any GitHubTokenReading,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        useLocalFiles: Bool = true
     ) {
         self.tokenReader = tokenReader
+        guard useLocalFiles else {
+            configDirectories = []
+            return
+        }
         var directories: [URL] = []
         if let xdg = ProviderText.normalize(environment["XDG_CONFIG_HOME"]) {
             directories.append(URL(fileURLWithPath: xdg, isDirectory: true).appending(path: "github-copilot", directoryHint: .isDirectory))
@@ -58,8 +73,12 @@ public struct GitHubCopilotCredentialSource: CredentialSource {
     }
 
     public func read(interactive: Bool) async -> CredentialRead {
-        if let token = await tokenReader.token() {
-            return .available(ToolCredential(accessToken: token))
+        do {
+            if let token = try await tokenReader.token() {
+                return .available(ToolCredential(accessToken: token))
+            }
+        } catch {
+            return .invalid(.unreadable)
         }
         if let token = tokenFromFiles() {
             return .available(ToolCredential(accessToken: token))

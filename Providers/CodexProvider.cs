@@ -1,6 +1,4 @@
 using System.Net.Http;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using Gauge.Localization;
 using Gauge.Models;
@@ -145,7 +143,7 @@ public sealed class CodexProvider : UsageProviderBase
             return null;
         }
 
-        var identity = credential.AccountId ?? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(credential.AccessToken)));
+        var identity = credential.HistoryIdentity ?? UsageIdentity.Hash(null, credential.AccessToken);
         var key = (identity, credits.Value);
         if (_creditCacheKey == key && Time.GetElapsedTime(_lastCreditRead) < ResetCreditRefreshInterval)
             return _creditDeadlines;

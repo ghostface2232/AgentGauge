@@ -88,7 +88,7 @@ public actor CodexEndpoint: UsageEndpoint {
             return nil
         }
 
-        let identity = credential.accountID ?? SHA256.hash(data: Data(credential.accessToken.utf8)).description
+        let identity = credential.historyIdentity ?? UsageIdentity.hash(subject: nil, token: credential.accessToken)
         let now = ProcessInfo.processInfo.systemUptime
         if let cached = creditCache, cached.identity == identity, cached.balance == balance,
            now - cached.checkedAt < Self.resetCreditRefreshInterval { return cached.deadlines }
@@ -237,10 +237,12 @@ public actor HTTPUsageProvider: UsageProvider {
     private func fetchWithPolicy(_ credential: ToolCredential) async throws -> ProviderOutcome {
         do {
             let payload = try await endpoint.fetch(credential, transport: transport, now: wallClock())
-            let snapshot = UsageSnapshot(
+            var snapshot = UsageSnapshot(
                 tool: tool, plan: payload.plan, windows: payload.windows,
                 resetCredits: payload.resetCredits, resetCreditDeadlines: payload.resetCreditDeadlines,
                 capturedAt: wallClock())
+            snapshot.historyIdentity = credential.historyIdentity
+                ?? (tool == .githubCopilot ? UsageIdentity.hash(subject: nil, token: credential.accessToken) : nil)
             gate?.recordSuccess()
             if cachesSnapshots {
                 lastSuccessAt = clock.now()
@@ -275,7 +277,8 @@ public actor HTTPUsageProvider: UsageProvider {
         let next = credential.map { credential in
             SHA256.hash(data: Data(credential.accessToken.utf8)).map { String(format: "%02x", $0) }.joined()
         }
-        if fingerprintInitialized && next != fingerprint {
+        if (fingerprintInitialized && next != fingerprint)
+            || (lastSnapshot != nil && credential?.historyIdentity != nil && lastSnapshot?.historyIdentity != credential?.historyIdentity) {
             lastSnapshot = nil
             lastSuccessAt = nil
             gate?.recordSuccess()
@@ -289,16 +292,33 @@ public actor HTTPUsageProvider: UsageProvider {
     }
 }
 
+public struct AccountUsageProvider: UsageProvider {
+    public let account: ToolAccount
+    private let provider: any UsageProvider
+
+    init(account: ToolAccount, provider: any UsageProvider) {
+        self.account = account
+        self.provider = provider
+    }
+
+    public var tool: ToolKind { account.tool }
+
+    public func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome {
+        try await provider.fetch(interaction)
+    }
+}
+
 public enum ProviderFactory {
+    private static let transport = URLSessionTransport()
+    private static let locator = CLILocator()
+    private static let runner = SystemProcessRunner()
+
     /// The production wiring: one shared transport, CLI-owned credentials, and a delegated
     /// refresh per tool. The refresh commands were verified against the real CLIs: a status
     /// command (`claude auth status`, `codex login status`) only prints cached auth and does
     /// NOT refresh; these establish a full authenticated context without spending usage.
     public static func makeDefault() -> [any UsageProvider] {
-        let transport = URLSessionTransport()
-        let locator = CLILocator()
-        let runner = SystemProcessRunner()
-        return [
+        [
             HTTPUsageProvider(
                 tool: .claude,
                 credentials: ClaudeCredentialSource(),
@@ -337,5 +357,28 @@ public enum ProviderFactory {
                 policy: FetchPolicy(),
                 transport: transport),
         ]
+    }
+
+    public static func makeAccount(_ account: ToolAccount) -> AccountUsageProvider? {
+        guard ToolAccount.validatedLabel(account.label, for: account.tool) == account.label else { return nil }
+        if account.tool == .githubCopilot {
+            return AccountUsageProvider(account: account, provider: HTTPUsageProvider(
+                tool: account.tool,
+                credentials: GitHubCopilotCredentialSource(
+                    tokenReader: GitHubCLITokenReader(locator: locator, runner: runner, username: account.label),
+                    useLocalFiles: false),
+                endpoint: GitHubCopilotEndpoint(), policy: FetchPolicy(), transport: transport))
+        }
+        guard let profile = AccountCLIProfile(account: account) else { return nil }
+        let isClaude = account.tool == .claude
+        let credentials: any CredentialSource = isClaude
+            ? ClaudeCredentialSource(scopedConfigDirectory: profile.directory)
+            : CodexCredentialSource(environment: profile.variables, scopeHistory: true)
+        let endpoint: any UsageEndpoint = isClaude ? ClaudeEndpoint() : CodexEndpoint()
+        return AccountUsageProvider(account: account, provider: HTTPUsageProvider(
+            tool: account.tool, credentials: credentials, endpoint: endpoint,
+            policy: isClaude ? .claude : .codex, transport: transport,
+            refresher: DelegatedTokenRefresher(command: profile.refresh, timeout: isClaude ? 15 : 30,
+                                               locator: locator, runner: runner, account: profile)))
     }
 }

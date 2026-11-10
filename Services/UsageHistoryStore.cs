@@ -129,7 +129,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
 
                 foreach (var window in snapshot.Windows)
                 {
-                    tool.Value = snapshot.ToolName;
+                    tool.Value = snapshot.HistoryKey;
                     key.Value = window.Key;
                     group.Value = (object?)window.GroupLabel ?? DBNull.Value;
                     captured.Value = snapshot.CapturedAt.ToUnixTimeMilliseconds();
@@ -263,7 +263,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
         var cutoff = _time.GetUtcNow() - MemoryTailSpan;
         foreach (var window in snapshot.Windows)
         {
-            var key = (snapshot.ToolName, window.Key);
+            var key = (snapshot.HistoryKey, window.Key);
             if (!_tail.TryGetValue(key, out var list))
             {
                 _tail[key] = list = new List<UsageSample>();

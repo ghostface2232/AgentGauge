@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Gauge.Localization;
+using Gauge.Models;
 using Gauge.Services;
 using Gauge.ViewModels;
 using Microsoft.UI.Windowing;
@@ -702,6 +703,56 @@ public sealed partial class PopoverWindow : Window
             }
         }
 
+        flyout.ShowAt(anchor);
+    }
+
+    private void OnAddAccountClicked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: AuthenticationCardViewModel card } anchor
+            || SettingsBorder.DataContext is not SettingsViewModel settings) return;
+
+        var input = new TextBox
+        {
+            Header = Loc.Get(card.Tool == ToolKind.GitHubCopilot ? "Account_GitHubUsername" : "Account_Name"),
+            MaxLength = ToolAccount.LabelMaxLength,
+            MinWidth = 220,
+        };
+        var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, MaxWidth = 220 };
+        var add = new Button { Content = Loc.Get("Account_Add"), IsEnabled = false };
+        var content = new StackPanel { Spacing = 8 };
+        if (card.Tool == ToolKind.GitHubCopilot)
+            content.Children.Add(new TextBlock
+            {
+                Text = Loc.Get("Account_CopilotNamedOnly"), TextWrapping = TextWrapping.Wrap, MaxWidth = 220,
+            });
+        content.Children.Add(input);
+        content.Children.Add(error);
+        content.Children.Add(add);
+        var flyout = new Flyout { Content = content };
+        input.TextChanged += (_, _) =>
+        {
+            add.IsEnabled = settings.CanAddAccount(card.Tool, input.Text);
+            error.Text = Loc.Get("Account_InvalidName");
+            error.Visibility = !add.IsEnabled && input.Text.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        };
+        void Save()
+        {
+            if (!add.IsEnabled) return;
+            if (settings.AddAccount(card.Tool, input.Text)) flyout.Hide();
+            else
+            {
+                error.Text = Loc.Get("Settings_SaveFailed");
+                error.Visibility = Visibility.Visible;
+            }
+        }
+        add.Click += (_, _) => Save();
+        input.KeyDown += (_, args) =>
+        {
+            if (args.Key != Windows.System.VirtualKey.Enter) return;
+            args.Handled = true;
+            Save();
+        };
+        flyout.Opened += (_, _) => input.Focus(FocusState.Programmatic);
         flyout.ShowAt(anchor);
     }
 

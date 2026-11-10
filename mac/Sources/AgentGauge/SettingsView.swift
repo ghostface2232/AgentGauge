@@ -224,15 +224,20 @@ private extension View {
 
 private extension View {
     /// One tab's form: grouped like System Settings, fixed width, as tall as its content.
-    func settingsPane() -> some View {
-        formStyle(.grouped)
-            .scrollDisabled(true)
+    @ViewBuilder
+    func settingsPane(scrollable: Bool = false) -> some View {
+        let form = formStyle(.grouped)
             .softTopScrollEdge()
             .frame(width: 460)
-            .fixedSize(horizontal: false, vertical: true)
             // With no bar or line under the tabs, the grouped form's top inset reads as a gap;
             // pulled up so the first group sits closer below the tab bar.
             .padding(.top, -14)
+        if scrollable {
+            form.frame(height: 440)
+        } else {
+            form.scrollDisabled(true)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Content passing under the toolbar (the pane mid-transition) blurs away like system
@@ -298,16 +303,16 @@ private struct GeneralSettings: View {
 
 private struct DisplaySettings: View {
     @Environment(AppModel.self) private var model
-    @State private var choosingMenuBarTools = false
+    @State private var choosingMenuBarAccounts = false
 
     var body: some View {
         @Bindable var model = model
-        let supportsPercent = model.selectedMenuBarTools.map { $0.count == 1 } ?? true
+        let supportsPercent = model.selectedMenuBarAccounts.map { $0.count == 1 } ?? true
         Form {
             Section {
                 LabeledContent(L10n.get("Settings_StatusTarget")) {
                     Button {
-                        choosingMenuBarTools.toggle()
+                        choosingMenuBarAccounts.toggle()
                     } label: {
                         HStack(spacing: 5) {
                             Text(menuBarSelectionLabel)
@@ -321,8 +326,8 @@ private struct DisplaySettings: View {
                     .buttonStyle(.bordered)
                     .accessibilityLabel(L10n.get("Settings_StatusTarget"))
                     .accessibilityValue(menuBarSelectionLabel)
-                    .popover(isPresented: $choosingMenuBarTools) {
-                        menuBarToolChoices
+                    .popover(isPresented: $choosingMenuBarAccounts) {
+                        menuBarAccountChoices
                     }
                 }
                 Toggle(isOn: Binding(
@@ -369,40 +374,54 @@ private struct DisplaySettings: View {
     }
 
     private var menuBarSelectionLabel: String {
-        guard let tools = model.selectedMenuBarTools else { return L10n.get("StatusTarget_All") }
-        if tools.isEmpty { return L10n.get("StatusTarget_None") }
-        if tools.count > 2 { return L10n.format("StatusTarget_Count", tools.count) }
-        return model.visibleTools.filter { tools.contains($0) }.map(\.displayName).joined(separator: ", ")
+        guard let selected = model.selectedMenuBarAccounts else { return L10n.get("StatusTarget_All") }
+        if selected.isEmpty { return L10n.get("StatusTarget_None") }
+        if selected.count > 2 { return L10n.format("StatusTarget_Count", selected.count) }
+        return model.menuBarAccounts.filter { selected.contains($0.id) }.map(\.displayName).joined(separator: ", ")
     }
 
-    private var menuBarToolChoices: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var menuBarAccountChoices: some View {
+        let accounts = model.menuBarAccounts
+        return VStack(alignment: .leading, spacing: 8) {
             Toggle(L10n.get("StatusTarget_All"), isOn: Binding(
                 get: { model.menuBarSelection == .automatic },
-                set: { model.menuBarSelection = $0 ? .automatic : .services([]) }
+                set: { model.menuBarSelection = $0 ? .automatic : .accounts([]) }
             ))
             Divider()
-            if model.visibleTools.isEmpty {
+            if accounts.isEmpty {
                 Text(L10n.get("Settings_NoMenuBarServices"))
                     .foregroundStyle(.secondary)
-            }
-            ForEach(model.visibleTools) { tool in
-                Toggle(isOn: Binding(
-                    get: { model.menuBarSelection.tools?.contains(tool) == true },
-                    set: { model.menuBarSelection.set(tool, selected: $0) }
-                )) {
-                    Text(verbatim: tool.displayName)
+            } else if accounts.count > 8 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        menuBarAccountToggles(accounts)
+                    }
                 }
+                .frame(height: 232)
+            } else {
+                menuBarAccountToggles(accounts)
             }
         }
         .toggleStyle(.checkbox)
         .frame(minWidth: 166, alignment: .leading)
         .padding(12)
     }
+
+    private func menuBarAccountToggles(_ accounts: [ToolState]) -> some View {
+        ForEach(accounts) { account in
+            Toggle(isOn: Binding(
+                get: { model.menuBarSelection.selectedAccounts?.contains(account.id) == true },
+                set: { model.menuBarSelection.set(account.id, selected: $0) }
+            )) {
+                Text(verbatim: account.displayName)
+            }
+        }
+    }
 }
 
 private struct AccountSettings: View {
     @Environment(AppModel.self) private var model
+    @State private var addingFor: ToolKind?
 
     var body: some View {
         Form {
@@ -410,14 +429,54 @@ private struct AccountSettings: View {
                 ForEach(ToolKind.allCases) { tool in
                     AccountRow(
                         tool: tool,
-                        state: model.states.first { $0.tool == tool },
-                        shown: !model.hiddenTools.contains(tool),
-                        onShownChange: { model.setShown(tool, $0) },
-                        onSignIn: { model.signIn(tool) })
+                        onAddAccount: ToolAccount.supports(tool) ? { addingFor = tool } : nil)
+                    ForEach(model.accounts.filter { $0.tool == tool }) { account in
+                        AccountRow(tool: tool, account: account)
+                    }
                 }
             }
         }
-        .settingsPane()
+        .settingsPane(scrollable: model.accounts.count > 2)
+        .sheet(item: $addingFor) { tool in
+            AccountEditor(tool: tool)
+        }
+    }
+}
+
+private struct AccountEditor: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    let tool: ToolKind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L10n.get("Account_Add")).font(.headline)
+            Text(verbatim: tool.displayName).foregroundStyle(.secondary)
+            if tool == .githubCopilot {
+                Text(L10n.get("Account_CopilotNamedOnly")).font(.caption).foregroundStyle(.secondary)
+            }
+            TextField(L10n.get(tool == .githubCopilot ? "Account_GitHubUsername" : "Account_Name"), text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(save)
+            if !name.isEmpty && model.accountLabel(name, for: tool) == nil {
+                Text(L10n.get("Account_InvalidName")).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button(L10n.get("Account_Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L10n.get("Account_Add"), action: save).keyboardShortcut(.defaultAction)
+                    .disabled(model.accountLabel(name, for: tool) == nil)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+    }
+
+    private func save() {
+        guard model.accountLabel(name, for: tool) != nil else { return }
+        model.addAccount(tool, label: name)
+        dismiss()
     }
 }
 
@@ -460,16 +519,21 @@ private struct AboutSettings: View {
 }
 
 private struct AccountRow: View {
+    @Environment(AppModel.self) private var model
     let tool: ToolKind
-    let state: ToolState?
-    let shown: Bool
-    let onShownChange: (Bool) -> Void
-    let onSignIn: () -> Void
+    var account: ToolAccount? = nil
+    var onAddAccount: (() -> Void)? = nil
+
+    private var key: UsageAccountKey { account?.key ?? UsageAccountKey(tool: tool) }
+    private var state: ToolState? { model.states.first { $0.id == key } }
+    private var shown: Bool { !model.hiddenTools.contains(tool) }
+    private var signingIn: Bool { model.signingIn.contains(key) }
+    private var namedCopilot: Bool { account != nil && tool == .githubCopilot }
 
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: tool.displayName)
+                Text(verbatim: account?.displayName ?? tool.displayName)
                 if let status {
                     Text(status)
                         .font(.caption)
@@ -478,16 +542,39 @@ private struct AccountRow: View {
                 }
             }
             Spacer(minLength: 12)
-            if needsSignIn {
-                Button(AuthText.signInAction(tool), action: onSignIn)
+            if shown && state?.auth == .keychainDenied {
+                Button(L10n.get("Action_TryAgain")) { model.refreshAccount(key) }.buttonStyle(.bordered).controlSize(.small)
+            } else if shown && needsSignIn && !signingIn {
+                if namedCopilot {
+                    Button(L10n.get("Action_TryAgain")) { model.refreshAccount(key) }.buttonStyle(.bordered).controlSize(.small)
+                } else {
+                    Button(AuthText.signInAction(tool)) {
+                        if let account { model.signIn(account) }
+                        else { model.signIn(tool) }
+                    }
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .disabled(!model.canSignIn(key))
+                }
             }
-            Toggle(L10n.get("Settings_ShowTool"), isOn: Binding(get: { shown }, set: onShownChange))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .help(L10n.get("Settings_ShowToolHelp"))
-                .accessibilityLabel("\(tool.displayName) \(L10n.get("Settings_ShowTool"))")
+            if let onAddAccount {
+                Button(L10n.get("Account_Add"), action: onAddAccount).buttonStyle(.bordered).controlSize(.small)
+                    .disabled(!shown)
+            }
+            if let account {
+                Button { model.removeAccount(account) } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .help(L10n.get("Account_Remove"))
+                    .accessibilityLabel(L10n.get("Account_Remove"))
+                    .disabled(signingIn)
+            } else {
+                Toggle(L10n.get("Settings_ShowTool"), isOn: Binding(get: { shown }, set: { model.setShown(tool, $0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .help(L10n.get("Settings_ShowToolHelp"))
+                    .accessibilityLabel("\(tool.displayName) \(L10n.get("Settings_ShowTool"))")
+            }
         }
     }
 
@@ -497,7 +584,13 @@ private struct AccountRow: View {
     }
 
     private var status: String? {
+        if signingIn { return L10n.get("Account_LoginRunning") }
+        if model.failedAccountSignIns.contains(key), needsSignIn { return L10n.get("Account_LoginFailed") }
+        if shown && account == nil && tool == .githubCopilot && model.accounts.contains(where: { $0.tool == tool }) {
+            return L10n.get("Account_CopilotNamedOnly")
+        }
         guard let state, shown else { return nil }
+        if namedCopilot && needsSignIn { return L10n.get("Account_CopilotSignIn") }
         switch state.auth {
         case .signedIn where tool == .antigravity && state.snapshot?.windows.isEmpty != false:
             return L10n.get("Auth_Antigravity")

@@ -17,7 +17,9 @@ public sealed class CliCredentialSource : ICredentialSource
 
     private readonly Func<string> _userProfile;
     private readonly Func<string?> _codexHome;
+    private readonly Func<string?> _claudeConfig;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly bool _scopeHistory;
 
     /// <param name="delay">
     /// Seam for the retry wait, so tests exercise the retry without spending its duration.
@@ -25,11 +27,15 @@ public sealed class CliCredentialSource : ICredentialSource
     public CliCredentialSource(
         Func<string>? userProfile = null,
         Func<string?>? codexHome = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        Func<string?>? claudeConfig = null,
+        bool scopeHistory = false)
     {
         _userProfile = userProfile ?? (() => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         _codexHome = codexHome ?? (() => Environment.GetEnvironmentVariable("CODEX_HOME"));
+        _claudeConfig = claudeConfig ?? (() => Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR"));
         _delay = delay ?? Task.Delay;
+        _scopeHistory = scopeHistory;
     }
 
     public CredentialOwner Owner => CredentialOwner.CliLocal;
@@ -50,7 +56,11 @@ public sealed class CliCredentialSource : ICredentialSource
 
     private Task<CredentialReadResult> ReadClaudeAsync(CancellationToken cancellationToken)
     {
-        var path = Path.Combine(_userProfile(), ".claude", ".credentials.json");
+        var profile = _userProfile();
+        var config = _claudeConfig();
+        var hasConfig = !string.IsNullOrWhiteSpace(config);
+        var path = Path.Combine(hasConfig ? config! : Path.Combine(profile, ".claude"), ".credentials.json");
+        var profilePath = Path.Combine(hasConfig ? config! : profile, ".claude.json");
         return ReadJsonAsync(ToolKind.ClaudeCode, path, cancellationToken, root =>
         {
             if (root.GetObjectOrNull("claudeAiOauth") is not { } oauth
@@ -67,6 +77,7 @@ public sealed class CliCredentialSource : ICredentialSource
                 return Invalid(ToolKind.ClaudeCode, Loc.Get("Cred_ClaudeExpired"));
             }
 
+            var (plan, subject) = ReadClaudeProfile(profilePath);
             return Available(ToolKind.ClaudeCode, new ToolCredential
             {
                 Tool = ToolKind.ClaudeCode,
@@ -74,8 +85,8 @@ public sealed class CliCredentialSource : ICredentialSource
                 Source = Source,
                 AccessToken = token,
                 ExpiresAt = expiresAt,
-                Plan = ReadClaudeProfilePlan()
-                    ?? MapClaudePlan(oauth.GetStringOrNull("subscriptionType"), oauth.GetStringOrNull("rateLimitTier")),
+                Plan = plan ?? MapClaudePlan(oauth.GetStringOrNull("subscriptionType"), oauth.GetStringOrNull("rateLimitTier")),
+                HistoryIdentity = _scopeHistory ? UsageIdentity.Hash(subject, token) : null,
             });
         });
     }
@@ -88,30 +99,32 @@ public sealed class CliCredentialSource : ICredentialSource
     /// from the server and moves first. Only personal Max/Pro accounts are read here, and any
     /// failure falls back to the credentials file's own values.
     /// </summary>
-    private string? ReadClaudeProfilePlan()
+    private static (string? Plan, string? Subject) ReadClaudeProfile(string profilePath)
     {
         try
         {
-            using var stream = File.OpenRead(Path.Combine(_userProfile(), ".claude.json"));
+            using var stream = File.OpenRead(profilePath);
             using var document = JsonDocument.Parse(stream);
-            if (document.RootElement.GetObjectOrNull("oauthAccount") is not { } account
-                || account.GetStringOrNull("organizationType") is not { } type
+            if (document.RootElement.GetObjectOrNull("oauthAccount") is not { } account) return default;
+            var subject = account.GetStringOrNull("accountUuid") is { Length: > 0 } user
+                ? $"{user}\0{account.GetStringOrNull("organizationUuid")}" : null;
+            if (account.GetStringOrNull("organizationType") is not { } type
                 || !type.StartsWith("claude_", StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                return (null, subject);
             }
 
             var subscription = type["claude_".Length..];
             if (!subscription.Equals("max", StringComparison.OrdinalIgnoreCase)
                 && !subscription.Equals("pro", StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                return (null, subject);
             }
-            return MapClaudePlan(subscription, account.GetStringOrNull("organizationRateLimitTier"));
+            return (MapClaudePlan(subscription, account.GetStringOrNull("organizationRateLimitTier")), subject);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            return null;
+            return default;
         }
     }
 
@@ -142,13 +155,15 @@ public sealed class CliCredentialSource : ICredentialSource
                 return Invalid(ToolKind.Codex, Loc.Get("Cred_CodexExpired"));
             }
 
+            var accountId = tokens.GetStringOrNull("account_id");
             return Available(ToolKind.Codex, new ToolCredential
             {
                 Tool = ToolKind.Codex,
                 Owner = Owner,
                 Source = Source,
                 AccessToken = token,
-                AccountId = tokens.GetStringOrNull("account_id"),
+                AccountId = accountId,
+                HistoryIdentity = _scopeHistory ? UsageIdentity.Hash(CodexSubject(tokens, token, accountId), token) : null,
                 ExpiresAt = expiresAt,
             });
         });
@@ -233,25 +248,45 @@ public sealed class CliCredentialSource : ICredentialSource
     /// </summary>
     internal static DateTimeOffset? ParseJwtExpiry(string jwt)
     {
-        var parts = jwt.Split('.');
-        if (parts.Length < 2)
+        try
+        {
+            return ReadJwtClaims(jwt)?.GetInt64OrNull("exp") is { } seconds
+                ? DateTimeOffset.FromUnixTimeSeconds(seconds) : null;
+        }
+        catch (ArgumentOutOfRangeException)
         {
             return null;
         }
+    }
+
+    private static string? CodexSubject(JsonElement tokens, string token, string? accountId)
+    {
+        const string authClaim = "https://api.openai.com/auth";
+        var identity = ReadJwtClaims(tokens.GetStringOrNull("id_token"));
+        var access = ReadJwtClaims(token);
+        var identityAuth = identity?.GetObjectOrNull(authClaim);
+        var accessAuth = access?.GetObjectOrNull(authClaim);
+        // An account ID can be shared by multiple users in the same ChatGPT workspace.
+        var user = accessAuth?.GetStringOrNull("chatgpt_user_id") ?? identityAuth?.GetStringOrNull("chatgpt_user_id")
+            ?? identity?.GetStringOrNull("sub") ?? access?.GetStringOrNull("sub");
+        var workspace = accountId ?? accessAuth?.GetStringOrNull("chatgpt_account_id")
+            ?? identityAuth?.GetStringOrNull("chatgpt_account_id");
+        return string.IsNullOrEmpty(user) ? null : $"{user}\0{workspace}";
+    }
+
+    private static JsonElement? ReadJwtClaims(string? jwt)
+    {
+        var parts = jwt?.Split('.');
+        if (parts is not { Length: >= 2 }) return null;
         try
         {
             using var document = JsonDocument.Parse(Base64UrlDecode(parts[1]));
-            if (document.RootElement.TryGetProperty("exp", out var exp) && exp.TryGetInt64(out var seconds))
-            {
-                return DateTimeOffset.FromUnixTimeSeconds(seconds);
-            }
+            return document.RootElement.ValueKind == JsonValueKind.Object ? document.RootElement.Clone() : null;
         }
-        catch (Exception ex) when (ex is FormatException or JsonException or ArgumentOutOfRangeException)
+        catch (Exception ex) when (ex is FormatException or JsonException)
         {
-            // Not a decodable JWT, or an out-of-range exp from a corrupt token; treat as
-            // "no expiry known" rather than letting it escape as an unhandled exception.
+            return null;
         }
-        return null;
     }
 
     private static byte[] Base64UrlDecode(string value)
