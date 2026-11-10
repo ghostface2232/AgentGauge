@@ -8,6 +8,7 @@
     xmlns:conv="using:Gauge.Converters"
     xmlns:ctrl="using:Gauge.Views.Controls"
     xmlns:loc="using:Gauge.Localization"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
     mc:Ignorable="d">
 
     <!-- RootHost is transparent so the DesktopAcrylic backdrop shows through. Its
@@ -34,7 +35,7 @@
             <conv:UsageLevelToBrushConverter x:Key="LevelToBrush" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
             <conv:EmptyStringToNullConverter x:Key="EmptyToNull" />
-            <Style x:Key="BorderlessIconButtonStyle" TargetType="Button">
+            <Style x:Key="BorderlessIconButtonStyle" TargetType="primitives:ButtonBase">
                 <Setter Property="Background" Value="{ThemeResource ControlFillColorTransparentBrush}" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="Padding" Value="8" />
@@ -46,7 +47,7 @@
                 <Setter Property="VerticalContentAlignment" Value="Center" />
                 <Setter Property="Template">
                     <Setter.Value>
-                        <ControlTemplate TargetType="Button">
+                        <ControlTemplate TargetType="primitives:ButtonBase">
                             <Grid x:Name="RootGrid"
                                   Background="{TemplateBinding Background}"
                                   CornerRadius="{TemplateBinding CornerRadius}"
@@ -71,6 +72,23 @@
                                                         Value="{ThemeResource IconButtonPressedBrush}" />
                                                 </ObjectAnimationUsingKeyFrames>
                                             </Storyboard>
+                                        </VisualState>
+                                        <VisualState x:Name="Checked">
+                                            <VisualState.Setters>
+                                                <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="CheckedPointerOver">
+                                            <VisualState.Setters>
+                                                <Setter Target="RootGrid.Background" Value="{ThemeResource IconButtonHoverBrush}" />
+                                                <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                        <VisualState x:Name="CheckedPressed">
+                                            <VisualState.Setters>
+                                                <Setter Target="RootGrid.Background" Value="{ThemeResource IconButtonPressedBrush}" />
+                                                <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                            </VisualState.Setters>
                                         </VisualState>
                                         <VisualState x:Name="Disabled">
                                             <Storyboard>
@@ -675,65 +693,24 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Grid Grid.Column="0" HorizontalAlignment="Left" ColumnSpacing="6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock VerticalAlignment="Center" Opacity="0.7"
-                                       Text="{Binding LastUpdatedText}" TextTrimming="CharacterEllipsis"
-                                       Style="{StaticResource CaptionTextBlockStyle}" />
-                            <ToggleButton Grid.Column="1" MinHeight="32" Padding="6,0" FontSize="12"
-                                          Content="{loc:Localize Key=DailyUsage_Label}"
-                                          IsChecked="{Binding ShowDailyUsage, Mode=TwoWay}"
-                                          UseSystemFocusVisuals="True"
-                                          ToolTipService.ToolTip="{loc:Localize Key=DailyUsage_Help}"
-                                          Visibility="{Binding CanShowDailyUsage, Converter={StaticResource BoolToVis}}">
-                                <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Grid Background="{ThemeResource ControlFillColorTransparentBrush}"
-                                              Padding="{TemplateBinding Padding}" CornerRadius="4">
-                                            <VisualStateManager.VisualStateGroups>
-                                                <VisualStateGroup x:Name="CommonStates">
-                                                    <VisualState x:Name="Normal" />
-                                                    <VisualState x:Name="PointerOver">
-                                                        <VisualState.Setters>
-                                                            <Setter Target="Label.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-                                                        </VisualState.Setters>
-                                                    </VisualState>
-                                                    <VisualState x:Name="Pressed">
-                                                        <VisualState.Setters>
-                                                            <Setter Target="Label.Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
-                                                        </VisualState.Setters>
-                                                    </VisualState>
-                                                    <VisualState x:Name="Checked">
-                                                        <VisualState.Setters>
-                                                            <Setter Target="Label.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                                        </VisualState.Setters>
-                                                    </VisualState>
-                                                    <VisualState x:Name="CheckedPointerOver">
-                                                        <VisualState.Setters>
-                                                            <Setter Target="Label.Foreground" Value="{ThemeResource AccentTextFillColorSecondaryBrush}" />
-                                                        </VisualState.Setters>
-                                                    </VisualState>
-                                                    <VisualState x:Name="CheckedPressed">
-                                                        <VisualState.Setters>
-                                                            <Setter Target="Label.Foreground" Value="{ThemeResource AccentTextFillColorTertiaryBrush}" />
-                                                        </VisualState.Setters>
-                                                    </VisualState>
-                                                </VisualStateGroup>
-                                            </VisualStateManager.VisualStateGroups>
-                                            <ContentPresenter x:Name="Label" Content="{TemplateBinding Content}"
-                                                              VerticalAlignment="Center"
-                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                        </Grid>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
-                        </Grid>
-                        <Button
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Opacity="0.7"
+                                   Text="{Binding LastUpdatedText}" TextTrimming="CharacterEllipsis"
+                                   Style="{StaticResource CaptionTextBlockStyle}" />
+                        <ToggleButton
                             Grid.Column="1"
+                            Style="{StaticResource BorderlessIconButtonStyle}"
+                            Padding="8,9"
+                            IsChecked="{Binding ShowDailyUsage, Mode=TwoWay}"
+                            UseSystemFocusVisuals="True"
+                            AutomationProperties.Name="{loc:Localize Key=DailyUsage_Label}"
+                            ToolTipService.ToolTip="{loc:Localize Key=DailyUsage_Help}"
+                            Visibility="{Binding CanShowDailyUsage, Converter={StaticResource BoolToVis}}">
+                            <FontIcon Glyph="&#xE787;" FontSize="14" />
+                        </ToggleButton>
+                        <Button
+                            Grid.Column="2"
                             Style="{StaticResource BorderlessIconButtonStyle}"
                             Padding="8,9"
                             Command="{Binding RefreshCommand}"
@@ -741,7 +718,7 @@
                             <FontIcon Glyph="&#xE72C;" FontSize="14" />
                         </Button>
                         <Button
-                            Grid.Column="2"
+                            Grid.Column="3"
                             Style="{StaticResource BorderlessIconButtonStyle}"
                             Padding="8,9"
                             Click="OnSettingsClicked"

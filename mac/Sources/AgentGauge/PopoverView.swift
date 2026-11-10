@@ -244,6 +244,20 @@ struct PopoverView: View {
             Text(verbatim: "AgentGauge")
                 .font(.headline)
             Spacer(minLength: 8)
+            if model.canShowDailyUsage {
+                Button {
+                    model.showDailyUsage.toggle()
+                } label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(model.showDailyUsage ? Color.accentColor : Color.primary)
+                        .frame(width: 18, height: 18)
+                }
+                .iconButtonStyle()
+                .accessibilityLabel(L10n.get("DailyUsage_Label"))
+                .accessibilityAddTraits(model.showDailyUsage ? .isSelected : [])
+                .help(L10n.get("DailyUsage_Help"))
+            }
             Button {
                 model.refreshNow()
             } label: {
@@ -308,22 +322,6 @@ struct PopoverView: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .help(updatedText)
-            if model.canShowDailyUsage {
-                Button {
-                    model.showDailyUsage.toggle()
-                } label: {
-                    Text(L10n.get("DailyUsage_Label"))
-                        .font(.caption)
-                        .foregroundStyle(model.showDailyUsage ? Color.accentColor : Color.secondary)
-                        .fixedSize()
-                        .padding(.horizontal, 4)
-                        .frame(minHeight: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(model.showDailyUsage ? .isSelected : [])
-                .help(L10n.get("DailyUsage_Help"))
-            }
             Spacer(minLength: 8)
             if update.isAvailable || update.isBusy || update.hasFailedInstall {
                 // Installing quits and relaunches the app, so it stays a deliberate click.
