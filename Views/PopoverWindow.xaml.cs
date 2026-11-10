@@ -720,6 +720,11 @@ public sealed partial class PopoverWindow : Window
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, MaxWidth = 220 };
         var add = new Button { Content = Loc.Get("Account_Add"), IsEnabled = false };
         var content = new StackPanel { Spacing = 8 };
+        if (card.Tool == ToolKind.GitHubCopilot)
+            content.Children.Add(new TextBlock
+            {
+                Text = Loc.Get("Account_CopilotNamedOnly"), TextWrapping = TextWrapping.Wrap, MaxWidth = 220,
+            });
         content.Children.Add(input);
         content.Children.Add(error);
         content.Children.Add(add);

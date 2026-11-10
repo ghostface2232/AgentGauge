@@ -31,6 +31,28 @@ public sealed class AuthenticationProviderTests
         Assert.Equal(1, runner.CallCount);
     }
 
+    [Fact]
+    public async Task CodexLoginBlocksAnotherProfileUntilTheFirstProcessEnds()
+    {
+        var source = new FakeSource { Result = Available() };
+        var firstRunner = new FakeRunner { Wait = new TaskCompletionSource<CliProcessResult>() };
+        var secondRunner = new FakeRunner();
+        var first = Create(source, new FakeLocator("codex.exe"), firstRunner).LoginAsync();
+        var second = Create(source, new FakeLocator("codex.exe"), secondRunner);
+        try
+        {
+            Assert.Equal(AuthenticationStatus.LoginFailed, (await second.LoginAsync()).Status);
+            Assert.Equal(0, secondRunner.CallCount);
+        }
+        finally
+        {
+            firstRunner.Wait.SetResult(new CliProcessResult(0, false));
+            await first;
+        }
+        Assert.Equal(AuthenticationStatus.Available, (await second.LoginAsync()).Status);
+        Assert.Equal(1, secondRunner.CallCount);
+    }
+
     [Theory]
     [InlineData(2, false)]
     [InlineData(-1, true)]

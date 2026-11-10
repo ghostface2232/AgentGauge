@@ -78,6 +78,7 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     public string ToolName { get; }
     public string Key { get; }
     public bool IsDefaultAccount { get; }
+    [ObservableProperty] public partial bool ShowsNamedCopilotHint { get; set; }
     public bool CanAddAccount => IsDefaultAccount && ToolAccount.SupportsAdditionalAccounts(Tool);
     public IAsyncRelayCommand LoginCommand { get; }
 

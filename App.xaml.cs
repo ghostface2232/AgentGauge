@@ -167,7 +167,7 @@ public partial class App : Application
                 _antigravityProvider,
                 new GitHubCopilotProvider(_httpClient, credentials),
             },
-            _toolRegistry.IsEnabled, _toolRegistry.IsActive);
+            _toolRegistry.IsEnabled, _toolRegistry.IsActive, isRegisteredAccount: _toolRegistry.IsRegistered);
 
         void SyncAccountConnections()
         {
@@ -191,7 +191,9 @@ public partial class App : Application
         {
             SyncAccountConnections();
             _coordinator?.ReemitState();
-            if (_coordinator is { } coordinator) _ = coordinator.RefreshAsync(RefreshReason.ToolsChanged, key);
+            var refreshKey = StatusTargetMatcher.Descriptor(key)?.Kind == ToolKind.GitHubCopilot
+                && !_toolRegistry.TracksNamedCopilotAccounts ? ToolCatalog.GitHubCopilot.DisplayName : key;
+            if (_coordinator is { } coordinator) _ = coordinator.RefreshAsync(RefreshReason.ToolsChanged, refreshKey);
         };
 
         // Global settings toggles (notifications, run-on-startup) shown at the top of the
@@ -379,9 +381,10 @@ public partial class App : Application
         }
         var enabled = _toolRegistry.Enabled.Where(_toolRegistry.IsActive).ToList();
         return enabled.Count > 0 && enabled.All(kind =>
-            kind != ToolKind.Antigravity
+            (kind == ToolKind.GitHubCopilot && _toolRegistry.TracksNamedCopilotAccounts)
+            || (kind != ToolKind.Antigravity
             && _authentication.TryGetValue(kind, out var provider)
-            && provider.State.Status == AuthenticationStatus.Missing)
+            && provider.State.Status == AuthenticationStatus.Missing))
             && _accountConnections.Where(pair => _toolRegistry.IsActive(pair.Key))
                 .All(pair => pair.Value.Authentication.State.Status == AuthenticationStatus.Missing);
     }

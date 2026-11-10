@@ -48,10 +48,12 @@ public sealed class ToolRegistry
     public event EventHandler<ToolKind>? VisibilityChanged;
     public event EventHandler<string>? AccountsChanged;
     public IReadOnlyList<ToolAccount> Accounts => _accounts;
+    public bool TracksNamedCopilotAccounts => _accounts.Any(account => account.Tool == ToolKind.GitHubCopilot);
 
     public bool IsRegistered(string key) => key.Contains(ToolAccount.KeySeparator)
         ? _accounts.Any(account => account.Key == key && IsEnabled(account.Tool))
-        : StatusTargetMatcher.Descriptor(key) is { } descriptor && IsEnabled(descriptor.Kind);
+        : StatusTargetMatcher.Descriptor(key) is { } descriptor && IsEnabled(descriptor.Kind)
+            && (descriptor.Kind != ToolKind.GitHubCopilot || !TracksNamedCopilotAccounts);
 
     public bool IsActive(string key) => IsRegistered(key)
         && StatusTargetMatcher.Descriptor(key) is { } descriptor && !IsHidden(descriptor.Kind);

@@ -76,13 +76,13 @@ public struct UsageNotificationEvaluator: Sendable {
             // A failed refresh re-serves the last good snapshot: keep its keys alive without
             // evaluating cached values as new transitions.
             if state.lastRefreshFailed {
-                windows.forEach { present.insert(Key(account: state.id, window: $0.id)) }
+                windows.forEach { present.insert(Key(account: state.id, identity: snapshot.historyIdentity, window: $0.id)) }
                 continue
             }
 
             let resuming = resumingAccounts.remove(state.id) != nil
             for window in windows {
-                let key = Key(account: state.id, window: window.id)
+                let key = Key(account: state.id, identity: snapshot.historyIdentity, window: window.id)
                 present.insert(key)
                 guard let previous = observations[key], !resuming else {
                     observations[key] = .baseline(window, capturedAt: snapshot.capturedAt)
@@ -192,6 +192,7 @@ public struct UsageNotificationEvaluator: Sendable {
 
     private struct Key: Hashable, Sendable {
         var account: UsageAccountKey
+        var identity: String?
         var window: String
     }
 

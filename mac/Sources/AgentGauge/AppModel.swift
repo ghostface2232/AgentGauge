@@ -73,6 +73,7 @@ final class AppModel {
     private(set) var accounts: [ToolAccount]
     private(set) var signingIn = Set<UsageAccountKey>()
     private(set) var failedAccountSignIns = Set<UsageAccountKey>()
+    private var tracksNamedCopilotAccounts: Bool { accounts.contains { $0.tool == .githubCopilot } }
 
     var visibleTools: [ToolKind] { ToolKind.allCases.filter { !hiddenTools.contains($0) } }
     var menuBarSummary: MenuBarSummary {
@@ -205,6 +206,10 @@ final class AppModel {
     func signIn(_ tool: ToolKind) {
         switch tool.signIn {
         case .cli(let command):
+            if tool == .codex {
+                startSignIn(UsageAccountKey(tool: tool), command: command)
+                return
+            }
             Task {
                 do {
                     try await TerminalLauncher.run(command)
@@ -229,6 +234,9 @@ final class AppModel {
         let account = ToolAccount(tool: tool, label: label)
         guard let provider = ProviderFactory.makeAccount(account) else { return }
         accounts.append(account)
+        if tool == .githubCopilot {
+            states.removeAll { $0.tool == .githubCopilot && $0.account == nil }
+        }
         saveAccounts()
         Task {
             guard accounts.contains(account) else { return }
@@ -243,7 +251,12 @@ final class AppModel {
         states.removeAll { $0.id == account.key }
         failedAccountSignIns.remove(account.key)
         saveAccounts()
-        Task { await coordinator.removeAccount(account.key) }
+        Task {
+            await coordinator.removeAccount(account.key)
+            if account.tool == .githubCopilot && !tracksNamedCopilotAccounts {
+                await coordinator.refresh(.toolsChanged, account: UsageAccountKey(tool: .githubCopilot))
+            }
+        }
     }
 
     func refreshAccount(_ key: UsageAccountKey) {
@@ -251,17 +264,32 @@ final class AppModel {
     }
 
     func signIn(_ account: ToolAccount) {
-        guard let profile = AccountCLIProfile(account: account), signingIn.insert(account.key).inserted else { return }
-        failedAccountSignIns.remove(account.key)
+        guard accounts.contains(account), let profile = AccountCLIProfile(account: account) else { return }
+        startSignIn(account.key, command: profile.signIn, profile: profile)
+    }
+
+    func canSignIn(_ key: UsageAccountKey) -> Bool {
+        !signingIn.contains(key) && (key.tool != .codex || !signingIn.contains { $0.tool == .codex })
+    }
+
+    private func startSignIn(_ key: UsageAccountKey, command: CLICommand, profile: AccountCLIProfile? = nil) {
+        guard canSignIn(key) else { return }
+        signingIn.insert(key)
+        failedAccountSignIns.remove(key)
         Task {
-            defer { signingIn.remove(account.key) }
+            await coordinator.setSigningIn(true, account: key)
+            let completed: Bool
             do {
-                try await TerminalLauncher.runAccount(profile)
-                await coordinator.refresh(.toolsChanged, account: account.key)
+                try await TerminalLauncher.runAndWait(command, profile: profile)
+                completed = true
             } catch {
                 Log.write("auth", "Account sign-in failed: \(type(of: error))")
-                failedAccountSignIns.insert(account.key)
+                failedAccountSignIns.insert(key)
+                completed = false
             }
+            await coordinator.setSigningIn(false, account: key)
+            signingIn.remove(key)
+            if completed { await coordinator.refresh(.toolsChanged, account: key) }
         }
     }
 
@@ -348,14 +376,17 @@ final class AppModel {
     var effectiveViewMode: UsageViewMode { viewModeOverride ?? viewMode }
 
     /// Everything a row shows beside its bar, derived from the window and its recorded history.
-    func details(for account: UsageAccountKey, window: UsageWindow) -> RowDetails {
+    func details(for state: ToolState, window: UsageWindow) -> RowDetails {
         var details = RowDetails(reset: ResetTimeFormatter.row(window.resetTime, now: now))
         // Until the background warm-up finishes, reading would wait on its lock on the main
         // thread; the rows simply show no trend for that moment instead.
         _ = historyRevision
-        let samples = historyReady ? history.recent(tool: account.tool, profileID: account.profileID, windowID: window.id) : []
+        let account = state.id
+        let identity = state.snapshot?.historyIdentity
+        let samples = historyReady
+            ? history.recent(tool: account.tool, profileID: account.profileID, historyIdentity: identity, windowID: window.id) : []
         let profile = historyReady && paceModel == .automatic
-            ? history.weekdayProfile(tool: account.tool, profileID: account.profileID, windowID: window.id) : nil
+            ? history.weekdayProfile(tool: account.tool, profileID: account.profileID, historyIdentity: identity, windowID: window.id) : nil
         details.pace = PaceClassifier.caption(for: window, now: now, model: paceModel, profile: profile)
         details.eta = UsageEtaClassifier.caption(samples: samples, window: window, now: now)
         if showSparkline && effectiveViewMode == .bar {
@@ -426,7 +457,9 @@ final class AppModel {
     private func receive(_ newStates: [ToolState]) {
         // A queued emission can reach the main actor after a profile was removed or hidden.
         let newStates = newStates.filter { state in
-            !hiddenTools.contains(state.tool) && (state.account == nil || accounts.contains { $0.key == state.id })
+            guard !hiddenTools.contains(state.tool) else { return false }
+            if let account = state.account { return accounts.contains(account) }
+            return state.tool != .githubCopilot || !tracksNamedCopilotAccounts
         }
         states = newStates
         now = Date()

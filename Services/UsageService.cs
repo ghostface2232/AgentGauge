@@ -38,6 +38,7 @@ public sealed class UsageService
     private volatile IReadOnlyList<IUsageProvider> _additionalProviders = [];
     private readonly Func<ToolKind, bool> _isEnabled;
     private readonly Func<ToolKind, bool> _isActive;
+    private readonly Func<string, bool> _isRegisteredAccount;
     private readonly TimeSpan _readDeadline;
 
     // Reads the deadline gave up on but that are still running. A provider gets no new call until
@@ -54,24 +55,29 @@ public sealed class UsageService
         IEnumerable<IUsageProvider> providers,
         Func<ToolKind, bool>? isEnabled = null,
         Func<ToolKind, bool>? isActive = null,
-        TimeSpan? readDeadline = null)
+        TimeSpan? readDeadline = null,
+        Func<string, bool>? isRegisteredAccount = null)
     {
         _providers = providers.ToList();
         _isEnabled = isEnabled ?? (_ => true);
         _isActive = isActive ?? _isEnabled;
         _readDeadline = readDeadline ?? DefaultReadDeadline;
+        _isRegisteredAccount = isRegisteredAccount ?? (_ => true);
     }
 
     /// <summary>The currently enabled providers, in catalog/registration order.</summary>
     public IReadOnlyList<IUsageProvider> GetEnabledProviders()
-        => _providers.Concat(_additionalProviders)
-            .Where(provider => _isEnabled(provider.Tool) && _isActive(provider.Tool)).ToList();
+        => RegisteredProviders().Where(provider => _isActive(provider.Tool)
+            && provider is not AccountUsageProvider { IsSigningIn: true }).ToList();
 
     internal void SetAdditionalProviders(IEnumerable<IUsageProvider> providers) =>
         _additionalProviders = providers.ToArray();
 
     public IReadOnlySet<string> GetRegisteredToolNames() =>
-        _providers.Concat(_additionalProviders).Where(p => _isEnabled(p.Tool)).Select(p => p.ToolName).ToHashSet();
+        RegisteredProviders().Select(p => p.ToolName).ToHashSet();
+
+    private IEnumerable<IUsageProvider> RegisteredProviders() =>
+        _providers.Concat(_additionalProviders).Where(p => _isEnabled(p.Tool) && _isRegisteredAccount(p.ToolName));
 
     public async Task<IReadOnlyList<ProviderSnapshotResult>> GetAllSnapshotsAsync(CancellationToken cancellationToken)
         => await GetSnapshotsAsync(GetEnabledProviders(), cancellationToken);

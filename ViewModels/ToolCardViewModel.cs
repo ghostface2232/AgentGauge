@@ -266,6 +266,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
         ResetCreditsDescription = resets > 0 ? Loc.Format("Tooltip_ResetCredits", resets) : string.Empty;
 
         var windows = OrderForDisplay(cached.Snapshot?.Windows ?? Array.Empty<UsageWindow>());
+        var historyKey = cached.Snapshot?.HistoryKey ?? ToolName;
 
         if (windows.Count == 0)
         {
@@ -295,7 +296,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
             // recorded burn rate. Both history reads are memory-backed after the first, so
             // this stays cheap on the UI thread. The profile is set before Update so an
             // existing row derives its caption once, against the current profile.
-            var profile = _history?.GetWeekdayProfile(ToolName, window.Key);
+            var profile = _history?.GetWeekdayProfile(historyKey, window.Key);
             var existing = Windows.FirstOrDefault(r => r.Key == window.Key);
             if (existing is null)
             {
@@ -310,7 +311,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
                 existing.WeekdayProfile = profile;
                 existing.Update(window);
             }
-            var samples = _history?.GetRecent(ToolName, window.Key, UsageBurndown.Lookback) ?? [];
+            var samples = _history?.GetRecent(historyKey, window.Key, UsageBurndown.Lookback) ?? [];
             existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
             // The row re-resolves any active hover against the new points itself.
             existing.Burndown = UsageBurndown.Build(window, samples, DateTimeOffset.UtcNow);

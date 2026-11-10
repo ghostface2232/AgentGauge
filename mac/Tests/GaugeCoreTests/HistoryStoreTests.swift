@@ -42,11 +42,17 @@ final class UsageHistoryStoreTests: XCTestCase {
                                     capturedAt: start)
         var secondary = primary
         secondary.profileID = id
+        secondary.historyIdentity = "alice"
         secondary.windows[0].usedRatio = 0.8
+        var reconnected = secondary
+        reconnected.historyIdentity = "bob"
+        reconnected.windows[0].usedRatio = 0.4
         store.record(primary)
         store.record(secondary)
+        store.record(reconnected)
         XCTAssertEqual(store.recent(tool: .codex, windowID: window).map(\.usedRatio), [0.2])
-        XCTAssertEqual(store.recent(tool: .codex, profileID: id, windowID: window).map(\.usedRatio), [0.8])
+        XCTAssertEqual(store.recent(tool: .codex, profileID: id, historyIdentity: "alice", windowID: window).map(\.usedRatio), [0.8])
+        XCTAssertEqual(store.recent(tool: .codex, profileID: id, historyIdentity: "bob", windowID: window).map(\.usedRatio), [0.4])
         store.close()
     }
 

@@ -218,7 +218,10 @@ public abstract class UsageProviderBase : IUsageProvider
     {
         try
         {
-            return RecordSuccess(await FetchSnapshotAsync(credential, cancellationToken));
+            var snapshot = await FetchSnapshotAsync(credential, cancellationToken);
+            var identity = credential.HistoryIdentity
+                ?? (Tool == ToolKind.GitHubCopilot ? UsageIdentity.Hash(null, credential.AccessToken) : null);
+            return RecordSuccess(snapshot with { HistoryIdentity = identity });
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
@@ -341,7 +344,8 @@ public abstract class UsageProviderBase : IUsageProvider
         var fingerprint = credential?.AccessToken is { Length: > 0 } accessToken
             ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(accessToken)))
             : null;
-        if (_credentialFingerprintInitialized && !StringComparer.Ordinal.Equals(_credentialFingerprint, fingerprint))
+        if ((_credentialFingerprintInitialized && !StringComparer.Ordinal.Equals(_credentialFingerprint, fingerprint))
+            || (_lastSnapshot is not null && credential?.HistoryIdentity is { } identity && _lastSnapshot.HistoryIdentity != identity))
         {
             _lastSnapshot = null;
             _lastSuccessTimestamp = null;

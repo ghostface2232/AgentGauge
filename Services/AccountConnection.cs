@@ -26,8 +26,11 @@ internal sealed record AccountConnection(IAuthenticationProvider Authentication,
             ? new Dictionary<string, string?>
             {
                 ["CLAUDE_CONFIG_DIR"] = directory,
+                ["CLAUDE_SECURESTORAGE_CONFIG_DIR"] = directory,
+                ["CLAUDE_CODE_FORCE_WINDOWS_CREDMAN"] = null,
                 ["CLAUDE_CODE_OAUTH_TOKEN"] = null,
                 ["CLAUDE_CODE_OAUTH_TOKEN_FILE"] = null,
+                ["CLAUDE_CODE_OAUTH_TOKEN_FD"] = null,
                 ["ANTHROPIC_AUTH_TOKEN"] = null,
                 ["ANTHROPIC_API_KEY"] = null,
             }
@@ -39,7 +42,7 @@ internal sealed record AccountConnection(IAuthenticationProvider Authentication,
                 ["OPENAI_API_KEY"] = null,
             };
         var runner = new CliProcessRunner(environment, directory);
-        var credentials = new CliCredentialSource(codexHome: () => directory, claudeConfig: () => directory);
+        var credentials = new CliCredentialSource(codexHome: () => directory, claudeConfig: () => directory, scopeHistory: true);
         const string fileCredentials = "-c cli_auth_credentials_store=file";
         var auth = new CliAuthenticationProvider(tool, credentials, locator, runner,
             loginArguments: isClaude ? "auth login" : $"login {fileCredentials}");
@@ -50,6 +53,6 @@ internal sealed record AccountConnection(IAuthenticationProvider Authentication,
         IUsageProvider usage = isClaude
             ? new ClaudeProvider(httpClient, credentials, refresher)
             : new CodexProvider(httpClient, credentials, refresher);
-        return new(auth, new AccountUsageProvider(account, usage));
+        return new(auth, new AccountUsageProvider(account, usage, auth));
     }
 }

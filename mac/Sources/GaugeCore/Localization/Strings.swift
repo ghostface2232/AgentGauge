@@ -84,6 +84,7 @@ enum Strings {
         "Account_GitHubUsername": ["GitHub 사용자 이름", "GitHub Username", "GitHub ユーザー名"],
         "Account_InvalidName": ["유효한 새 이름을 입력해 주세요.", "Enter a valid, unused name.", "未使用の有効な名前を入力してください。"],
         "Account_CopilotSignIn": ["이 계정으로 터미널에서 gh auth login을 실행해 주세요.", "Run gh auth login in Terminal for this account.", "このアカウントでターミナルから gh auth login を実行してください。"],
+        "Account_CopilotNamedOnly": ["추가한 GitHub 사용자만 표시됩니다. 보려는 계정의 사용자 이름을 각각 추가해 주세요.", "Only added GitHub users are shown. Add each username you want to monitor.", "追加した GitHub ユーザーのみ表示します。確認したいユーザー名をそれぞれ追加してください。"],
         "Account_LoginRunning": ["터미널에서 로그인을 완료해 주세요.", "Finish signing in in Terminal.", "ターミナルでサインインを完了してください。"],
         "Account_LoginFailed": ["로그인을 완료하지 못했습니다. 터미널을 확인하고 다시 시도해 주세요.", "Couldn't finish signing in. Check Terminal and try again.", "サインインを完了できませんでした。ターミナルを確認して再試行してください。"],
         "Auth_Missing_Cursor": ["Cursor 앱에서 로그인하세요.", "Sign in from the Cursor app.", "Cursorアプリでログインしてください。"],

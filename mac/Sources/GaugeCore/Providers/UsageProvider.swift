@@ -190,9 +190,11 @@ public actor HTTPUsageProvider: UsageProvider {
     private func fetchWithPolicy(_ credential: ToolCredential) async throws -> ProviderOutcome {
         do {
             let payload = try await endpoint.fetch(credential, transport: transport, now: wallClock())
-            let snapshot = UsageSnapshot(
+            var snapshot = UsageSnapshot(
                 tool: tool, plan: payload.plan, windows: payload.windows,
                 resetCredits: payload.resetCredits, capturedAt: wallClock())
+            snapshot.historyIdentity = credential.historyIdentity
+                ?? (tool == .githubCopilot ? UsageIdentity.hash(subject: nil, token: credential.accessToken) : nil)
             gate?.recordSuccess()
             if cachesSnapshots {
                 lastSuccessAt = clock.now()
@@ -227,7 +229,8 @@ public actor HTTPUsageProvider: UsageProvider {
         let next = credential.map { credential in
             SHA256.hash(data: Data(credential.accessToken.utf8)).map { String(format: "%02x", $0) }.joined()
         }
-        if fingerprintInitialized && next != fingerprint {
+        if (fingerprintInitialized && next != fingerprint)
+            || (lastSnapshot != nil && credential?.historyIdentity != nil && lastSnapshot?.historyIdentity != credential?.historyIdentity) {
             lastSnapshot = nil
             lastSuccessAt = nil
             gate?.recordSuccess()
@@ -322,7 +325,7 @@ public enum ProviderFactory {
         let isClaude = account.tool == .claude
         let credentials: any CredentialSource = isClaude
             ? ClaudeCredentialSource(scopedConfigDirectory: profile.directory)
-            : CodexCredentialSource(environment: profile.variables)
+            : CodexCredentialSource(environment: profile.variables, scopeHistory: true)
         let endpoint: any UsageEndpoint = isClaude ? ClaudeEndpoint() : CodexEndpoint()
         return AccountUsageProvider(account: account, provider: HTTPUsageProvider(
             tool: account.tool, credentials: credentials, endpoint: endpoint,

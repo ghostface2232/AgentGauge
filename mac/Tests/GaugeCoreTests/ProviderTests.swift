@@ -336,9 +336,25 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         let source = ClaudeCredentialSource(keychain: keychain, environment: [:], scopedConfigDirectory: directory)
 
         let read = await source.read(interactive: false)
-        XCTAssertEqual(read, .available(ToolCredential(accessToken: "tok", plan: "Pro")))
+        guard case .available(let credential) = read else { return XCTFail("expected a credential") }
+        XCTAssertEqual(credential.plan, "Pro")
+        XCTAssertEqual(credential.historyIdentity, UsageIdentity.hash(subject: nil, token: "tok"))
         XCTAssertEqual(keychain.lookupServices, ["Claude Code-credentials-189f7b27"])
         XCTAssertEqual(keychain.passwordServices, keychain.lookupServices)
+    }
+
+    func testCodexHistorySeparatesUsersInOneWorkspaceAndKeepsTokenRotationTogether() {
+        func historyIdentity(user: String, token: String) -> String? {
+            let claims = Data(#"{"sub":"\#(user)"}"#.utf8).base64EncodedString()
+            let data = Data(#"{"tokens":{"id_token":"e30.\#(claims).sig","access_token":"\#(token)","account_id":"team"}}"#.utf8)
+            guard case .available(let credential) = CredentialParsing.codex(from: data, now: Date(), scopeHistory: true)
+            else { return nil }
+            return credential.historyIdentity
+        }
+        let alice = historyIdentity(user: "alice", token: "first")
+        XCTAssertNotNil(alice)
+        XCTAssertEqual(alice, historyIdentity(user: "alice", token: "rotated"))
+        XCTAssertNotEqual(alice, historyIdentity(user: "bob", token: "new-login"))
     }
 
     func testSecretIsReadAgainOnlyWhenTheItemChanges() async {

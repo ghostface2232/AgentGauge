@@ -8,6 +8,8 @@ namespace Gauge.Services;
 public sealed class CliAuthenticationProvider : IAuthenticationProvider
 {
     private static readonly TimeSpan LoginTimeout = TimeSpan.FromMinutes(10);
+    // Codex shares its OAuth callback port across CODEX_HOME directories.
+    private static readonly SemaphoreSlim CodexLoginGate = new(1, 1);
     private readonly ICredentialSource _credentials;
     private readonly ICliLocator _locator;
     private readonly ICliProcessRunner _runner;
@@ -15,7 +17,7 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
     private readonly string _command;
     private readonly string _arguments;
     private readonly string? _missingMessage;
-    private readonly SemaphoreSlim _loginGate = new(1, 1);
+    private readonly SemaphoreSlim _loginGate;
     private string? _lastCredentialFingerprint;
     private string? _rejectedCredentialFingerprint;
     private bool _credentialsRejected;
@@ -25,6 +27,7 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
         string? loginArguments = null, string? missingMessage = null)
     {
         Tool = tool;
+        _loginGate = tool == ToolKind.Codex ? CodexLoginGate : new SemaphoreSlim(1, 1);
         _credentials = credentials;
         _locator = locator;
         _runner = runner;
@@ -48,7 +51,9 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
 
     public async Task<AuthenticationState> LoginAsync(CancellationToken cancellationToken = default)
     {
-        if (!await _loginGate.WaitAsync(0, cancellationToken)) return State;
+        if (!await _loginGate.WaitAsync(0, cancellationToken))
+            return Tool == ToolKind.Codex && !IsLoginRunning
+                ? SetState(Failed(Loc.Get("Auth_CodexLoginBusy"))) : State;
         try
         {
             var executable = _locator.Find(_command);

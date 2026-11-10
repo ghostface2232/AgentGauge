@@ -177,6 +177,29 @@ final class CoordinatorDeadlineTests: XCTestCase {
 }
 
 final class CoordinatorRehydrationTests: XCTestCase {
+    func testNamedCopilotAccountsReplaceTheActiveFallback() async throws {
+        let primary = CountingProvider(.githubCopilot)
+        let secondary = CountingProvider(.githubCopilot)
+        let coordinator = UsageCoordinator(providers: [primary], cache: nil)
+        let recorder = StatesRecorder()
+        await coordinator.setListener { recorder.append($0) }
+        await coordinator.setEnabledTools([.githubCopilot])
+        await coordinator.refresh(.launch)
+        let label = try XCTUnwrap(ToolAccount.validatedLabel("mona-cat_octo", for: .githubCopilot))
+        let account = ToolAccount(tool: .githubCopilot, label: label)
+        await coordinator.addAccount(AccountUsageProvider(account: account, provider: secondary))
+        await coordinator.refresh(.toolsChanged, account: account.key)
+        XCTAssertEqual(primary.fetches, 1)
+        XCTAssertEqual(secondary.fetches, 1)
+        XCTAssertEqual(recorder.all.last?.map(\.id), [account.key])
+
+        await coordinator.removeAccount(account.key)
+        let fallback = UsageAccountKey(tool: .githubCopilot)
+        await coordinator.refresh(.toolsChanged, account: fallback)
+        XCTAssertEqual(primary.fetches, 2)
+        XCTAssertEqual(recorder.all.last?.map(\.id), [fallback])
+    }
+
     func testAdditionalAccountHasSeparateCacheAndCanBeRemovedIndependently() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

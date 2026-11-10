@@ -145,8 +145,7 @@ public sealed class UsageCoordinator : IDisposable
         var registered = _usageService.GetRegisteredToolNames();
         foreach (var snapshot in _persistence.Load())
         {
-            if (_cache.ContainsKey(snapshot.ToolName)
-                || (snapshot.ToolName.Contains(ToolAccount.KeySeparator) && !registered.Contains(snapshot.ToolName)))
+            if (_cache.ContainsKey(snapshot.ToolName) || !registered.Contains(snapshot.ToolName))
             {
                 continue;
             }

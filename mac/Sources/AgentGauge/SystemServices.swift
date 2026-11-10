@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import GaugeCore
 import UserNotifications
 
@@ -102,12 +103,14 @@ enum TerminalLauncher {
     }
 
     /// Waits for the CLI's exit status only. The visible Terminal owns all login output.
-    static func runAccount(_ profile: AccountCLIProfile) async throws {
+    static func runAndWait(_ login: CLICommand, profile: AccountCLIProfile? = nil) async throws {
         let locator = CLILocator()
-        guard let executable = await locator.locate(profile.signIn.executable) else { throw LoginError.launchFailed }
+        guard let executable = await locator.locate(login.executable) else { throw LoginError.launchFailed }
         let fileManager = FileManager.default
-        try fileManager.createDirectory(at: profile.directory, withIntermediateDirectories: true,
-                                        attributes: [.posixPermissions: 0o700])
+        if let profile {
+            try fileManager.createDirectory(at: profile.directory, withIntermediateDirectories: true,
+                                            attributes: [.posixPermissions: 0o700])
+        }
         let directory = fileManager.temporaryDirectory.appending(path: "AgentGauge/login-\(UUID().uuidString)",
                                                                   directoryHint: .isDirectory)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true,
@@ -116,17 +119,26 @@ enum TerminalLauncher {
         let script = directory.appending(path: "sign-in.command")
         let result = directory.appending(path: "result")
         let environment = await locator.environment(for: executable)
-        let variables = profile.variables.merging(["PATH": environment["PATH"] ?? "/usr/bin:/bin"]) { value, _ in value }
+        var variables = profile?.variables ?? [:]
+        variables["PATH"] = environment["PATH"] ?? "/usr/bin:/bin"
+        if profile == nil { variables["CODEX_HOME"] = environment["CODEX_HOME"] }
+        var clearedVariables = profile?.clearedVariables ?? []
+        if profile == nil && variables["CODEX_HOME"] == nil { clearedVariables.append("CODEX_HOME") }
         var arguments = ["/usr/bin/env"]
-        arguments += profile.clearedVariables.flatMap { ["-u", $0] }
+        arguments += clearedVariables.flatMap { ["-u", $0] }
         arguments += variables.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }
         arguments.append(executable.path)
-        arguments += profile.signIn.arguments
+        arguments += login.arguments
         let command = arguments.map(shellQuoted).joined(separator: " ")
         let home = shellQuoted(fileManager.homeDirectoryForCurrentUser.path)
         let marker = shellQuoted(result.path)
+        let pidFile = directory.appending(path: "pid")
+        let pidMarker = shellQuoted(pidFile.path)
+        let cancel = shellQuoted("printf failed > \(marker); exit 130")
         let contents = """
             #!/bin/zsh -f
+            trap \(cancel) HUP INT TERM
+            printf '%s' "$$" > \(pidMarker)
             if cd -- \(home) && \(command); then
                 printf ok > \(marker)
             else
@@ -138,12 +150,23 @@ enum TerminalLauncher {
         let opened = await MainActor.run { NSWorkspace.shared.open(script) }
         guard opened else { throw LoginError.launchFailed }
         let clock = ContinuousClock()
+        let startupDeadline = clock.now.advanced(by: .seconds(30))
         let deadline = clock.now.advanced(by: .seconds(600))
         while clock.now < deadline {
             switch try? String(contentsOf: result, encoding: .utf8) {
             case "ok": return
             case "failed": throw LoginError.unsuccessful
-            default: try await Task.sleep(for: .seconds(1))
+            default:
+                if let rawPID = try? String(contentsOf: pidFile, encoding: .utf8),
+                   let pid = Int32(rawPID), pid > 1, kill(pid, 0) == -1, errno == ESRCH {
+                    // The shell may have written the result between our first read and kill.
+                    if (try? String(contentsOf: result, encoding: .utf8)) == "ok" { return }
+                    throw LoginError.unsuccessful
+                }
+                if clock.now >= startupDeadline && !fileManager.fileExists(atPath: pidFile.path) {
+                    throw LoginError.launchFailed
+                }
+                try await Task.sleep(for: .seconds(1))
             }
         }
         throw LoginError.unsuccessful

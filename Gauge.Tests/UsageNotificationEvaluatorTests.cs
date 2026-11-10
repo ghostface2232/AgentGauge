@@ -5,6 +5,18 @@ namespace Gauge.Tests;
 
 public sealed class UsageNotificationEvaluatorTests
 {
+    [Fact]
+    public void NewLoginInTheSameProfileStartsAFreshAlertBaseline()
+    {
+        var evaluator = new UsageNotificationEvaluator();
+        var reset = Now.AddDays(4);
+        evaluator.Evaluate(State(UsageWindowType.Weekly, .2, reset, Now, identity: "alice"), Now);
+        var switched = State(UsageWindowType.Weekly, .8, reset, Now.AddMinutes(1), identity: "bob");
+        Assert.Empty(evaluator.Evaluate(switched, Now));
+        var crossing = State(UsageWindowType.Weekly, .95, reset, Now.AddMinutes(2), identity: "bob");
+        Assert.Single(evaluator.Evaluate(crossing, Now));
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 6, 19, 12, 0, 0, TimeSpan.Zero);
 
     [Theory]
@@ -360,11 +372,13 @@ public sealed class UsageNotificationEvaluatorTests
         bool failed = false,
         string? id = null,
         string? groupLabel = null,
-        bool rehydrated = false)
+        bool rehydrated = false,
+        string? identity = null)
     {
         var snapshot = new UsageSnapshot
         {
             ToolName = "Codex",
+            HistoryIdentity = identity,
             CapturedAt = captured,
             Windows =
             [

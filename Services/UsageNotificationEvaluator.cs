@@ -64,14 +64,14 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
                 // resume baseline, and let the first live poll replay an old crossing.
                 foreach (var window in snapshot.Windows.Where(IsSupportedWindow))
                 {
-                    var key = new WindowKey(snapshot.ToolName, window.Key);
+                    var key = new WindowKey(snapshot.ToolName, window.Key, snapshot.HistoryIdentity);
                     if (!_observations.TryGetValue(key, out var existing)
                         || snapshot.CapturedAt > existing.CapturedAt)
                     {
                         _observations[key] = Observation.CreateBaseline(window, snapshot.CapturedAt);
                     }
                 }
-                foreach (var key in _observations.Keys.Where(k => k.ToolName == tool.ToolName))
+                foreach (var key in _observations.Keys.Where(k => k.ToolName == tool.ToolName && k.Identity == snapshot.HistoryIdentity))
                 {
                     present.Add(key);
                     _resumeBaseline.Add(key);
@@ -93,14 +93,14 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
             {
                 foreach (var cachedWindow in snapshot.Windows.Where(IsSupportedWindow))
                 {
-                    present.Add(new WindowKey(snapshot.ToolName, cachedWindow.Key));
+                    present.Add(new WindowKey(snapshot.ToolName, cachedWindow.Key, snapshot.HistoryIdentity));
                 }
                 continue;
             }
 
             foreach (var window in snapshot.Windows.Where(IsSupportedWindow))
             {
-                var key = new WindowKey(snapshot.ToolName, window.Key);
+                var key = new WindowKey(snapshot.ToolName, window.Key, snapshot.HistoryIdentity);
                 present.Add(key);
 
                 if (!_observations.TryGetValue(key, out var previous))
@@ -271,7 +271,7 @@ public sealed class UsageNotificationEvaluator(Func<string, string>? displayTool
 
     // Keyed by the window's provider-stable Key, not its Type, so a tool with two windows
     // of the same Type (e.g. Antigravity's two 5-hour limits) tracks each independently.
-    private readonly record struct WindowKey(string ToolName, string Window);
+    private readonly record struct WindowKey(string ToolName, string Window, string? Identity);
 
     private sealed record Observation(
         double Ratio,

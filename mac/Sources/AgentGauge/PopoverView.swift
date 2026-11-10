@@ -456,7 +456,7 @@ struct ToolCard: View {
             let groups = WindowGrouping.groups(windows)
             switch model.effectiveViewMode {
             case .gauge:
-                GaugeGroupsView(groups: groups, basis: model.displayBasis) { model.details(for: state.id, window: $0) }
+                GaugeGroupsView(groups: groups, basis: model.displayBasis) { model.details(for: state, window: $0) }
             case .bar:
                 ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                     if index > 0 { Divider() }
@@ -467,7 +467,7 @@ struct ToolCard: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(group.windows) { window in
-                            UsageRow(window: window, details: model.details(for: state.id, window: window),
+                            UsageRow(window: window, details: model.details(for: state, window: window),
                                      basis: model.displayBasis, showsSparkline: model.showSparkline)
                         }
                     }
@@ -489,7 +489,7 @@ struct ToolCard: View {
             } else {
                 let failed = model.failedAccountSignIns.contains(state.id)
                 message(failed ? L10n.get("Account_LoginFailed") : text,
-                        action: AuthText.signInAction(state.tool), perform: onSignIn)
+                        action: AuthText.signInAction(state.tool), enabled: model.canSignIn(state.id), perform: onSignIn)
             }
         case .keychainDenied:
             message(L10n.get("Auth_KeychainDenied"), action: L10n.get("Action_TryAgain"), perform: onRetry)
@@ -508,13 +508,13 @@ struct ToolCard: View {
         }
     }
 
-    private func message(_ text: String, action: String, perform: @escaping () -> Void) -> some View {
+    private func message(_ text: String, action: String, enabled: Bool = true, perform: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(text)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(action, action: perform)
+            Button(action, action: perform).disabled(!enabled)
                 .cardActionStyle()
         }
     }

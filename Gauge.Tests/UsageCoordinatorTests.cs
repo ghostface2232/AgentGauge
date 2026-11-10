@@ -8,6 +8,41 @@ namespace Gauge.Tests;
 public sealed class UsageCoordinatorTests
 {
     [Fact]
+    public async Task NamedCopilotAccountsReplaceTheActiveFallback()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "GaugeTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var registry = new ToolRegistry(new ToolRegistryStore(() => directory));
+            registry.Add(ToolKind.GitHubCopilot);
+            var fallback = new StubProvider("GitHub Copilot");
+            var named = new StubProvider("GitHub Copilot");
+            var service = new UsageService([fallback], registry.IsEnabled, registry.IsActive,
+                isRegisteredAccount: registry.IsRegistered);
+            using var coordinator = new UsageCoordinator(service);
+            var state = UsageState.Empty;
+            coordinator.Updated += (_, latest) => state = latest;
+            await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+            Assert.Equal("GitHub Copilot", Assert.Single(state.Tools).ToolName);
+
+            Assert.True(registry.AddAccount(ToolKind.GitHubCopilot, "mona-cat_octo"));
+            var account = Assert.Single(registry.Accounts);
+            service.SetAdditionalProviders([new AccountUsageProvider(account, named)]);
+            await coordinator.RefreshAsync(RefreshReason.ToolsChanged, account.Key);
+            Assert.Equal(1, fallback.CallCount);
+            Assert.Equal(1, named.CallCount);
+            Assert.Equal(account.Key, Assert.Single(state.Tools).ToolName);
+
+            Assert.True(registry.RemoveAccount(account.Key));
+            service.SetAdditionalProviders([]);
+            await coordinator.RefreshAsync(RefreshReason.ToolsChanged, fallback.ToolName);
+            Assert.Equal(2, fallback.CallCount);
+            Assert.Equal(fallback.ToolName, Assert.Single(state.Tools).ToolName);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task AdditionalAccountKeepsSeparateCacheAndAuthenticationState()
     {
         var account = new ToolAccount(Guid.NewGuid(), ToolKind.Codex, "Work");
@@ -760,6 +795,7 @@ public sealed class UsageCoordinatorTests
         {
             "Codex" => ToolKind.Codex,
             "Antigravity" => ToolKind.Antigravity,
+            "GitHub Copilot" => ToolKind.GitHubCopilot,
             _ => ToolKind.ClaudeCode,
         };
         public string ToolName => name;

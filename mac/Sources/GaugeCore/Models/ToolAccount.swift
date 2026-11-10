@@ -13,6 +13,10 @@ public struct UsageAccountKey: Hashable, Sendable {
     public var storageKey: String {
         profileID.map { "\(tool.rawValue)#\($0.uuidString.lowercased())" } ?? tool.rawValue
     }
+
+    func historyKey(_ identity: String?) -> String {
+        identity.map { "\(storageKey)#\($0)" } ?? storageKey
+    }
 }
 
 /// Local configuration for an additional account. The official CLI owns its credentials.
@@ -39,7 +43,7 @@ public struct ToolAccount: Identifiable, Codable, Sendable, Equatable {
         guard supports(tool), !trimmed.isEmpty, trimmed.count <= 40,
               trimmed.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
         if tool == .githubCopilot,
-           trimmed.range(of: #"\A[A-Za-z0-9][A-Za-z0-9-]*\z"#, options: .regularExpression) == nil { return nil }
+           trimmed.range(of: #"\A[A-Za-z0-9][A-Za-z0-9_-]*\z"#, options: .regularExpression) == nil { return nil }
         return trimmed
     }
 }

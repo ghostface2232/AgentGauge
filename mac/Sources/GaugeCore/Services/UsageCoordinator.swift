@@ -86,6 +86,7 @@ public actor UsageCoordinator {
     private var inFlight = Set<UsageAccountKey>()
     /// A sign-in may finish while this account is still returning its earlier reading.
     private var pendingAccountRefreshes = Set<UsageAccountKey>()
+    private var signingIn = Set<UsageAccountKey>()
     /// The `refresh` calls still waiting on a tool's read: resumed at its end or its deadline.
     private var readWaiters: [UsageAccountKey: CheckedContinuation<Void, Never>] = [:]
     /// When a refresh last started fetching anything, whatever asked for it. A refresh that
@@ -112,6 +113,8 @@ public actor UsageCoordinator {
         self.clock = clock
         let profiles = additionalProviders.map(\.account)
         for snapshot in cache?.load() ?? [] where byAccount[snapshot.accountKey] != nil {
+            if snapshot.tool == .githubCopilot, snapshot.profileID == nil,
+               profiles.contains(where: { $0.tool == .githubCopilot }) { continue }
             let account = profiles.first { $0.key == snapshot.accountKey }
             var state = ToolState(tool: snapshot.tool, snapshot: snapshot, account: account)
             state.isRehydrated = true
@@ -136,6 +139,13 @@ public actor UsageCoordinator {
         guard providers[account.key] == nil else { return }
         providers[account.key] = provider
         accounts.append(account)
+        if account.tool == .githubCopilot {
+            let fallback = UsageAccountKey(tool: .githubCopilot)
+            states.removeValue(forKey: fallback)
+            lastAttempt.removeValue(forKey: fallback)
+            pendingAccountRefreshes.remove(fallback)
+            persistCache()
+        }
         emit()
     }
 
@@ -154,7 +164,12 @@ public actor UsageCoordinator {
     private var enabledAccounts: [UsageAccountKey] {
         enabled.flatMap { tool in
             [UsageAccountKey(tool: tool)] + accounts.filter { $0.tool == tool }.map(\.key)
-        }
+        }.filter(tracks)
+    }
+
+    private func tracks(_ key: UsageAccountKey) -> Bool {
+        providers[key] != nil && (key.tool != .githubCopilot || key.profileID != nil
+                                  || !accounts.contains { $0.tool == .githubCopilot })
     }
 
     private func emptyState(_ key: UsageAccountKey) -> ToolState {
@@ -164,6 +179,11 @@ public actor UsageCoordinator {
     /// Low Power Mode or a locked session stretch the periodic cadence.
     public func setSignals(_ signals: AdaptiveRefreshSignals) {
         self.signals = signals
+    }
+
+    public func setSigningIn(_ active: Bool, account: UsageAccountKey) {
+        if active { signingIn.insert(account) }
+        else { signingIn.remove(account) }
     }
 
     public func start() {
@@ -193,7 +213,7 @@ public actor UsageCoordinator {
 
         let decision = reason == .scheduled ? adaptiveDecision(now: now) : nil
         let due = enabledAccounts.filter { key in
-            guard (account == nil || key == account), !inFlight.contains(key) else { return false }
+            guard (account == nil || key == account), !inFlight.contains(key), !signingIn.contains(key) else { return false }
             guard let last = lastAttempt[key] else { return true }
             switch reason {
             case .scheduled:
@@ -231,7 +251,7 @@ public actor UsageCoordinator {
     /// its own unstructured task because a task group cannot leave a child behind: a read that
     /// ignores cancellation would hold the group, and with it the scheduler and every other tool.
     private func read(_ key: UsageAccountKey, from provider: any UsageProvider, interaction: FetchInteraction) async {
-        guard providers[key] != nil else {
+        guard tracks(key) else {
             inFlight.remove(key)
             return
         }
@@ -264,8 +284,10 @@ public actor UsageCoordinator {
     /// fetches of one tool at once and a hung read must not pile up more of itself.
     private func deadlinePassed(_ key: UsageAccountKey) {
         guard let waiter = readWaiters.removeValue(forKey: key) else { return }
-        apply(.failure(UsageFetchError.timedOut), to: key)
-        emit()
+        if tracks(key) {
+            apply(.failure(UsageFetchError.timedOut), to: key)
+            emit()
+        }
         waiter.resume()
     }
 
@@ -273,9 +295,10 @@ public actor UsageCoordinator {
     /// replaces the failure shown meanwhile, and the expected cancellation changes nothing.
     private func readEnded(_ key: UsageAccountKey, _ result: Result<ProviderOutcome, any Error>) {
         inFlight.remove(key)
-        guard providers[key] != nil else { return }
-        apply(result, to: key)
-        emit()
+        if tracks(key) {
+            apply(result, to: key)
+            emit()
+        }
         readWaiters.removeValue(forKey: key)?.resume()
         if pendingAccountRefreshes.remove(key) != nil {
             Task { await refresh(.toolsChanged, account: key) }

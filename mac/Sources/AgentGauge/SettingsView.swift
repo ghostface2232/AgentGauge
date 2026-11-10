@@ -388,6 +388,9 @@ private struct AccountEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.get("Account_Add")).font(.headline)
             Text(verbatim: tool.displayName).foregroundStyle(.secondary)
+            if tool == .githubCopilot {
+                Text(L10n.get("Account_CopilotNamedOnly")).font(.caption).foregroundStyle(.secondary)
+            }
             TextField(L10n.get(tool == .githubCopilot ? "Account_GitHubUsername" : "Account_Name"), text: $name)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(save)
@@ -486,6 +489,7 @@ private struct AccountRow: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .disabled(!model.canSignIn(key))
                 }
             }
             if let onAddAccount {
@@ -517,6 +521,9 @@ private struct AccountRow: View {
     private var status: String? {
         if signingIn { return L10n.get("Account_LoginRunning") }
         if model.failedAccountSignIns.contains(key), needsSignIn { return L10n.get("Account_LoginFailed") }
+        if shown && account == nil && tool == .githubCopilot && model.accounts.contains(where: { $0.tool == tool }) {
+            return L10n.get("Account_CopilotNamedOnly")
+        }
         guard let state, shown else { return nil }
         if namedCopilot && needsSignIn { return L10n.get("Account_CopilotSignIn") }
         switch state.auth {

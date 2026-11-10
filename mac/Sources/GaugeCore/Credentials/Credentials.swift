@@ -1,10 +1,20 @@
+import CryptoKit
 import Foundation
+
+/// A local history partition. Provider IDs and credentials stay in memory.
+enum UsageIdentity {
+    static func hash(subject: String?, token: String) -> String {
+        let value = subject.map { "account\0\($0)" } ?? "token\0\(token)"
+        return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", Int($0)) }.joined()
+    }
+}
 
 /// A CLI-owned OAuth credential, held in memory only. AgentGauge never writes, refreshes,
 /// or logs these; rotation stays with the official CLI.
 public struct ToolCredential: Sendable, Equatable {
     public var accessToken: String
     public var accountID: String?
+    var historyIdentity: String?
     public var expiresAt: Date?
     public var plan: String?
 
@@ -85,13 +95,28 @@ public enum CredentialParsing {
 
     /// Codex's `auth.json`: `{ "tokens": { "access_token", "account_id" } }`. There is no
     /// expiry field, so expiry comes from the access token's own JWT `exp` claim.
-    public static func codex(from data: Data, now: Date) -> CredentialRead {
+    public static func codex(from data: Data, now: Date, scopeHistory: Bool = false) -> CredentialRead {
         guard let root = try? JSONObject.parse(data) else { return .invalid(.unreadable) }
         guard let tokens = root.object("tokens"),
               let token = tokens.string("access_token"), !token.isEmpty else { return .invalid(.noToken) }
         let expiresAt = jwtExpiry(token)
         if let expiresAt, expiresAt <= now { return .invalid(.expired) }
-        return .available(ToolCredential(accessToken: token, accountID: tokens.string("account_id"), expiresAt: expiresAt))
+        let accountID = tokens.string("account_id")
+        var credential = ToolCredential(accessToken: token, accountID: accountID, expiresAt: expiresAt)
+        if scopeHistory {
+            let authClaim = "https://api.openai.com/auth"
+            let identity = tokens.string("id_token").flatMap(jwtClaims)
+            let access = jwtClaims(token)
+            let identityAuth = identity?.object(authClaim)
+            let accessAuth = access?.object(authClaim)
+            // A workspace ID alone does not distinguish members of that workspace.
+            let user = accessAuth?.string("chatgpt_user_id") ?? identityAuth?.string("chatgpt_user_id")
+                ?? identity?.string("sub") ?? access?.string("sub")
+            let workspace = accountID ?? accessAuth?.string("chatgpt_account_id") ?? identityAuth?.string("chatgpt_account_id")
+            let subject = ProviderText.normalize(user).map { "\($0)\0\(workspace ?? "")" }
+            credential.historyIdentity = UsageIdentity.hash(subject: subject, token: token)
+        }
+        return .available(credential)
     }
 
     /// Re-checks a cached credential's expiry without re-reading its source.
@@ -140,13 +165,19 @@ public enum CredentialParsing {
     /// and moves first. Only personal Max/Pro accounts are read, and anything else (or an
     /// unreadable document) returns nil so the caller keeps the credential's own plan.
     public static func claudeProfilePlan(from data: Data) -> String? {
+        claudeProfile(from: data).plan
+    }
+
+    static func claudeProfile(from data: Data) -> (plan: String?, subject: String?) {
         guard let root = try? JSONObject.parse(data),
-              let account = root.object("oauthAccount"),
-              let type = account.string("organizationType")?.lowercased(),
-              type.hasPrefix("claude_") else { return nil }
+              let account = root.object("oauthAccount") else { return (nil, nil) }
+        let subject = ProviderText.normalize(account.string("accountUuid"))
+            .map { "\($0)\0\(account.string("organizationUuid") ?? "")" }
+        guard let type = account.string("organizationType")?.lowercased(),
+              type.hasPrefix("claude_") else { return (nil, subject) }
         let subscription = String(type.dropFirst("claude_".count))
-        guard subscription == "max" || subscription == "pro" else { return nil }
-        return claudePlan(subscriptionType: subscription, rateLimitTier: account.string("organizationRateLimitTier"))
+        guard subscription == "max" || subscription == "pro" else { return (nil, subject) }
+        return (claudePlan(subscriptionType: subscription, rateLimitTier: account.string("organizationRateLimitTier")), subject)
     }
 
     public static func claudePlan(subscriptionType: String?, rateLimitTier: String?) -> String? {
@@ -204,21 +235,26 @@ struct CredentialFileReader: Sendable {
 public struct CodexCredentialSource: CredentialSource {
     let fileURL: URL
     let now: @Sendable () -> Date
+    let scopeHistory: Bool
 
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        scopeHistory: Bool = false
     ) {
         let home = ProviderText.normalize(environment["CODEX_HOME"])
             .map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? homeDirectory.appending(path: ".codex", directoryHint: .isDirectory)
         fileURL = home.appending(path: "auth.json")
         self.now = now
+        self.scopeHistory = scopeHistory
     }
 
     public func read(interactive: Bool) async -> CredentialRead {
         let now = self.now
-        return await CredentialFileReader().read(fileURL) { CredentialParsing.codex(from: $0, now: now()) }
+        return await CredentialFileReader().read(fileURL) {
+            CredentialParsing.codex(from: $0, now: now(), scopeHistory: scopeHistory)
+        }
     }
 }

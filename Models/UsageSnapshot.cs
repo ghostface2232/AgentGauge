@@ -9,6 +9,8 @@ public sealed record UsageSnapshot
 {
     /// <summary>Storage identity. The default account uses the tool's display name for compatibility.</summary>
     public required string ToolName { get; init; }
+    internal string? HistoryIdentity { get; init; }
+    internal string HistoryKey => HistoryIdentity is null ? ToolName : $"{ToolName}#{HistoryIdentity}";
 
     /// <summary>
     /// Subscription/plan label to show beside the tool name (e.g. "Max 5x", "Plus").

@@ -1,12 +1,15 @@
 using Gauge.Models;
+using Gauge.Services;
 
 namespace Gauge.Providers;
 
 /// <summary>Scopes an existing provider's snapshots to an additional account's storage key.</summary>
-internal sealed class AccountUsageProvider(ToolAccount account, IUsageProvider provider) : IUsageProvider
+internal sealed class AccountUsageProvider(
+    ToolAccount account, IUsageProvider provider, IAuthenticationProvider? authentication = null) : IUsageProvider
 {
     public ToolKind Tool => account.Tool;
     public string ToolName => account.Key;
+    public bool IsSigningIn => authentication?.IsLoginRunning == true;
 
     public Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken) =>
         GetSnapshotAsync(FetchInteraction.Background, cancellationToken);

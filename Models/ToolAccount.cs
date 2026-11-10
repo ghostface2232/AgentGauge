@@ -19,5 +19,5 @@ public sealed record ToolAccount(Guid Id, ToolKind Tool, string Label)
         label is { Length: > 0 and <= LabelMaxLength }
         && !string.IsNullOrWhiteSpace(label)
         && !label.Any(char.IsControl)
-        && (tool != ToolKind.GitHubCopilot || Regex.IsMatch(label, @"\A[a-zA-Z0-9][a-zA-Z0-9-]*\z"));
+        && (tool != ToolKind.GitHubCopilot || Regex.IsMatch(label, @"\A[a-zA-Z0-9][a-zA-Z0-9_-]*\z"));
 }

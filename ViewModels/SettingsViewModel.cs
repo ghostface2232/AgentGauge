@@ -125,6 +125,8 @@ public sealed class SettingsViewModel
             var existing = Authentication.FirstOrDefault(card => card.Key == key);
             if (existing is not null)
             {
+                existing.ShowsNamedCopilotHint = existing.IsDefaultAccount
+                    && kind == ToolKind.GitHubCopilot && _registry.TracksNamedCopilotAccounts;
                 var current = Authentication.IndexOf(existing);
                 if (current != index) Authentication.Move(current, index);
                 index++;
@@ -135,7 +137,11 @@ public sealed class SettingsViewModel
             var provider = account is null ? _providers.GetValueOrDefault(kind) : _accountProvider(key);
             if (provider is null) continue;
 
-            var card = new AuthenticationCardViewModel(provider, account) { IsHidden = _registry.IsHidden(kind) };
+            var card = new AuthenticationCardViewModel(provider, account)
+            {
+                IsHidden = _registry.IsHidden(kind),
+                ShowsNamedCopilotHint = account is null && kind == ToolKind.GitHubCopilot && _registry.TracksNamedCopilotAccounts,
+            };
             card.HiddenChanged += (_, hidden) =>
             {
                 var saved = _registry.SetHidden(kind, hidden);

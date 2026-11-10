@@ -175,6 +175,9 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     /// Nil for the default login and for caches written before accounts were supported.
     public var profileID: UUID?
     public var accountKey: UsageAccountKey { UsageAccountKey(tool: tool, profileID: profileID) }
+    /// Opaque partition for trends and alert baselines when a profile changes login.
+    public internal(set) var historyIdentity: String?
+    var historyKey: String { accountKey.historyKey(historyIdentity) }
     /// Plan label (e.g. "Max 5x", "Plus"); can be present without any window data.
     public var plan: String?
     public var windows: [UsageWindow]

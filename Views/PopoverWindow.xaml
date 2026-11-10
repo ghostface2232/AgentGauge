@@ -132,6 +132,9 @@
                         </Grid>
                         <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Opacity="0.75"
                                    Style="{StaticResource CaptionTextBlockStyle}" />
+                        <TextBlock Text="{loc:Localize Key=Account_CopilotNamedOnly}" TextWrapping="Wrap" Opacity="0.75"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Visibility="{Binding ShowsNamedCopilotHint, Converter={StaticResource BoolToVis}}" />
                         <!-- Show/hide: a state chip on the left ("표시"/"숨김") and a bare
                              switch on the right, on = shown. The long "hide · pause refresh"
                              header is gone; the chip says the state and the switch's

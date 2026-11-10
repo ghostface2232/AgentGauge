@@ -112,6 +112,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
     private static SnapshotDto ToDto(UsageSnapshot snapshot) => new()
     {
         ToolName = snapshot.ToolName,
+        HistoryIdentity = snapshot.HistoryIdentity,
         Plan = snapshot.Plan,
         ResetCredits = snapshot.ResetCredits,
         CapturedAt = snapshot.CapturedAt,
@@ -133,6 +134,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
     {
         // A cache written before a tool rename still identifies the tool by its old name.
         ToolName = ToolCatalog.CurrentDisplayName(dto.ToolName),
+        HistoryIdentity = dto.HistoryIdentity,
         Plan = dto.Plan,
         ResetCredits = dto.ResetCredits,
         CapturedAt = dto.CapturedAt,
@@ -165,6 +167,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
     private sealed class SnapshotDto
     {
         public string ToolName { get; set; } = "";
+        public string? HistoryIdentity { get; set; }
         public string? Plan { get; set; }
 
         // Added after Version 4. Nullable and optional in both directions, so a cache

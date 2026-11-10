@@ -35,6 +35,19 @@ final class NotificationEvaluatorTests: XCTestCase {
         XCTAssertTrue(alerts.first?.title.contains("Work") == true)
     }
 
+    func testNewLoginInTheSameProfileStartsAFreshAlertBaseline() {
+        var evaluator = UsageNotificationEvaluator()
+        let account = ToolAccount(tool: .claude, label: "Work")
+        let reset = start + 3600
+        func reading(_ ratio: Double, at time: Date, identity: String) -> ToolState {
+            var snapshot = state(ratio, reset: reset, at: time).snapshot
+            snapshot?.historyIdentity = identity
+            return ToolState(tool: .claude, snapshot: snapshot, account: account)
+        }
+        _ = evaluator.evaluate([reading(0.2, at: start, identity: "alice")], now: start)
+        XCTAssertTrue(evaluator.evaluate([reading(0.95, at: start + 60, identity: "bob")], now: start + 60).isEmpty)
+    }
+
     func testFiveHourAlertsAtDangerOnceAndIgnoresReemits() {
         var evaluator = UsageNotificationEvaluator()
         let reset = start.addingTimeInterval(3600)
