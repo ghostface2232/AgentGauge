@@ -1,8 +1,11 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Gauge.Localization;
 using Gauge.Models;
+using System.Globalization;
 
 namespace Gauge.ViewModels;
+
+public sealed record DailyBarSegment(double UsedRatio, string Description);
 
 /// <summary>
 /// One usage window row within a tool card (e.g. the 5-hour or weekly bar). A card
@@ -37,6 +40,7 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
 
     /// <summary>Provider-stable key used to reconcile rows across refreshes.</summary>
     public string Key { get; }
+    public bool IsWeekly => _window?.Type == UsageWindowType.Weekly;
 
     /// <summary>Window label (e.g. "5시간", "주간").</summary>
     [ObservableProperty]
@@ -170,6 +174,47 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     public partial UsageLevel Level { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleDailySegments))]
+    public partial bool ShowDailyUsage { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisibleDailySegments))]
+    public partial IReadOnlyList<DailyUsageSegment> DailySegments { get; set; } = [];
+
+    public IReadOnlyList<DailyBarSegment> VisibleDailySegments => ShowDailyUsage
+        ? DailySegments.Select(segment => new DailyBarSegment(segment.UsedRatio, DescribeDailySegment(segment))).ToList()
+        : [];
+
+    private IReadOnlyList<ApiCostDay> _dailyCosts = [];
+
+    public void SetDailyCosts(IReadOnlyList<ApiCostDay> costs)
+    {
+        if (ReferenceEquals(_dailyCosts, costs)) return;
+        _dailyCosts = costs;
+        OnPropertyChanged(nameof(VisibleDailySegments));
+    }
+
+    private string DescribeDailySegment(DailyUsageSegment segment)
+    {
+        var day = segment.Day;
+        var text = Loc.Format("DailyUsage_Day", day.ToString("M", Loc.Culture), segment.UsedRatio * 100);
+        if (_dailyCosts.FirstOrDefault(cost => cost.Day == day) is { } cost)
+        {
+            var amount = cost.CostUsd.ToString("0.00", CultureInfo.InvariantCulture);
+            text += " · " + Loc.Format(cost.HasUnpriced ? "DailyUsage_CostFloor" : "DailyUsage_Cost", amount);
+        }
+        return text;
+    }
+
+    private string? _dailyHoverCaption;
+    public void HoverDailySegment(string? description)
+    {
+        if (_dailyHoverCaption == description) return;
+        _dailyHoverCaption = description;
+        OnPropertyChanged(nameof(CaptionText));
+    }
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasBurndown))]
     [NotifyPropertyChangedFor(nameof(IsSparklineVisible))]
     public partial IReadOnlyList<BurndownPoint> Burndown { get; set; } = [];
@@ -191,7 +236,7 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     // under a stationary pointer instead of dropping the caption back to the reset text.
     private double? _hoverX;
     private string? _hoverCaption;
-    public string CaptionText => _hoverCaption ?? ResetText;
+    public string CaptionText => _dailyHoverCaption ?? _hoverCaption ?? ResetText;
     partial void OnResetTextChanged(string value) => OnPropertyChanged(nameof(CaptionText));
     partial void OnBurndownChanged(IReadOnlyList<BurndownPoint> value) => HoverBurndown(HasBurndown ? _hoverX : null);
 

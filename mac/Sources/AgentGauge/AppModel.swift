@@ -34,6 +34,8 @@ final class AppModel {
         didSet { defaults.set(viewMode.rawValue, forKey: Keys.viewMode) }
     }
 
+    var showDailyUsage = false
+
     /// Hiding keeps the recorded history, so switching it back on needs no refresh.
     var showSparkline: Bool {
         didSet { defaults.set(showSparkline, forKey: Keys.showSparkline) }
@@ -388,6 +390,12 @@ final class AppModel {
     /// drawing each mode in turn without persisting it.
     var effectiveViewMode: UsageViewMode { viewModeOverride ?? viewMode }
 
+    var canShowDailyUsage: Bool {
+        effectiveViewMode == .bar && states.contains { state in
+            state.snapshot?.windows.contains { $0.type == .weekly } == true
+        }
+    }
+
     /// Everything a row shows beside its bar, derived from the window and its recorded history.
     func details(for state: ToolState, window: UsageWindow) -> RowDetails {
         var details = RowDetails(reset: ResetTimeFormatter.row(window.resetTime, now: now))
@@ -404,6 +412,15 @@ final class AppModel {
         details.eta = UsageEtaClassifier.caption(samples: samples, window: window, now: now)
         if showSparkline && effectiveViewMode == .bar {
             details.burndown = UsageBurndown.build(window: window, samples: samples, now: now)
+        }
+        if showDailyUsage, historyReady, effectiveViewMode == .bar, window.type == .weekly,
+           let capturedAt = state.snapshot?.capturedAt {
+            let weeklySamples = history.recent(tool: account.tool, profileID: account.profileID,
+                historyIdentity: identity, windowID: window.id, lookback: UsageDailyBreakdown.lookback)
+            let costs = showApiCost && state.account == nil && window.groupLabel == nil
+                ? apiCostEstimates[state.tool]?.days : nil
+            details.dailySegments = UsageDailyBreakdown.build(window: window, samples: weeklySamples, capturedAt: capturedAt)
+                .map { segment in DailyBarSegment(segment: segment, cost: costs?[ApiCostDay.key(for: segment.day)]) }
         }
         if let used = window.usedCount, let limit = window.limitCount {
             details.counts = "\(used.formatted(.number.locale(L10n.locale))) / \(limit.formatted(.number.locale(L10n.locale)))"

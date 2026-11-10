@@ -133,6 +133,18 @@ public sealed partial class UsageViewModel : ObservableObject
         {
             card.ViewMode = mode;
         }
+        OnPropertyChanged(nameof(CanShowDailyUsage));
+    }
+
+    [ObservableProperty]
+    public partial bool ShowDailyUsage { get; set; }
+
+    public bool CanShowDailyUsage => ViewMode == UsageViewMode.Bar
+        && Cards.Any(card => card.Windows.Any(row => row.IsWeekly));
+
+    partial void OnShowDailyUsageChanged(bool value)
+    {
+        foreach (var card in Cards) card.ShowDailyUsage = value;
     }
 
     /// <summary>
@@ -347,6 +359,7 @@ public sealed partial class UsageViewModel : ObservableObject
             : Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
         RefreshCards(recorded);
+        OnPropertyChanged(nameof(CanShowDailyUsage));
         ExpireRefreshIndicators();
         ApplyServiceStatuses(_serviceStatuses);
 
@@ -413,6 +426,7 @@ public sealed partial class UsageViewModel : ObservableObject
                 {
                     ViewMode = ViewMode, DisplayBasis = DisplayBasis, ShowSparkline = ShowSparkline,
                     PaceModel = PaceModel,
+                    ShowDailyUsage = ShowDailyUsage,
                 };
                 card.ApplyApiCost(_apiCosts.GetValueOrDefault(card.ToolName));
                 Cards.Add(card);

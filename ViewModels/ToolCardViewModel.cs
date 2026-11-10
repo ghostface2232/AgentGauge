@@ -110,6 +110,16 @@ public sealed partial class ToolCardViewModel : ObservableObject
     [ObservableProperty]
     public partial bool ShowSparkline { get; set; } = true;
 
+    [ObservableProperty]
+    public partial bool ShowDailyUsage { get; set; }
+
+    partial void OnShowDailyUsageChanged(bool value)
+    {
+        foreach (var row in Windows) row.ShowDailyUsage = value;
+    }
+
+    private ApiCostEstimate? _apiCost;
+
     partial void OnShowSparklineChanged(bool value)
     {
         foreach (var row in Windows)
@@ -185,6 +195,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// <summary>Shows or clears the cost estimate; null clears it (option off).</summary>
     public void ApplyApiCost(ApiCostEstimate? estimate)
     {
+        _apiCost = estimate;
+        foreach (var row in Windows) ApplyDailyCost(row);
         if (estimate is null || estimate.IsEmpty)
         {
             ApiCostText = "";
@@ -213,6 +225,13 @@ public sealed partial class ToolCardViewModel : ObservableObject
         ApiCostAccessibleName = ApiCostText + ". " + description;
 
         static string Count(long value) => string.Format(Loc.Culture, "{0:N0}", value);
+    }
+
+    private void ApplyDailyCost(UsageWindowRowViewModel row)
+    {
+        // Local logs cover the default tool, not named accounts or model-scoped quotas.
+        row.SetDailyCosts(AccountLabel is null && !ToolName.Contains(ToolAccount.KeySeparator)
+            && !row.HasFamilyLabel ? _apiCost?.Days ?? [] : []);
     }
 
     [ObservableProperty]
@@ -292,6 +311,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
                 existing = new UsageWindowRowViewModel(window, DisplayBasis)
                 {
                     ShowSparkline = ShowSparkline, PaceModel = PaceModel, WeekdayProfile = profile,
+                    ShowDailyUsage = ShowDailyUsage,
                 };
                 Windows.Insert(Math.Min(index, Windows.Count), existing);
             }
@@ -304,6 +324,11 @@ public sealed partial class ToolCardViewModel : ObservableObject
             existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
             // The row re-resolves any active hover against the new points itself.
             existing.Burndown = UsageBurndown.Build(window, samples, DateTimeOffset.UtcNow);
+            existing.DailySegments = window.Type == UsageWindowType.Weekly
+                ? UsageDailyBreakdown.Build(window,
+                    _history?.GetRecent(historyKey, window.Key, UsageDailyBreakdown.Lookback) ?? [],
+                    cached.Snapshot!.CapturedAt) : [];
+            ApplyDailyCost(existing);
         }
 
         AssignGroupHeaders(windows);

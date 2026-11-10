@@ -24,9 +24,8 @@ public final class UsageHistoryStore: @unchecked Sendable {
     static let retention: TimeInterval = 90 * 86_400
     static let pruneInterval: TimeInterval = 86_400
 
-    /// Reads only ever need a short trailing span (the sparkline's six hours, the ETA's
-    /// ninety minutes), so that much is mirrored in memory per window.
-    public static let memoryTailSpan: TimeInterval = 6 * 3600
+    /// Mirror a full weekly cycle for the daily breakdown without reading SQLite on the main thread.
+    public static let memoryTailSpan = UsageDailyBreakdown.lookback
 
     // The automatic pace model's weekday profile is folded from this much history at
     // hydration and then kept current from each recorded reading, so — like the tail — it
@@ -191,11 +190,11 @@ public final class UsageHistoryStore: @unchecked Sendable {
         }
     }
 
-    /// Recorded samples for one window over the trailing `lookback` (at most the six-hour
-    /// memory tail), oldest first. Empty when nothing was recorded. Served from memory once
+    /// Recorded samples for one window over the trailing `lookback` (at most the in-memory
+    /// tail), oldest first. Empty when nothing was recorded. Served from memory once
     /// the window is hydrated.
     public func recent(tool: ToolKind, profileID: UUID? = nil, historyIdentity: String? = nil, windowID: String,
-                       lookback: TimeInterval = memoryTailSpan) -> [UsageSample] {
+                       lookback: TimeInterval = UsageBurndown.lookback) -> [UsageSample] {
         lock.lock()
         defer { lock.unlock() }
         guard !isClosed else { return [] }

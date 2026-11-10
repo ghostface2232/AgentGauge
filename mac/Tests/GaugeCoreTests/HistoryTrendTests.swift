@@ -2,6 +2,36 @@ import Foundation
 import XCTest
 @testable import GaugeCore
 
+final class UsageDailyBreakdownTests: XCTestCase {
+    private let captured = Date(timeIntervalSince1970: 1_789_387_200)
+
+    func testMissingIntervalsDoNotCreateDaySegments() {
+        let segments = breakdown([(-26, 0.10, nil), (-24, 0.25, nil), (-2, 0.40, nil), (0, 0.50, nil)])
+        XCTAssertEqual(segments.count, 2)
+        XCTAssertEqual(segments.first?.usedRatio ?? -1, 0.15, accuracy: 0.000001)
+        XCTAssertEqual(segments.last?.usedRatio ?? -1, 0.10, accuracy: 0.000001)
+        XCTAssertTrue(breakdown([(0, 0.50, nil)]).isEmpty)
+    }
+
+    func testManualResetExcludesEarlierUsageInTheSameWeeklyCycle() {
+        let segments = breakdown([(-26, 0.60, 1), (-24, 0.80, 1), (-2, 0.12, 0), (0, 0.35, 0)])
+        XCTAssertEqual(segments.count, 1)
+        XCTAssertEqual(segments.first?.usedRatio ?? -1, 0.23, accuracy: 0.000001)
+    }
+
+    private func breakdown(_ readings: [(Double, Double, Int?)]) -> [DailyUsageSegment] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let reset = captured.addingTimeInterval(2 * 86_400)
+        let window = UsageWindow(type: .weekly, usedRatio: readings.last!.1, resetTime: reset)
+        let samples = readings.map { hours, ratio, credits in
+            UsageSample(capturedAt: captured.addingTimeInterval(hours * 3600), usedRatio: ratio,
+                        resetTime: reset, resetCredits: credits)
+        }
+        return UsageDailyBreakdown.build(window: window, samples: samples, capturedAt: captured, calendar: calendar)
+    }
+}
+
 /// Where a recorded series crosses into a new quota cycle: a reset timestamp that moved on,
 /// or — only once the timestamps cannot answer — a decrease too large to be the provider
 /// recalculating its own utilization.

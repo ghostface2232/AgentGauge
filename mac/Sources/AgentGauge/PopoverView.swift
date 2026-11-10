@@ -306,6 +306,24 @@ struct PopoverView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
+                .lineLimit(1)
+                .help(updatedText)
+            if model.canShowDailyUsage {
+                Button {
+                    model.showDailyUsage.toggle()
+                } label: {
+                    Text(L10n.get("DailyUsage_Label"))
+                        .font(.caption)
+                        .foregroundStyle(model.showDailyUsage ? Color.accentColor : Color.secondary)
+                        .fixedSize()
+                        .padding(.horizontal, 4)
+                        .frame(minHeight: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(model.showDailyUsage ? .isSelected : [])
+                .help(L10n.get("DailyUsage_Help"))
+            }
             Spacer(minLength: 8)
             if update.isAvailable || update.isBusy || update.hasFailedInstall {
                 // Installing quits and relaunches the app, so it stays a deliberate click.
@@ -574,6 +592,25 @@ struct StatusChip: View {
     }
 }
 
+struct DailyBarSegment: Identifiable {
+    let id: Date
+    let fraction: Double
+    let description: String
+
+    init(segment: DailyUsageSegment, cost: ApiCostDay?) {
+        id = segment.day
+        fraction = segment.usedRatio
+        let date = segment.day.formatted(.dateTime.month(.abbreviated).day().locale(L10n.locale))
+        let percent = (fraction * 100).formatted(.number.precision(.fractionLength(0...1)).locale(L10n.locale))
+        var text = L10n.format("DailyUsage_Day", date, percent)
+        if let cost {
+            let amount = String(format: "%.2f", NSDecimalNumber(decimal: cost.costUSD).doubleValue)
+            text += " · " + L10n.format(cost.isFloor ? "DailyUsage_CostFloor" : "DailyUsage_Cost", amount)
+        }
+        description = text
+    }
+}
+
 /// Everything a row shows besides the bar itself, derived once per window by `AppModel`.
 struct RowDetails {
     var reset: String
@@ -581,12 +618,13 @@ struct RowDetails {
     var eta: String?
     var counts: String?
     var burndown: UsageBurndown?
+    var dailySegments: [DailyBarSegment] = []
 
     func accessibilityText(window: UsageWindow, basis: DisplayBasis) -> String {
         let name = [window.groupLabel, WindowLabels.label(for: window)].compactMap { $0 }.joined(separator: " ")
         let percent = basis.percent(for: window.usedRatio)
         let base = L10n.format(basis == .used ? "Ax_Used" : "Ax_Remaining", name, percent, reset)
-        return [base, counts, pace, eta].compactMap { $0 }.joined(separator: ", ")
+        return ([base, counts, pace, eta].compactMap { $0 } + dailySegments.map(\.description)).joined(separator: ", ")
     }
 }
 
@@ -596,6 +634,8 @@ struct UsageRow: View {
     let basis: DisplayBasis
     let showsSparkline: Bool
     @State private var hoverText: String?
+    @State private var hoveredDay: Date?
+    @FocusState private var focusedDay: Date?
 
     var body: some View {
         let percent = basis.percent(for: window.usedRatio)
@@ -616,16 +656,20 @@ struct UsageRow: View {
                     .contentTransition(.numericText(value: Double(percent)))
                     .frame(minWidth: 36, alignment: .trailing)
             }
-            UsageBar(fraction: basis.fraction(for: window.usedRatio), level: UsageLevel(ratio: window.usedRatio))
+            UsageBar(fraction: basis.fraction(for: window.usedRatio), level: UsageLevel(ratio: window.usedRatio),
+                     basis: basis, dailySegments: details.dailySegments, hoveredDay: $hoveredDay, focusedDay: $focusedDay)
             // The counts share the caption row when there is no pace to show, and move to the
             // ETA row otherwise, so a quota with counts never adds a near-empty line.
-            let caption = hoverText ?? details.reset
+            let day = hoveredDay ?? focusedDay
+            let dailyCaption = details.dailySegments.first { $0.id == day }?.description
+            let caption = dailyCaption ?? hoverText ?? details.reset
             let trailing = details.pace ?? details.counts
             let countsBelow = details.pace != nil ? details.counts : nil
             if !caption.isEmpty || trailing != nil {
                 HStack(spacing: 8) {
                     Text(caption)
                         .contentTransition(.opacity)
+                        .help(caption)
                     Spacer(minLength: 8)
                     if let pace = details.pace {
                         Text(pace).help(L10n.get("Pace_Tooltip"))
@@ -661,15 +705,49 @@ struct UsageRow: View {
 struct UsageBar: View {
     let fraction: Double
     let level: UsageLevel
+    let basis: DisplayBasis
+    let dailySegments: [DailyBarSegment]
+    @Binding var hoveredDay: Date?
+    let focusedDay: FocusState<Date?>.Binding
+
+    private let segmentGap: CGFloat = 2
 
     var body: some View {
         GeometryReader { proxy in
             let clamped = min(max(fraction, 0), 1)
             ZStack(alignment: .leading) {
                 Capsule().fill(.quaternary)
-                Capsule()
-                    .fill(level.tint)
-                    .frame(width: clamped > 0 ? max(proxy.size.width * clamped, proxy.size.height) : 0)
+                if dailySegments.isEmpty {
+                    Capsule()
+                        .fill(level.tint)
+                        .frame(width: clamped > 0 ? max(proxy.size.width * clamped, proxy.size.height) : 0)
+                } else {
+                    HStack(spacing: 0) {
+                        if basis == .remaining {
+                            Capsule().fill(level.tint).frame(width: proxy.size.width * clamped)
+                        }
+                        ForEach(Array(dailySegments.enumerated()), id: \.element.id) { index, segment in
+                            let width = proxy.size.width * segment.fraction
+                            let halfGap = min(segmentGap, width / 4) / 2
+                            let leading = index == 0 ? 0 : halfGap
+                            let trailing = index == dailySegments.count - 1 ? 0 : halfGap
+                            let opacity = index.isMultiple(of: 2) ? 1.0 : 0.72
+                            RoundedRectangle(cornerRadius: 2.5)
+                                .fill(level.tint.opacity(basis == .remaining ? opacity * 0.5 : opacity))
+                                .frame(width: width - leading - trailing)
+                                .padding(.leading, leading)
+                                .padding(.trailing, trailing)
+                                .contentShape(Rectangle())
+                                .help(segment.description)
+                                .onHover { inside in
+                                    if inside { hoveredDay = segment.id }
+                                    else if hoveredDay == segment.id { hoveredDay = nil }
+                                }
+                                .focusable()
+                                .focused(focusedDay, equals: segment.id)
+                        }
+                    }
+                }
             }
         }
         .frame(height: 6)

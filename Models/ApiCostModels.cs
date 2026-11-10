@@ -33,6 +33,9 @@ public readonly record struct TokenTotals(
 /// </summary>
 public sealed record UsageLogRecord(DateTimeOffset Timestamp, string Model, TokenTotals Tokens, string? Key);
 
+/// <summary>Local-calendar-day API-equivalent cost, across the tool's local logs.</summary>
+public sealed record ApiCostDay(DateOnly Day, decimal CostUsd, bool HasUnpriced);
+
 /// <summary>
 /// What one tool's local logs add up to for a calendar month, priced at public API list
 /// rates. It is an estimate of API-equivalent spend, never a bill: a subscriber pays a flat
@@ -49,6 +52,7 @@ public sealed record ApiCostEstimate(
     IReadOnlyList<string> UnpricedModels,
     DateTimeOffset ScannedAt)
 {
+    public IReadOnlyList<ApiCostDay> Days { get; init; } = [];
     public bool HasUnpriced => UnpricedTokens > 0;
     public bool IsEmpty => PricedTokens.IsZero && UnpricedTokens == 0;
 }

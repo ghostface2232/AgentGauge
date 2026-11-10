@@ -33,7 +33,6 @@
             </ResourceDictionary.ThemeDictionaries>
             <conv:UsageLevelToBrushConverter x:Key="LevelToBrush" />
             <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
-            <conv:PercentToGridLengthConverter x:Key="PercentToGridLength" />
             <conv:EmptyStringToNullConverter x:Key="EmptyToNull" />
             <Style x:Key="BorderlessIconButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="{ThemeResource ControlFillColorTransparentBrush}" />
@@ -489,26 +488,13 @@
                                                                 Opacity="0.8"
                                                                 Text="{Binding Label}"
                                                                 Style="{StaticResource CaptionTextBlockStyle}" />
-                                                            <!-- Custom progress bar: rounded track with a rounded fill sized by
-                                                                 percent. Thicker and clearly a progress bar (not the thin,
-                                                                 slider-like default). Height/CornerRadius easy to tune. -->
-                                                            <Border
-                                                                Grid.Column="1"
-                                                                Height="8"
+                                                            <ctrl:UsageBar Grid.Column="1" Height="20" UseSystemFocusVisuals="True"
                                                                 VerticalAlignment="Center"
-                                                                CornerRadius="4"
-                                                                Background="{ThemeResource ControlAltFillColorTertiaryBrush}">
-                                                                <Grid>
-                                                                    <Grid.ColumnDefinitions>
-                                                                        <ColumnDefinition Width="{Binding Percent, Converter={StaticResource PercentToGridLength}}" />
-                                                                        <ColumnDefinition Width="{Binding Percent, Converter={StaticResource PercentToGridLength}, ConverterParameter=rest}" />
-                                                                    </Grid.ColumnDefinitions>
-                                                                    <Border
-                                                                        Grid.Column="0"
-                                                                        CornerRadius="4"
-                                                                        Background="{Binding Level, Converter={StaticResource LevelToBrush}}" />
-                                                                </Grid>
-                                                            </Border>
+                                                                Background="{ThemeResource ControlFillColorTransparentBrush}"
+                                                                Value="{Binding Percent}" Basis="{Binding DisplayBasis}"
+                                                                Fill="{Binding Level, Converter={StaticResource LevelToBrush}}"
+                                                                Track="{ThemeResource ControlAltFillColorTertiaryBrush}"
+                                                                Segments="{Binding VisibleDailySegments}" />
                                                             <ctrl:UsageSparkline Grid.Column="2" Width="64" Height="16"
                                                                 VerticalAlignment="Center" Points="{Binding Burndown}"
                                                                 Visibility="{Binding IsSparklineVisible, Converter={StaticResource BoolToVis}}" />
@@ -527,6 +513,7 @@
                                                             <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                 Opacity="0.7"
                                                                 Text="{Binding CaptionText}" MaxLines="1" TextTrimming="CharacterEllipsis"
+                                                                ToolTipService.ToolTip="{Binding CaptionText}"
                                                                 TextWrapping="Wrap"
                                                                 Style="{StaticResource CaptionTextBlockStyle}" />
                                                             <!-- Absolute counts (e.g. "128 / 300") when the
@@ -685,12 +672,62 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock
-                            Grid.Column="0"
-                            VerticalAlignment="Center"
-                            Opacity="0.7"
-                            Text="{Binding LastUpdatedText}"
-                            Style="{StaticResource CaptionTextBlockStyle}" />
+                        <Grid Grid.Column="0" HorizontalAlignment="Left" ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock VerticalAlignment="Center" Opacity="0.7"
+                                       Text="{Binding LastUpdatedText}" TextTrimming="CharacterEllipsis"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                            <ToggleButton Grid.Column="1" MinHeight="32" Padding="6,0" FontSize="12"
+                                          Content="{loc:Localize Key=DailyUsage_Label}"
+                                          IsChecked="{Binding ShowDailyUsage, Mode=TwoWay}"
+                                          UseSystemFocusVisuals="True"
+                                          ToolTipService.ToolTip="{loc:Localize Key=DailyUsage_Help}"
+                                          Visibility="{Binding CanShowDailyUsage, Converter={StaticResource BoolToVis}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Grid Background="{ThemeResource ControlFillColorTransparentBrush}"
+                                              Padding="{TemplateBinding Padding}" CornerRadius="4">
+                                            <VisualStateManager.VisualStateGroups>
+                                                <VisualStateGroup x:Name="CommonStates">
+                                                    <VisualState x:Name="Normal" />
+                                                    <VisualState x:Name="PointerOver">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="Label.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="Pressed">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="Label.Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="Checked">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="Label.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="CheckedPointerOver">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="Label.Foreground" Value="{ThemeResource AccentTextFillColorSecondaryBrush}" />
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="CheckedPressed">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="Label.Foreground" Value="{ThemeResource AccentTextFillColorTertiaryBrush}" />
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                </VisualStateGroup>
+                                            </VisualStateManager.VisualStateGroups>
+                                            <ContentPresenter x:Name="Label" Content="{TemplateBinding Content}"
+                                                              VerticalAlignment="Center"
+                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </Grid>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                        </Grid>
                         <Button
                             Grid.Column="1"
                             Style="{StaticResource BorderlessIconButtonStyle}"

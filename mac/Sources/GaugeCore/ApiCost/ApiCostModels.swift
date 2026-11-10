@@ -86,6 +86,7 @@ public struct ApiCostEstimate: Sendable, Equatable {
     public var unpricedTokens: Int64
     public var unpricedModels: [String]
     public var scannedAt: Date
+    public var days: [String: ApiCostDay] = [:]
 
     public init(tool: ToolKind, year: Int, month: Int, costUSD: Decimal, pricedTokens: TokenTotals,
                 unpricedTokens: Int64 = 0, unpricedModels: [String] = [], scannedAt: Date) {
@@ -104,4 +105,15 @@ public struct ApiCostEstimate: Sendable, Equatable {
 
     /// Nothing recorded this month — shown as no chip, never "$0".
     public var isEmpty: Bool { pricedTokens.isZero && unpricedTokens == 0 }
+}
+
+/// Local-calendar-day API-equivalent cost, across the tool's local logs.
+public struct ApiCostDay: Sendable, Equatable {
+    public var costUSD: Decimal
+    public var isFloor: Bool
+
+    public static func key(for date: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
 }

@@ -371,6 +371,23 @@ public sealed class ApiCostScannerTests : IDisposable
         Assert.Equal(700, estimate.UnpricedTokens);
         Assert.Equal(["<synthetic>"], estimate.UnpricedModels);
         Assert.True(estimate.HasUnpriced);
+        Assert.Equal(new ApiCostDay(new DateOnly(2026, 9, 10), 5m, true), Assert.Single(estimate.Days));
+    }
+
+    [Fact]
+    public void DailyCostsCanSpanTheMonthBoundaryWithoutChangingTheMonthlyChip()
+    {
+        WriteClaude("a.jsonl",
+            Claude("m1", "2026-08-31T10:00:00Z", input: 1_000_000),
+            Claude("m2", "2026-09-01T10:00:00Z", input: 2_000_000));
+
+        var estimate = Assert.Single(Scanner().Scan(Tools("Claude")));
+
+        Assert.Equal(10m, estimate.CostUsd);
+        Assert.Equal(new ApiCostDay[]
+        {
+            new(new DateOnly(2026, 8, 31), 5m, false), new(new DateOnly(2026, 9, 1), 10m, false),
+        }, estimate.Days);
     }
 
     [Fact]
