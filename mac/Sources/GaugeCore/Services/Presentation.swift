@@ -63,28 +63,33 @@ public enum GaugeLayout {
     }
 }
 
-/// What the menu bar item shows: a tool's logo ring (`ring`), whose arcs carry its 5-hour and
-/// weekly windows. The chosen tool's, or — for "auto" — whichever tool has used the most of
-/// its quota right now, so the state is glanceable without opening the panel.
+/// The chosen or most-used tool's ring in single mode, or one ring per selected tool in multi mode.
 public struct MenuBarSummary: Sendable, Equatable {
     public let highestUsedRatio: Double?
     /// The ring to draw, or nil when no shown tool has a usable window yet.
     public let ring: StatusRing?
+    /// Nil in automatic mode. An empty manual selection leaves the gauge as the panel entry point.
+    public let selectedRings: [StatusRing]?
     /// One line per tool ("Claude  5H 32% · W 15%"), for the hover tooltip.
     public let tooltip: String
 
-    public init(states: [ToolState], targetKey: String? = nil) {
-        let target = StatusTarget.tool(from: targetKey)
-        // A target with no usable windows yet is unavailable (as in Settings), so the icon
-        // follows the most-used tool instead.
-        var chosen: StatusRing?
-        if let target, let state = states.first(where: { $0.tool == target }) {
-            chosen = StatusRing(state: state)
+    public init(states: [ToolState], selectedTools: Set<ToolKind>? = nil,
+                displayBasis: DisplayBasis = .used) {
+        let rings = states.compactMap { StatusRing(state: $0) }
+        if let selectedTools {
+            let selected = ToolKind.allCases.filter { selectedTools.contains($0) }.map { tool in
+                rings.first { $0.tool == tool } ?? StatusRing(tool: tool, short: nil, long: nil)
+            }
+            selectedRings = selected
+            ring = nil
+            highestUsedRatio = nil
+            tooltip = Self.tooltipText(for: selected, basis: displayBasis)
+            return
         }
-        if chosen == nil {
-            chosen = states.compactMap { StatusRing(state: $0) }.mostUsed
-        }
-        tooltip = Self.tooltipText(for: states)
+
+        selectedRings = nil
+        let chosen = rings.mostUsed
+        tooltip = Self.tooltipText(for: rings, basis: .used)
         if let chosen {
             ring = chosen
             // The level follows the arc that moves first: the 5-hour window, or the long one
@@ -100,13 +105,13 @@ public struct MenuBarSummary: Sendable, Equatable {
             .max()
     }
 
-    private static func tooltipText(for states: [ToolState]) -> String {
-        states.compactMap { state -> String? in
-            guard let ring = StatusRing(state: state) else { return nil }
+    private static func tooltipText(for rings: [StatusRing], basis: DisplayBasis) -> String {
+        rings.map { ring in
             let readings = [ring.short, ring.long].compactMap { window in
-                window.map { "\(WindowLabels.label(for: $0)) \(Int(($0.usedRatio * 100).rounded()))%" }
+                window.map { "\(WindowLabels.label(for: $0)) \(basis.percent(for: $0.usedRatio))%" }
             }
-            return "\(state.tool.displayName)  \(readings.joined(separator: " · "))"
+            let detail = readings.isEmpty ? L10n.get("NoData") : readings.joined(separator: " · ")
+            return "\(ring.tool.displayName)  \(detail)"
         }.joined(separator: "\n")
     }
 
@@ -125,7 +130,8 @@ public struct MenuBarSummary: Sendable, Equatable {
     /// One labelled percent per arc
     /// ("5H 32% | W 15%"); the long arc reads "M" for a billing cycle, which is monthly.
     public func percentText(basis: DisplayBasis) -> String? {
-        if let ring {
+        if let selectedRings, selectedRings.count != 1 { return nil }
+        if let ring = selectedRings?.first ?? ring {
             let parts = [("5H", ring.short), (ring.long?.type == .billingCycle ? "M" : "W", ring.long)]
                 .compactMap { label, window in
                     window.map { "\(label) \(basis.percent(for: $0.usedRatio))%" }
@@ -136,15 +142,39 @@ public struct MenuBarSummary: Sendable, Equatable {
     }
 }
 
-/// The menu bar target: empty for overall, otherwise a tool's raw value. Earlier builds
-/// stored one window ("codex:weekly"); the ring shows a tool's windows together, so such a
-/// value is read as its tool.
-public enum StatusTarget {
-    public static func normalize(_ key: String?) -> String {
-        tool(from: key)?.rawValue ?? (key.map { String($0.split(separator: ":", maxSplits: 1).first ?? "") } ?? "")
+public enum MenuBarSelection: Sendable, Equatable {
+    case automatic
+    case services(Set<ToolKind>)
+
+    public init(savedValues: [String]?, legacyTarget: String? = nil) {
+        if let savedValues {
+            self = savedValues.contains("auto") ? .automatic : .services(Set(savedValues.compactMap(ToolKind.init(rawValue:))))
+        } else {
+            self = Self.legacyTool(from: legacyTarget).map { .services([$0]) } ?? .automatic
+        }
     }
 
-    public static func tool(from key: String?) -> ToolKind? {
+    public var savedValues: [String] {
+        tools?.map(\.rawValue).sorted() ?? ["auto"]
+    }
+
+    public var tools: Set<ToolKind>? {
+        if case .services(let tools) = self { return tools }
+        return nil
+    }
+
+    public mutating func set(_ tool: ToolKind, selected: Bool) {
+        var next = tools ?? []
+        if selected {
+            next.insert(tool)
+        } else {
+            next.remove(tool)
+        }
+        self = .services(next)
+    }
+
+    /// An older install may store a tool's display name or a window key such as "codex:weekly".
+    private static func legacyTool(from key: String?) -> ToolKind? {
         guard let key, !key.isEmpty, key.caseInsensitiveCompare("all") != .orderedSame else { return nil }
         let toolPart = String(key.split(separator: ":", maxSplits: 1).first ?? "")
         return ToolKind.allCases.first {
