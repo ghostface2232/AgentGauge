@@ -216,6 +216,24 @@ public sealed class ToolRegistry
         return true;
     }
 
+    internal bool MoveVisibleTool(IEnumerable<ToolKind?> cards, int from, int to)
+    {
+        var visible = cards.ToList();
+        if (from == to || from < 0 || to < 0 || from >= visible.Count || to >= visible.Count
+            || visible[from] is not { } moved || visible[to] is not { } target || moved == target)
+        {
+            return false;
+        }
+
+        // The destination is the target service's slot. Moving downward puts the entire
+        // source group after that service, even if another source card was above the drop.
+        var order = visible.OfType<ToolKind>().Distinct().ToList();
+        var destination = order.IndexOf(target);
+        order.Remove(moved);
+        order.Insert(destination, moved);
+        return ReorderEnabled(order);
+    }
+
     /// <summary>
     /// Writes the current registration and visibility back out without changing either.
     /// Used after settings.json had to be replaced: the file is new and empty, while this

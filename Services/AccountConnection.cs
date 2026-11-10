@@ -16,7 +16,8 @@ internal sealed record AccountConnection(IAuthenticationProvider Authentication,
                 new GitHubCliTokenReader(locator, account.Label), useLocalFiles: false);
             var authentication = new CliAuthenticationProvider(tool, source, locator, new CliProcessRunner(),
                 missingMessage: Loc.Get("Account_CopilotSignIn"));
-            return new(authentication, new AccountUsageProvider(account, new GitHubCopilotProvider(httpClient, source)));
+            var copilot = new GitHubCopilotProvider(httpClient, source, accountLogin: account.Label);
+            return new(authentication, new AccountUsageProvider(account, copilot));
         }
 
         var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

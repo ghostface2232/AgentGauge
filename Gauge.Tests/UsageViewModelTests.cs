@@ -202,18 +202,22 @@ public sealed class UsageViewModelTests
     }
 
     [Fact]
-    public void ReorderToolsReordersExistingCardsInPlace()
+    public void MoveToolKeepsDefaultAndAdditionalCardsTogether()
     {
-        var registry = new ToolRegistry(new OrderedStore(ToolKind.ClaudeCode, ToolKind.Codex));
+        var work = new ToolAccount(Guid.NewGuid(), ToolKind.ClaudeCode, "Work");
+        var store = new OrderedStore(ToolKind.ClaudeCode, ToolKind.Codex) { Accounts = [work] };
+        var registry = new ToolRegistry(store);
         var viewModel = new UsageViewModel(registry);
-        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.73)));
+        var state = State(WithUsage("Claude", 0.42), WithUsage(work.Key, 0.31), WithUsage("Codex", 0.73));
+        viewModel.Apply(state);
+        Assert.Equal(new[] { "Claude", work.Key, "Codex" }, viewModel.Cards.Select(c => c.ToolName));
 
-        // Dragging Codex above Claude on the main screen persists the new order…
-        viewModel.ReorderTools(new[] { "Codex", "Claude" });
-        // …and a subsequent coordinator push reflects it in the cards.
-        viewModel.Apply(State(WithUsage("Claude", 0.42), WithUsage("Codex", 0.73)));
+        // Drag the Work account below Codex. The default Claude card moves with it.
+        viewModel.MoveTool(1, 2);
+        Assert.Equal(new[] { "Codex", "Claude", work.Key }, viewModel.Cards.Select(c => c.ToolName));
+        viewModel.Apply(state);
 
-        Assert.Equal(new[] { "Codex", "Claude" }, viewModel.Cards.Select(c => c.ToolName));
+        Assert.Equal(new[] { "Codex", "Claude", work.Key }, viewModel.Cards.Select(c => c.ToolName));
         Assert.Equal(new[] { ToolKind.Codex, ToolKind.ClaudeCode }, registry.Enabled);
     }
 
@@ -287,6 +291,8 @@ public sealed class UsageViewModelTests
 
     private sealed class OrderedStore(params ToolKind[] enabled) : IToolRegistryStore
     {
+        public IReadOnlyList<ToolAccount> Accounts { get; init; } = [];
+        public IReadOnlyList<ToolAccount> LoadAccounts() => Accounts;
         private IReadOnlyCollection<ToolKind> _hidden = [];
         public IReadOnlyCollection<ToolKind> LoadHidden() => _hidden;
         public bool TrySaveHidden(IReadOnlyCollection<ToolKind> hidden)

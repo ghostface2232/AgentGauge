@@ -56,6 +56,38 @@ final class UsageHistoryStoreTests: XCTestCase {
         store.close()
     }
 
+    func testCopilotAdoptsLegacyAndMatchingTokenRowsOnlyOnce() {
+        let store = makeStore()
+        let quota = UsageWindow(type: .billingCycle, providerID: "chat", usedRatio: 0.1)
+        var old = UsageSnapshot(tool: .githubCopilot, plan: nil, windows: [quota], capturedAt: start.addingTimeInterval(-600))
+        store.record(old)
+        old.historyIdentity = "old-token"
+        old.capturedAt = start.addingTimeInterval(-300)
+        old.windows[0].usedRatio = 0.2
+        store.record(old)
+        store.warm()
+
+        var current = old
+        current.capturedAt = start
+        current.windows[0].usedRatio = 0.3
+        current.historyIdentity = "first-login"
+        current.legacyCopilotTokenIdentity = "old-token"
+        store.record(current)
+        XCTAssertEqual(store.recent(tool: .githubCopilot, historyIdentity: "first-login", windowID: "chat").map(\.usedRatio), [0.1, 0.2, 0.3])
+
+        var switched = current
+        switched.historyIdentity = "second-login"
+        switched.legacyCopilotTokenIdentity = "other-token"
+        store.record(switched)
+        store.close()
+
+        let reopened = makeStore()
+        XCTAssertEqual(reopened.recent(tool: .githubCopilot, historyIdentity: "first-login", windowID: "chat").map(\.usedRatio), [0.1, 0.2, 0.3])
+        XCTAssertEqual(reopened.recent(tool: .githubCopilot, historyIdentity: "second-login", windowID: "chat").map(\.usedRatio), [0.3])
+        XCTAssertTrue(reopened.recent(tool: .githubCopilot, windowID: "chat").isEmpty)
+        XCTAssertTrue(reopened.recent(tool: .githubCopilot, historyIdentity: "old-token", windowID: "chat").isEmpty)
+    }
+
     private func makeStore(timeZone: TimeZone? = nil) -> UsageHistoryStore {
         let clock = self.clock!
         return UsageHistoryStore(directory: directory, timeZone: timeZone ?? utc, now: { clock.now })

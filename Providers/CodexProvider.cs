@@ -37,7 +37,9 @@ public sealed class CodexProvider : UsageProviderBase
     private const string ResetCreditsUrl = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
     private static readonly TimeSpan ResetCreditRefreshInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan ResetCreditTimeout = TimeSpan.FromSeconds(4);
-    private (string Identity, int Balance)? _creditCacheKey;
+    private readonly RateLimitGate _creditGate;
+    private string? _creditIdentity;
+    private int? _creditBalance;
     private long _lastCreditRead;
     private IReadOnlyList<ResetCreditDeadline>? _creditDeadlines;
 
@@ -74,6 +76,7 @@ public sealed class CodexProvider : UsageProviderBase
         : base(credentials, Policy, refresher, time)
     {
         _http = http;
+        _creditGate = new RateLimitGate(new BackoffPolicy(ResetCreditRefreshInterval, TimeSpan.FromMinutes(30)), Time);
     }
 
     public override ToolKind Tool => ToolKind.Codex;
@@ -136,20 +139,28 @@ public sealed class CodexProvider : UsageProviderBase
     private async Task<IReadOnlyList<ResetCreditDeadline>?> ReadCreditDeadlinesAsync(
         ToolCredential credential, int? credits, CancellationToken cancellationToken)
     {
+        var identity = credential.HistoryIdentity
+            ?? UsageIdentity.Hash(null, $"{credential.AccountId}\0{credential.AccessToken}");
+        if (_creditIdentity != identity)
+        {
+            _creditIdentity = identity;
+            _creditBalance = null;
+            _creditGate.Reset();
+        }
+
         if (credits is not > 0)
         {
-            _creditCacheKey = null;
+            _creditBalance = null;
             _creditDeadlines = null;
             return null;
         }
 
-        var identity = credential.HistoryIdentity ?? UsageIdentity.Hash(null, credential.AccessToken);
-        var key = (identity, credits.Value);
-        if (_creditCacheKey == key && Time.GetElapsedTime(_lastCreditRead) < ResetCreditRefreshInterval)
+        if (_creditBalance == credits && Time.GetElapsedTime(_lastCreditRead) < ResetCreditRefreshInterval)
             return _creditDeadlines;
+        if (_creditGate.InCooldown(Time.GetTimestamp())) return null;
 
         // The supplemental endpoint is optional and runs at a lower cadence than quota polling.
-        _creditCacheKey = key;
+        _creditBalance = credits;
         _lastCreditRead = Time.GetTimestamp();
         _creditDeadlines = null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -160,10 +171,13 @@ public sealed class CodexProvider : UsageProviderBase
             using var response = await _http.SendAsync(request, timeout.Token);
             if (!response.IsSuccessStatusCode)
             {
+                if (RateLimitGate.IsRetryable(response.StatusCode))
+                    _creditGate.RecordFailure(RetryAfterOf(response));
                 DiagnosticsLog.Write("provider", $"Codex reset deadlines unavailable: HTTP {(int)response.StatusCode}");
                 return null;
             }
 
+            _creditGate.RecordSuccess();
             await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token);
             if (!document.RootElement.TryGetArray("credits", out var entries)) return null;

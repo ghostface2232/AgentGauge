@@ -33,6 +33,8 @@ final class HistoryDatabase {
 
     deinit { close() }
 
+    var changedRows: Int32 { sqlite3_changes(handle) }
+
     func close() {
         if let handle { sqlite3_close_v2(handle) }
         handle = nil

@@ -2,10 +2,14 @@ import Foundation
 
 /// `GET https://api.github.com/copilot_internal/user` — the undocumented endpoint the editor
 /// integrations use to show Copilot's quotas, so parsing is tolerant throughout.
-public struct GitHubCopilotEndpoint: UsageEndpoint {
+public actor GitHubCopilotEndpoint: UsageEndpoint {
     static let url = URL(string: "https://api.github.com/copilot_internal/user")!
+    private let configuredIdentity: String?
+    private var knownLogin: (tokenIdentity: String, loginIdentity: String)?
 
-    public init() {}
+    public init(accountLogin: String? = nil) {
+        configuredIdentity = UsageIdentity.forGitHubLogin(accountLogin)
+    }
 
     public func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date) async throws -> UsagePayload {
         var request = URLRequest(url: Self.url)
@@ -18,10 +22,17 @@ public struct GitHubCopilotEndpoint: UsageEndpoint {
         request.setValue("GitHubCopilotChat/0.26.0", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await transport.send(request)
         try HTTPStatus.ensureSuccess(response, now: now)
-        return try GitHubCopilotUsageParser.payload(from: data)
+        var payload = try GitHubCopilotUsageParser.payload(from: data)
+        let tokenIdentity = UsageIdentity.hash(subject: nil, token: credential.accessToken)
+        let previouslySeen = knownLogin.flatMap { $0.tokenIdentity == tokenIdentity ? $0.loginIdentity : nil }
+        let identity = payload.historyIdentity ?? configuredIdentity ?? previouslySeen
+        knownLogin = identity.map { (tokenIdentity, $0) }
+        payload.historyIdentity = identity ?? tokenIdentity
+        payload.legacyCopilotTokenIdentity = identity == nil ? nil : tokenIdentity
+        return payload
     }
 
-    public func credentialPlan(_ credential: ToolCredential?) -> String? { nil }
+    public nonisolated func credentialPlan(_ credential: ToolCredential?) -> String? { nil }
 }
 
 /// Copilot meters monthly quotas (chat, code completions, premium requests) rather than
@@ -37,9 +48,11 @@ public enum GitHubCopilotUsageParser {
 
     public static func payload(from data: Data) throws -> UsagePayload {
         let root = try JSONObject.parse(data)
-        return UsagePayload(
+        var payload = UsagePayload(
             plan: plan(copilotPlan: root.string("copilot_plan"), sku: root.string("access_type_sku")),
             windows: windows(root))
+        payload.historyIdentity = UsageIdentity.forGitHubLogin(root.string("login"))
+        return payload
     }
 
     private static func windows(_ root: JSONObject) -> [UsageWindow] {

@@ -67,17 +67,13 @@ public sealed partial class UsageViewModel : ObservableObject
     /// back to its <see cref="ToolKind"/> and hands it to the registry, so accounts for
     /// the same tool move together and the settings screen follows the shared order.
     /// </summary>
-    public void ReorderTools(IReadOnlyList<string> toolNamesInNewOrder)
+    public void MoveTool(int from, int to)
     {
         if (_registry is null)
         {
             return;
         }
-        var kinds = toolNamesInNewOrder
-            .Select(name => StatusTargetMatcher.Descriptor(name)?.Kind)
-            .OfType<ToolKind>()
-            .ToList();
-        if (!_registry.ReorderEnabled(kinds)) ResortCards();
+        _registry.MoveVisibleTool(Cards.Select(card => StatusTargetMatcher.Descriptor(card.ToolName)?.Kind), from, to);
     }
 
     /// <summary>Reorders the existing cards in place to match the registry's display order,

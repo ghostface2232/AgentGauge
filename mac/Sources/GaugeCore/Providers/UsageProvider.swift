@@ -58,15 +58,21 @@ public actor CodexEndpoint: UsageEndpoint {
     static let url = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
     static let resetCreditsURL = URL(string: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits")!
     private static let resetCreditRefreshInterval: TimeInterval = 10 * 60
-    private var creditCache: (identity: String, balance: Int, checkedAt: TimeInterval, deadlines: [ResetCreditDeadline]?)?
+    private var creditIdentity: String?
+    private var creditCache: (balance: Int, checkedAt: TimeInterval, deadlines: [ResetCreditDeadline]?)?
+    private var creditGate = RateLimitGate(backoff: BackoffPolicy(base: resetCreditRefreshInterval, maximum: 30 * 60))
+    private let clock: any MonotonicClock
 
-    public init() {}
+    public init(clock: any MonotonicClock = SystemMonotonicClock()) {
+        self.clock = clock
+    }
 
     public func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date) async throws -> UsagePayload {
         let (data, response) = try await transport.send(Self.request(Self.url, credential))
         try HTTPStatus.ensureSuccess(response, now: now)
         var payload = try CodexUsageParser.payload(from: data)
-        payload.resetCreditDeadlines = try await readCreditDeadlines(payload.resetCredits, credential: credential, transport: transport)
+        payload.resetCreditDeadlines = try await readCreditDeadlines(payload.resetCredits, credential: credential,
+                                                                     transport: transport, now: now)
         return payload
     }
 
@@ -81,29 +87,41 @@ public actor CodexEndpoint: UsageEndpoint {
         return request
     }
 
-    private func readCreditDeadlines(_ balance: Int?, credential: ToolCredential, transport: any HTTPTransport)
+    private func readCreditDeadlines(_ balance: Int?, credential: ToolCredential, transport: any HTTPTransport, now: Date)
         async throws -> [ResetCreditDeadline]? {
+        let identity = credential.historyIdentity
+            ?? UsageIdentity.hash(subject: nil, token: "\(credential.accountID ?? "")\0\(credential.accessToken)")
+        if creditIdentity != identity {
+            creditIdentity = identity
+            creditCache = nil
+            creditGate.recordSuccess()
+        }
+
         guard let balance, balance > 0 else {
             creditCache = nil
             return nil
         }
 
-        let identity = credential.historyIdentity ?? UsageIdentity.hash(subject: nil, token: credential.accessToken)
-        let now = ProcessInfo.processInfo.systemUptime
-        if let cached = creditCache, cached.identity == identity, cached.balance == balance,
-           now - cached.checkedAt < Self.resetCreditRefreshInterval { return cached.deadlines }
+        let checkedAt = clock.now()
+        if let cached = creditCache, cached.balance == balance,
+           checkedAt - cached.checkedAt < Self.resetCreditRefreshInterval { return cached.deadlines }
+        guard !creditGate.inCooldown(now: checkedAt) else { return nil }
 
-        creditCache = (identity, balance, now, nil)
+        creditCache = (balance, checkedAt, nil)
         var request = Self.request(Self.resetCreditsURL, credential)
         request.timeoutInterval = 4
         do {
             let (data, response) = try await transport.send(request)
             guard (200..<300).contains(response.statusCode) else {
+                if RateLimitGate.isRetryable(response.statusCode) {
+                    creditGate.recordFailure(retryAfter: HTTPStatus.retryAfter(response, now: now), now: clock.now())
+                }
                 Log.write("provider", "Codex reset deadlines unavailable: HTTP \(response.statusCode)")
                 return nil
             }
+            creditGate.recordSuccess()
             let deadlines = try CodexUsageParser.resetCreditDeadlines(from: data)
-            creditCache = (identity, balance, now, deadlines)
+            creditCache = (balance, checkedAt, deadlines)
             return deadlines
         } catch {
             try Task.checkCancellation()
@@ -241,8 +259,8 @@ public actor HTTPUsageProvider: UsageProvider {
                 tool: tool, plan: payload.plan, windows: payload.windows,
                 resetCredits: payload.resetCredits, resetCreditDeadlines: payload.resetCreditDeadlines,
                 capturedAt: wallClock())
-            snapshot.historyIdentity = credential.historyIdentity
-                ?? (tool == .githubCopilot ? UsageIdentity.hash(subject: nil, token: credential.accessToken) : nil)
+            snapshot.historyIdentity = payload.historyIdentity ?? credential.historyIdentity
+            snapshot.legacyCopilotTokenIdentity = payload.legacyCopilotTokenIdentity
             gate?.recordSuccess()
             if cachesSnapshots {
                 lastSuccessAt = clock.now()
@@ -367,7 +385,7 @@ public enum ProviderFactory {
                 credentials: GitHubCopilotCredentialSource(
                     tokenReader: GitHubCLITokenReader(locator: locator, runner: runner, username: account.label),
                     useLocalFiles: false),
-                endpoint: GitHubCopilotEndpoint(), policy: FetchPolicy(), transport: transport))
+                endpoint: GitHubCopilotEndpoint(accountLogin: account.label), policy: FetchPolicy(), transport: transport))
         }
         guard let profile = AccountCLIProfile(account: account) else { return nil }
         let isClaude = account.tool == .claude

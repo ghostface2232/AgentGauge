@@ -334,6 +334,29 @@ private let liveFreeCopilotJSON = """
 """
 
 final class GitHubCopilotProviderTests: XCTestCase {
+    func testHistoryIdentityFollowsLoginInsteadOfToken() async throws {
+        let transport = FakeTransport()
+        let credentials = FakeCredentials(.available(ToolCredential(accessToken: "first")))
+        let provider = provider(transport, credentials)
+        transport.enqueue(.status(200, liveFreeCopilotJSON))
+        let first = try await provider.fetch(.background).snapshot
+        XCTAssertEqual(first.legacyCopilotTokenIdentity, UsageIdentity.hash(subject: nil, token: "first"))
+
+        credentials.set(.available(ToolCredential(accessToken: "rotated")))
+        transport.enqueue(.status(200, liveFreeCopilotJSON.replacingOccurrences(of: "octocat", with: "Octocat")))
+        let rotated = try await provider.fetch(.background).snapshot
+        XCTAssertEqual(first.historyKey, rotated.historyKey)
+
+        transport.enqueue(.status(200, #"{"copilot_plan":"individual"}"#))
+        let withoutLogin = try await provider.fetch(.background).snapshot
+        XCTAssertEqual(rotated.historyKey, withoutLogin.historyKey)
+
+        credentials.set(.available(ToolCredential(accessToken: "other")))
+        transport.enqueue(.status(200, liveFreeCopilotJSON.replacingOccurrences(of: "octocat", with: "other")))
+        let switched = try await provider.fetch(.background).snapshot
+        XCTAssertNotEqual(first.historyKey, switched.historyKey)
+    }
+
     private func provider(_ transport: FakeTransport, _ credentials: FakeCredentials = FakeCredentials(
         .available(ToolCredential(accessToken: "gho_token")))) -> HTTPUsageProvider {
         HTTPUsageProvider(tool: .githubCopilot, credentials: credentials, endpoint: GitHubCopilotEndpoint(),

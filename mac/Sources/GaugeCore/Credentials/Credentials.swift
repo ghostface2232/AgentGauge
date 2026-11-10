@@ -7,6 +7,11 @@ enum UsageIdentity {
         let value = subject.map { "account\0\($0)" } ?? "token\0\(token)"
         return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", Int($0)) }.joined()
     }
+
+    static func forGitHubLogin(_ login: String?) -> String? {
+        guard let login, let validated = ToolAccount.validatedLabel(login, for: .githubCopilot) else { return nil }
+        return hash(subject: "github.com\0\(validated.lowercased())", token: "")
+    }
 }
 
 /// A CLI-owned OAuth credential, held in memory only. AgentGauge never writes, refreshes,

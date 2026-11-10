@@ -67,6 +67,64 @@ final class FakeRefresher: DelegatedRefreshing, @unchecked Sendable {
 private let claudeBody = #"{"five_hour":{"utilization":40,"resets_at":"2026-10-19T05:00:00Z"}}"#
 
 final class HTTPUsageProviderTests: XCTestCase {
+    func testCodexCreditCooldownSurvivesBalanceChangesWithoutBlockingUsage() async throws {
+        let transport = FakeTransport()
+        let clock = ManualClock()
+        let endpoint = CodexEndpoint(clock: clock)
+        let credential = ToolCredential(accessToken: "token")
+        let now = Date()
+        transport.enqueue(usageWithCredits(1))
+        transport.enqueue(.status(429, "", headers: ["Retry-After": "3600"]))
+        let first = try await endpoint.fetch(credential, transport: transport, now: now)
+        XCTAssertEqual(first.windows.count, 1)
+        XCTAssertNil(first.resetCreditDeadlines)
+
+        transport.enqueue(usageWithCredits(0))
+        let empty = try await endpoint.fetch(credential, transport: transport, now: now)
+        XCTAssertEqual(empty.resetCredits, 0)
+        clock.advance(3599)
+        transport.enqueue(usageWithCredits(2))
+        let duringCooldown = try await endpoint.fetch(credential, transport: transport, now: now)
+        XCTAssertEqual(duringCooldown.windows.count, 1)
+        XCTAssertEqual(duringCooldown.resetCredits, 2)
+        XCTAssertEqual(transport.requestCount, 4)
+
+        clock.advance(1)
+        transport.enqueue(usageWithCredits(2))
+        transport.enqueue(creditDeadlines)
+        let recovered = try await endpoint.fetch(credential, transport: transport, now: now)
+        XCTAssertEqual(recovered.resetCreditDeadlines?.count, 1)
+        XCTAssertEqual(transport.requestCount, 6)
+    }
+
+    func testCodexCreditCooldownIsResetWhenTheLoginChanges() async throws {
+        let first = ToolCredential(accessToken: "first-token", accountID: "first-workspace")
+        let replacements = [ToolCredential(accessToken: "other-token", accountID: "first-workspace"),
+                            ToolCredential(accessToken: "first-token", accountID: "other-workspace")]
+        for replacement in replacements {
+            let transport = FakeTransport()
+            let endpoint = CodexEndpoint(clock: ManualClock())
+            let now = Date()
+            transport.enqueue(usageWithCredits(1))
+            transport.enqueue(.status(429, "", headers: ["Retry-After": "3600"]))
+            let throttled = try await endpoint.fetch(first, transport: transport, now: now)
+            XCTAssertNil(throttled.resetCreditDeadlines)
+
+            transport.enqueue(usageWithCredits(1))
+            transport.enqueue(creditDeadlines)
+            let switched = try await endpoint.fetch(replacement, transport: transport, now: now)
+            XCTAssertEqual(switched.resetCreditDeadlines?.count, 1)
+            XCTAssertEqual(transport.requestCount, 4)
+        }
+    }
+
+    private func usageWithCredits(_ balance: Int) -> FakeTransport.Reply {
+        .status(200, #"{"rate_limit":{"primary_window":{"used_percent":25}},"rate_limit_reset_credits":{"available_count":\#(balance)}}"#)
+    }
+
+    private let creditDeadlines = FakeTransport.Reply.status(200,
+        #"{"credits":[{"status":"available","expires_at":"2027-03-09T07:59:00Z"}]}"#)
+
     private func makeProvider(
         policy: FetchPolicy, transport: FakeTransport, credentials: FakeCredentials,
         refresher: FakeRefresher? = nil, clock: ManualClock = ManualClock()

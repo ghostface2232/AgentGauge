@@ -74,6 +74,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
     private readonly object _gate = new();
     private readonly Dictionary<(string Tool, string Key), List<UsageSample>> _tail = new();
     private readonly Dictionary<(string Tool, string Key), WeekdayAccumulator> _profiles = new();
+    private readonly HashSet<string> _adoptedCopilotKeys = new();
 
     private SqliteConnection? _connection;
     private bool _tailHydrated;
@@ -104,6 +105,7 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             {
                 return;
             }
+            AdoptCopilotHistory(snapshot);
             WithConnection(connection =>
             {
                 using var transaction = connection.BeginTransaction();
@@ -147,6 +149,40 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             AppendToTail(snapshot);
             PruneIfDue();
         }
+    }
+
+    private void AdoptCopilotHistory(UsageSnapshot snapshot)
+    {
+        if (snapshot.LegacyCopilotTokenIdentity is not { } tokenIdentity
+            || snapshot.HistoryIdentity is not { } loginIdentity || loginIdentity == tokenIdentity) return;
+        var tokenKey = $"{snapshot.ToolName}#{tokenIdentity}";
+        if (_adoptedCopilotKeys.Contains(tokenKey)) return;
+        // The released app used the bare tool key for the default account only.
+        var legacyKey = snapshot.ToolName == ToolCatalog.GitHubCopilot.DisplayName ? snapshot.ToolName : null;
+        var changed = false;
+        WithConnection(connection =>
+        {
+            using var transaction = connection.BeginTransaction();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE OR IGNORE samples SET tool = $target WHERE tool IN ($token, $legacy)";
+            command.Parameters.AddWithValue("$target", snapshot.HistoryKey);
+            command.Parameters.AddWithValue("$token", tokenKey);
+            command.Parameters.AddWithValue("$legacy", (object?)legacyKey ?? DBNull.Value);
+            var moved = command.ExecuteNonQuery();
+            command.CommandText = "DELETE FROM samples WHERE tool IN ($token, $legacy)";
+            var duplicates = command.ExecuteNonQuery();
+            transaction.Commit();
+            _adoptedCopilotKeys.Add(tokenKey);
+            changed = moved > 0 || duplicates > 0;
+        });
+        if (!changed || !_tailHydrated) return;
+
+        // Re-fold the combined rows in capture order, including any warmed profile.
+        bool Affected(string tool) => tool == snapshot.HistoryKey || tool == tokenKey || tool == legacyKey;
+        foreach (var key in _tail.Keys.Where(key => Affected(key.Tool)).ToList()) _tail.Remove(key);
+        foreach (var key in _profiles.Keys.Where(key => Affected(key.Tool)).ToList()) _profiles.Remove(key);
+        HydrateTail(snapshot.HistoryKey);
     }
 
     /// <summary>
@@ -204,7 +240,11 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
             return;
         }
         _tailHydrated = true;
+        HydrateTail();
+    }
 
+    private void HydrateTail(string? tool = null)
+    {
         var now = _time.GetUtcNow();
         var since = (now - MemoryTailSpan).ToUnixTimeMilliseconds();
         var profileSince = (now - ProfileSpan).ToUnixTimeMilliseconds();
@@ -215,9 +255,10 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                 command.CommandText =
                     """
                     SELECT tool, window_key, captured_at, used_ratio, reset_time, reset_credits, reset_credit_expiry FROM samples
-                    WHERE captured_at >= $since ORDER BY captured_at
+                    WHERE captured_at >= $since AND ($tool IS NULL OR tool = $tool) ORDER BY captured_at
                     """;
                 command.Parameters.AddWithValue("$since", since);
+                command.Parameters.AddWithValue("$tool", (object?)tool ?? DBNull.Value);
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
                 {
@@ -237,9 +278,10 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
                 command.CommandText =
                     """
                     SELECT tool, window_key, captured_at, used_ratio, reset_time, reset_credits, reset_credit_expiry FROM samples
-                    WHERE captured_at >= $since ORDER BY tool, window_key, captured_at
+                    WHERE captured_at >= $since AND ($tool IS NULL OR tool = $tool) ORDER BY tool, window_key, captured_at
                     """;
                 command.Parameters.AddWithValue("$since", profileSince);
+                command.Parameters.AddWithValue("$tool", (object?)tool ?? DBNull.Value);
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
                 {

@@ -57,6 +57,43 @@ public sealed class CodexProviderBackoffTests
     }
 
     [Fact]
+    public async Task CreditRetryAfterSurvivesBalanceChangesWithoutBlockingUsage()
+    {
+        var handler = new SequenceHandler(UsageWithCredits(1), TooMany(retryAfterSeconds: 3600),
+            UsageWithCredits(0), UsageWithCredits(2), UsageWithCredits(2), CreditDeadlines());
+        var (provider, time) = Provider(handler);
+
+        Assert.Null((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines);
+        Assert.Equal(0, (await provider.GetSnapshotAsync(default)).ResetCredits);
+        time.Advance(TimeSpan.FromSeconds(3599));
+        var duringCooldown = await provider.GetSnapshotAsync(FetchInteraction.UserInitiated, default);
+        Assert.Single(duringCooldown.Windows);
+        Assert.Equal(2, duringCooldown.ResetCredits);
+        Assert.Equal(4, handler.Calls);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Single((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines!);
+        Assert.Equal(6, handler.Calls);
+    }
+
+    [Theory]
+    [InlineData("other-token", "first-workspace")]
+    [InlineData("first-token", "other-workspace")]
+    public async Task CreditRetryAfterIsResetWhenTheLoginChanges(string token, string workspace)
+    {
+        var handler = new SequenceHandler(UsageWithCredits(1), TooMany(retryAfterSeconds: 3600),
+            UsageWithCredits(1), CreditDeadlines());
+        var source = new MutableSource("first-token") { AccountId = "first-workspace" };
+        var provider = new CodexProvider(new HttpClient(handler), source, time: new MutableTime());
+        Assert.Null((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines);
+
+        source.Token = token;
+        source.AccountId = workspace;
+        Assert.Single((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines!);
+        Assert.Equal(4, handler.Calls);
+    }
+
+    [Fact]
     public async Task UserInitiatedRefreshBypassesTheCooldown()
     {
         var handler = new SequenceHandler(Ok(), TooMany(), Ok());
@@ -231,6 +268,14 @@ public sealed class CodexProviderBackoffTests
     private static Response Ok()
         => new("""{ "rate_limit": { "primary_window": { "used_percent": 42 } } }""", HttpStatusCode.OK);
 
+    private static Response UsageWithCredits(int balance) => new($$"""
+        { "rate_limit": { "primary_window": { "used_percent": 42 } },
+          "rate_limit_reset_credits": { "available_count": {{balance}} } }
+        """, HttpStatusCode.OK);
+
+    private static Response CreditDeadlines() => new(
+        """{ "credits": [{ "status": "available", "expires_at": "2027-03-09T07:59:00Z" }] }""", HttpStatusCode.OK);
+
     private static Response TooMany(int retryAfterSeconds = 0)
         => new("{}", HttpStatusCode.TooManyRequests, retryAfterSeconds);
 
@@ -262,6 +307,7 @@ public sealed class CodexProviderBackoffTests
     private sealed class MutableSource(string token) : ICredentialSource
     {
         public string Token { get; set; } = token;
+        public string? AccountId { get; set; }
         public CredentialReadStatus Status { get; set; } = CredentialReadStatus.Available;
         public CredentialOwner Owner => CredentialOwner.CliLocal;
         public CredentialSource Source => CredentialSource.CliLocal;
@@ -273,7 +319,7 @@ public sealed class CodexProviderBackoffTests
                 Credential = Status != CredentialReadStatus.Available ? null : new ToolCredential
                 {
                     Tool = ToolKind.Codex, Owner = CredentialOwner.CliLocal, Source = CredentialSource.CliLocal,
-                    AccessToken = Token,
+                    AccessToken = Token, AccountId = AccountId,
                 },
             });
     }
