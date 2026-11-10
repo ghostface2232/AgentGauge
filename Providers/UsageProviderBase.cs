@@ -172,7 +172,7 @@ public abstract class UsageProviderBase : IUsageProvider
 
         try
         {
-            return await FetchWithPolicyAsync(credential, cancellationToken);
+            return await FetchWithPolicyAsync(credential, interaction, cancellationToken);
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
@@ -194,7 +194,7 @@ public abstract class UsageProviderBase : IUsageProvider
                     }
                     try
                     {
-                        return await FetchWithPolicyAsync(freshCredential, cancellationToken);
+                        return await FetchWithPolicyAsync(freshCredential, interaction, cancellationToken);
                     }
                     catch (HttpRequestException retryEx) when (retryEx.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                     {
@@ -214,11 +214,12 @@ public abstract class UsageProviderBase : IUsageProvider
     /// through here, so a 429 on the retry still arms the gate instead of escaping it
     /// (catch clauses of one try never re-match their siblings' throws).
     /// </summary>
-    private async Task<UsageSnapshot> FetchWithPolicyAsync(ToolCredential credential, CancellationToken cancellationToken)
+    private async Task<UsageSnapshot> FetchWithPolicyAsync(
+        ToolCredential credential, FetchInteraction interaction, CancellationToken cancellationToken)
     {
         try
         {
-            var snapshot = await FetchSnapshotAsync(credential, cancellationToken);
+            var snapshot = await FetchSnapshotAsync(credential, interaction, cancellationToken);
             return RecordSuccess(snapshot with { HistoryIdentity = snapshot.HistoryIdentity ?? credential.HistoryIdentity });
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
@@ -262,6 +263,10 @@ public abstract class UsageProviderBase : IUsageProvider
     /// <summary>The provider's endpoint call and parsing — the only per-tool part.
     /// Build the snapshot with <see cref="Snapshot"/> so its capture time is consistent.</summary>
     protected abstract Task<UsageSnapshot> FetchSnapshotAsync(ToolCredential credential, CancellationToken cancellationToken);
+
+    protected virtual Task<UsageSnapshot> FetchSnapshotAsync(
+        ToolCredential credential, FetchInteraction interaction, CancellationToken cancellationToken)
+        => FetchSnapshotAsync(credential, cancellationToken);
 
     /// <summary>Whether the credential can authenticate a call (a provider may need more than the token).</summary>
     protected virtual bool HasUsableCredential(ToolCredential credential)

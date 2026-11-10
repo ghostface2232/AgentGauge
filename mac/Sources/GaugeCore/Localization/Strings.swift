@@ -62,6 +62,8 @@ enum Strings {
         "Empty_NoTools": ["표시 중인 도구가 없습니다.", "No tools are shown.", "表示中のツールがありません。"],
         "Action_Refresh": ["새로 고침", "Refresh", "更新"],
         "DailyUsage_Label": ["일별 보기", "Daily view", "日別表示"],
+        "Usage_AiCreditsUsed": ["AI 크레딧 {0} 사용", "{0} AI credits used", "AIクレジット {0} 使用"],
+        "Usage_ResetBalance": ["초기화 {0}회 가능", "{0} available resets", "リセット可能回数 {0}"],
         "DailyUsage_Help": ["기록된 날짜별로 주간 사용량을 나눠 표시", "Split weekly usage by recorded day", "記録がある日ごとに週間使用量を表示"],
         "DailyUsage_Day": ["{0} · 주간 한도의 약 {1}%", "{0} · about {1}% of weekly limit", "{0} · 週間上限の約{1}%"],
         "DailyUsage_Cost": ["하루 API 환산 약 ${0}", "Daily API equivalent ≈ ${0}", "1日のAPI換算 約${0}"],

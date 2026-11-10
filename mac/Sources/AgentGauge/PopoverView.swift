@@ -405,11 +405,34 @@ struct ToolCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            content
+            let supplemental = supplementalUsage
+            if !windows.isEmpty || supplemental.isEmpty { content }
+            if !supplemental.isEmpty {
+                Text(verbatim: supplemental)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(Metrics.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardBackground()
+    }
+
+    private var supplementalUsage: String {
+        let deadlines = state.snapshot?.resetCreditDeadlines?.filter {
+            $0.expiresAt > model.now && ($0.count ?? 0) > 0
+        } ?? []
+        let scopes = Dictionary(grouping: deadlines, by: \.scope)
+        var lines = scopes.keys.sorted { ($0 ?? "") < ($1 ?? "") }.map { scope in
+            let count = scopes[scope, default: []].reduce(0) { $0 + ($1.count ?? 0) }
+            let label = L10n.format("Usage_ResetBalance", count.formatted(.number.locale(L10n.locale)))
+            return scope.map { "\($0) · \(label)" } ?? label
+        }
+        if let credits = state.snapshot?.aiCreditsUsed {
+            let amount = credits.formatted(.number.precision(.fractionLength(0...2)).locale(L10n.locale))
+            lines.append(L10n.format("Usage_AiCreditsUsed", amount))
+        }
+        return lines.joined(separator: "\n")
     }
 
     private var header: some View {

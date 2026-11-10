@@ -237,6 +237,15 @@ public sealed partial class ToolCardViewModel : ObservableObject
     [ObservableProperty]
     public partial bool HasAnyData { get; set; }
 
+    [ObservableProperty]
+    public partial bool HasUsageWindows { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSupplementalUsage))]
+    public partial string SupplementalUsage { get; set; } = "";
+
+    public bool HasSupplementalUsage => SupplementalUsage.Length > 0;
+
     /// <summary>
     /// True when this card is showing its last good snapshot because the latest refresh
     /// attempt failed. The usage view represents this with one small status dot; healthy
@@ -270,16 +279,28 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
         var now = DateTimeOffset.UtcNow;
         var deadline = ResetCreditDeadline.Upcoming(cached.Snapshot?.ResetCreditDeadlines, now);
+        var supplemental = cached.Snapshot?.ResetCreditDeadlines?
+            .Where(d => d.ExpiresAt > now && d.Count is > 0)
+            .GroupBy(d => d.Scope)
+            .Select(group =>
+            {
+                var label = Loc.Format("Usage_ResetBalance", group.Sum(d => (long)d.Count!.Value));
+                return group.Key is { } scope ? $"{scope} · {label}" : label;
+            }).ToList() ?? [];
+        if (cached.Snapshot?.AiCreditsUsed is { } credits)
+            supplemental.Add(Loc.Format("Usage_AiCreditsUsed", credits));
+        SupplementalUsage = string.Join("\n", supplemental);
         ResetCreditRemaining = deadline is null ? string.Empty : ResetCreditText.Remaining(deadline, now);
         ResetCreditsDescription = deadline is null ? string.Empty : ResetCreditText.Description(deadline);
 
         var windows = OrderForDisplay(cached.Snapshot?.Windows ?? Array.Empty<UsageWindow>());
+        HasUsageWindows = windows.Count > 0;
         var historyKey = cached.Snapshot?.HistoryKey ?? ToolName;
 
         if (windows.Count == 0)
         {
-            HasAnyData = false;
-            StatusText = Loc.Get("NoData");
+            HasAnyData = HasSupplementalUsage;
+            StatusText = HasAnyData ? "" : Loc.Get("NoData");
             Windows.Clear();
             GaugeGroups.Clear();
             return;

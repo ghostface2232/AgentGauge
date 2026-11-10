@@ -36,6 +36,11 @@ public sealed record UsageSnapshot
     /// </summary>
     public int? ResetCredits { get; init; }
 
+    /// <summary>Reported AI credits consumed, with no implied allowance.</summary>
+    public double? AiCreditsUsed { get; init; }
+
+    public bool HasUsage => Windows.Count > 0 || AiCreditsUsed is not null;
+
     /// <summary>Expiry times for available manual resets, separate from scheduled usage rollovers.</summary>
     public IReadOnlyList<ResetCreditDeadline>? ResetCreditDeadlines { get; init; }
 

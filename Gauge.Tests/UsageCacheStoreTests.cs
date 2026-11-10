@@ -68,6 +68,25 @@ public sealed class UsageCacheStoreTests : IDisposable
         Assert.Null(Assert.Single(loaded, s => s.ToolName == "Claude").ResetCredits);
     }
 
+    [Fact]
+    public void SupplementalUsageSurvivesReloadIncludingCreditOnlySnapshots()
+    {
+        var deadline = new ResetCreditDeadline(DateTimeOffset.UtcNow.AddDays(1), "Fable", 2);
+        var store = new UsageCacheStore(_dir);
+        store.Save(new[]
+        {
+            Snapshot("Claude", null) with { ResetCreditDeadlines = new[] { deadline } },
+            Snapshot("GitHub Copilot", null) with { Windows = [], AiCreditsUsed = 0 },
+        });
+        var loaded = store.Load();
+        var claude = Assert.Single(loaded, s => s.ToolName == "Claude");
+        Assert.Equal(deadline, Assert.Single(claude.ResetCreditDeadlines!));
+        var copilot = Assert.Single(loaded, s => s.ToolName == "GitHub Copilot");
+        Assert.Equal(0, copilot.AiCreditsUsed);
+        Assert.True(copilot.HasUsage);
+        Assert.Empty(copilot.Windows);
+    }
+
     private static UsageSnapshot Snapshot(string toolName, int? resetCredits) => new()
     {
         ToolName = toolName,

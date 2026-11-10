@@ -474,7 +474,7 @@ public sealed class UsageCoordinator : IDisposable
     private static bool IsLiveServerSuccess(
         ProviderSnapshotResult result, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
     {
-        if (!result.Succeeded || result.Snapshot is not { Windows.Count: > 0 } snapshot)
+        if (!result.Succeeded || result.Snapshot is not { HasUsage: true } snapshot)
         {
             return false;
         }

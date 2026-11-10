@@ -20,9 +20,18 @@ public protocol UsageProvider: Sendable {
 /// The per-tool part of an HTTP usage provider: its request and parsing.
 public protocol UsageEndpoint: Sendable {
     func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date) async throws -> UsagePayload
+    func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date,
+               interaction: FetchInteraction) async throws -> UsagePayload
     /// The plan knowable from the credential alone (Claude's), shown even without a usage
     /// response and refreshed on every cache serve. Nil when it only comes from the response.
     func credentialPlan(_ credential: ToolCredential?) -> String?
+}
+
+extension UsageEndpoint {
+    public func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date,
+                      interaction: FetchInteraction) async throws -> UsagePayload {
+        try await fetch(credential, transport: transport, now: now)
+    }
 }
 
 public struct ClaudeEndpoint: UsageEndpoint {
@@ -62,18 +71,52 @@ public actor CodexEndpoint: UsageEndpoint {
     private var creditCache: (balance: Int, checkedAt: TimeInterval, deadlines: [ResetCreditDeadline]?)?
     private var creditGate = RateLimitGate(backoff: BackoffPolicy(base: resetCreditRefreshInterval, maximum: 30 * 60))
     private let clock: any MonotonicClock
+    private let appServerLocator: (any CLILocating)?
 
-    public init(clock: any MonotonicClock = SystemMonotonicClock()) {
+    public init(clock: any MonotonicClock = SystemMonotonicClock(), appServerLocator: (any CLILocating)? = nil) {
         self.clock = clock
+        self.appServerLocator = appServerLocator
     }
 
     public func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date) async throws -> UsagePayload {
         let (data, response) = try await transport.send(Self.request(Self.url, credential))
         try HTTPStatus.ensureSuccess(response, now: now)
-        var payload = try CodexUsageParser.payload(from: data)
+        let decoded: UsagePayload
+        do {
+            decoded = try CodexUsageParser.payload(from: data)
+        } catch {
+            throw UsageFetchError.invalidResponse
+        }
+        var payload = decoded
         payload.resetCreditDeadlines = try await readCreditDeadlines(payload.resetCredits, credential: credential,
                                                                      transport: transport, now: now)
         return payload
+    }
+
+    public func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date,
+                      interaction: FetchInteraction) async throws -> UsagePayload {
+        do {
+            return try await fetch(credential, transport: transport, now: now)
+        } catch UsageFetchError.invalidResponse where interaction == .user {
+            let credentials = CodexCredentialSource()
+            if let locator = appServerLocator, let executable = await locator.locate("codex"),
+               case .available(let before) = await credentials.read(interactive: false), before == credential {
+                let request = """
+                    {"id":1,"method":"initialize","params":{"clientInfo":{"name":"agentgauge","version":"1.0"}}}
+                    {"method":"initialized"}
+                    {"id":2,"method":"account/rateLimits/read"}
+                    """ + "\n"
+                let data = await SystemProcessRunner().usageProbe(executable,
+                    arguments: ["-c", "cli_auth_credentials_store=file", "-s", "read-only", "-a", "never", "app-server"],
+                    environment: await locator.environment(for: executable), timeout: 12, request: request, responseID: 2)
+                try Task.checkCancellation()
+                if let data, let payload = try? CodexUsageParser.appServerPayload(from: data, accountID: credential.accountID),
+                   case .available(let after) = await credentials.read(interactive: false), after == credential {
+                    return payload
+                }
+            }
+            throw UsageFetchError.invalidResponse
+        }
     }
 
     private static func request(_ url: URL, _ credential: ToolCredential) -> URLRequest {
@@ -230,7 +273,7 @@ public actor HTTPUsageProvider: UsageProvider {
         if blocked { throw UsageFetchError.cooldown }
 
         do {
-            return try await fetchWithPolicy(credential)
+            return try await fetchWithPolicy(credential, interaction: interaction)
         } catch let error as UsageFetchError where error.isAuthRejection {
             // The server rejected a token that looked valid locally (revoked, or it expired
             // between read and call): one delegated refresh, then a single retry.
@@ -241,7 +284,7 @@ public actor HTTPUsageProvider: UsageProvider {
                 // the rotation as an account switch and discard what this retry records.
                 if cachesSnapshots { trackFingerprint(fresh) }
                 do {
-                    return try await fetchWithPolicy(fresh)
+                    return try await fetchWithPolicy(fresh, interaction: interaction)
                 } catch let retryError as UsageFetchError where retryError.isAuthRejection {
                     throw UsageFetchError.authenticationRequired
                 }
@@ -252,14 +295,15 @@ public actor HTTPUsageProvider: UsageProvider {
 
     /// One attempt with the policy's degradation applied. Both the first attempt and the
     /// post-refresh retry go through here, so a 429 on the retry still arms the gate.
-    private func fetchWithPolicy(_ credential: ToolCredential) async throws -> ProviderOutcome {
+    private func fetchWithPolicy(_ credential: ToolCredential, interaction: FetchInteraction) async throws -> ProviderOutcome {
         do {
-            let payload = try await endpoint.fetch(credential, transport: transport, now: wallClock())
+            let payload = try await endpoint.fetch(credential, transport: transport, now: wallClock(), interaction: interaction)
             var snapshot = UsageSnapshot(
                 tool: tool, plan: payload.plan, windows: payload.windows,
                 resetCredits: payload.resetCredits, resetCreditDeadlines: payload.resetCreditDeadlines,
                 capturedAt: wallClock())
             snapshot.historyIdentity = payload.historyIdentity ?? credential.historyIdentity
+            snapshot.aiCreditsUsed = payload.aiCreditsUsed
             snapshot.legacyCopilotTokenIdentity = payload.legacyCopilotTokenIdentity
             gate?.recordSuccess()
             if cachesSnapshots {
@@ -349,7 +393,7 @@ public enum ProviderFactory {
             HTTPUsageProvider(
                 tool: .codex,
                 credentials: CodexCredentialSource(),
-                endpoint: CodexEndpoint(),
+                endpoint: CodexEndpoint(appServerLocator: locator),
                 policy: .codex,
                 transport: transport,
                 refresher: DelegatedTokenRefresher(

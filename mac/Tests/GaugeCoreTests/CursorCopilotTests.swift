@@ -334,6 +334,29 @@ private let liveFreeCopilotJSON = """
 """
 
 final class GitHubCopilotProviderTests: XCTestCase {
+    func testSyntheticCreditBillingIsVisibleAndRoundTripsWithoutQuotaWindows() async throws {
+        let transport = FakeTransport()
+        let provider = provider(transport)
+        let json = """
+        {"copilot_plan":"individual","token_based_billing":true,"quota_snapshots":{
+          "premium_interactions":{"credits_used":"42.5","entitlement":0,"remaining":0,"percent_remaining":100},
+          "chat":{"credits_used":40,"entitlement":0,"remaining":0,"percent_remaining":100}
+        }}
+        """
+        transport.enqueue(.status(200, json))
+        let snapshot = try await provider.fetch(.background).snapshot
+        XCTAssertEqual(snapshot.aiCreditsUsed, 42.5)
+        XCTAssertTrue(snapshot.hasUsage)
+        XCTAssertTrue(snapshot.windows.isEmpty)
+        let restored = try JSONDecoder().decode(UsageSnapshot.self, from: JSONEncoder().encode(snapshot))
+        XCTAssertEqual(restored.aiCreditsUsed, 42.5)
+
+        let zero = json.replacingOccurrences(of: "\"42.5\"", with: "0")
+        XCTAssertEqual(try GitHubCopilotUsageParser.payload(from: Data(zero.utf8)).aiCreditsUsed, 0)
+        let legacy = zero.replacingOccurrences(of: "\"token_based_billing\":true", with: "\"token_based_billing\":false")
+        XCTAssertNil(try GitHubCopilotUsageParser.payload(from: Data(legacy.utf8)).aiCreditsUsed)
+    }
+
     func testHistoryIdentityFollowsLoginInsteadOfToken() async throws {
         let transport = FakeTransport()
         let credentials = FakeCredentials(.available(ToolCredential(accessToken: "first")))

@@ -97,6 +97,8 @@ internal static class Strings
         ["Empty_AllHidden"] = ["모든 도구가 숨겨져 있습니다.", "All tools are hidden.", "すべてのツールが非表示です。"],
         ["Burndown_Hover"] = ["{0} · {1:0}% 남음", "{0} · {1:0}% left", "{0} · 残り{1:0}%"],
         ["DailyUsage_Label"] = ["일별 보기", "Daily view", "日別表示"],
+        ["Usage_AiCreditsUsed"] = ["AI 크레딧 {0:0.##} 사용", "{0:0.##} AI credits used", "AIクレジット {0:0.##} 使用"],
+        ["Usage_ResetBalance"] = ["초기화 {0:N0}회 가능", "{0:N0} available resets", "リセット可能回数 {0:N0}"],
         ["DailyUsage_Help"] = ["기록된 날짜별로 주간 사용량을 나눠 표시", "Split weekly usage by recorded day", "記録がある日ごとに週間使用量を表示"],
         ["DailyUsage_Day"] = ["{0} · 주간 한도의 약 {1:0.#}%", "{0} · about {1:0.#}% of weekly limit", "{0} · 週間上限の約{1:0.#}%"],
         ["DailyUsage_Cost"] = ["하루 API 환산 약 ${0}", "Daily API equivalent ≈ ${0}", "1日のAPI換算 約${0}"],

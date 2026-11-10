@@ -30,6 +30,7 @@ public struct AntigravityProvider: UsageProvider {
     private let readers: [any AntigravityReader]
     private let isInstalled: @Sendable () -> Bool
     private let now: @Sendable () -> Date
+    private let cli: AntigravityCLIReader?
 
     /// The production wiring. The install is located per fetch, so installing or removing the
     /// app while AgentGauge runs is picked up at the next refresh.
@@ -46,40 +47,87 @@ public struct AntigravityProvider: UsageProvider {
         ]
         isInstalled = { locate()?.hasEngine == true }
         now = { Date() }
+        cli = AntigravityCLIReader(locator: CLILocator())
     }
 
     init(readers: [any AntigravityReader], isInstalled: @escaping @Sendable () -> Bool, now: @escaping @Sendable () -> Date = { Date() }) {
         self.readers = readers
         self.isInstalled = isInstalled
         self.now = now
+        cli = nil
     }
 
-    /// Antigravity has no rate-limit gate, so who asked does not matter; the coordinator's
-    /// cadence and popover floor are what bound delegate launches.
     public func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome {
-        guard isInstalled() else {
+        let engineInstalled = isInstalled()
+        if engineInstalled {
+            for reader in readers {
+                if let reading = try await reader.reading(),
+                   let windows = try? AntigravityQuotaParser.windows(from: reading.quotaJSON), !windows.isEmpty {
+                    return outcome(windows, plan: reading.plan)
+                }
+            }
+        }
+
+        if let cli, let executable = await cli.locator.locate("agy") {
+            if interaction == .user, let data = await cli.usage(executable),
+               let windows = try? AntigravityQuotaParser.windows(from: data), !windows.isEmpty {
+                return outcome(windows, plan: nil)
+            }
+            try Task.checkCancellation()
+            throw AntigravityUnavailableError(reason: "no CLI usage windows")
+        }
+        if !engineInstalled {
             return ProviderOutcome(
                 snapshot: UsageSnapshot(tool: tool, plan: nil, windows: [], capturedAt: now()),
                 signedIn: false, isLive: false)
         }
 
-        var reading: AntigravityReading?
-        for reader in readers {
-            reading = try await reader.reading()
-            if reading != nil { break }
-        }
-        guard let reading else {
-            throw AntigravityUnavailableError(reason: "no engine returned usage")
-        }
+        throw AntigravityUnavailableError(reason: "no engine returned usage")
+    }
 
-        let windows = try AntigravityQuotaParser.windows(from: reading.quotaJSON)
-        // An availability-only response with no known windows must not overwrite a useful cache.
-        guard !windows.isEmpty else {
-            throw AntigravityUnavailableError(reason: "no usage windows")
-        }
-        return ProviderOutcome(
-            snapshot: UsageSnapshot(tool: tool, plan: reading.plan, windows: windows, capturedAt: now()),
+    private func outcome(_ windows: [UsageWindow], plan: String?) -> ProviderOutcome {
+        ProviderOutcome(
+            snapshot: UsageSnapshot(tool: tool, plan: plan, windows: windows, capturedAt: now()),
             signedIn: true, isLive: true)
+    }
+}
+
+private struct AntigravityCLIReader: Sendable {
+    let locator: any CLILocating
+    private let runner = SystemProcessRunner()
+
+    func usage(_ executable: URL) async -> Data? {
+        let files = FileManager.default
+        let directory = files.temporaryDirectory.appending(path: UUID().uuidString)
+        do {
+            try files.createDirectory(at: directory, withIntermediateDirectories: false,
+                                      attributes: [.posixPermissions: 0o700])
+        } catch { return nil }
+        defer { try? files.removeItem(at: directory) }
+        do {
+            try files.createSymbolicLink(atPath: directory.appending(path: "open").path,
+                                         withDestinationPath: "/usr/bin/false")
+        } catch { return nil }
+
+        var environment = await locator.environment(for: executable)
+        environment["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true"
+        environment["BROWSER"] = "/usr/bin/false"
+        environment["PATH"] = directory.path + ":" + (environment["PATH"] ?? "")
+        guard let version = await runner.usageProbe(executable, arguments: ["--version"],
+                                                    environment: environment, timeout: 3),
+              Self.supportsUsage(version) else { return nil }
+        return await runner.usageProbe(executable, arguments: ["-p", "/usage", "--output-format", "json"],
+                                       environment: environment, timeout: 15)
+    }
+
+    static func supportsUsage(_ output: Data) -> Bool {
+        let version = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        let components = version.split(separator: ".", omittingEmptySubsequences: false)
+        let parts = components.compactMap { Int($0) }
+        guard components.count == 3, parts.count == 3,
+              parts.allSatisfy({ $0 >= 0 }) else { return false }
+        // Older versions can send /usage to a model as a literal prompt.
+        return !parts.lexicographicallyPrecedes([1, 1, 11])
     }
 }
 

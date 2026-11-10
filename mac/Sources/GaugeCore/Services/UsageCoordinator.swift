@@ -317,7 +317,7 @@ public actor UsageCoordinator {
             state.snapshot?.profileID = key.profileID
             if !outcome.signedIn {
                 state.auth = .signedOut
-            } else if outcome.isLive && !outcome.snapshot.windows.isEmpty {
+            } else if outcome.isLive && outcome.snapshot.hasUsage {
                 // Only a genuine live read proves the server accepted the token, so only it
                 // clears a sticky rejection; a cache serve after a 401 must not.
                 state.auth = .signedIn
@@ -359,7 +359,7 @@ public actor UsageCoordinator {
     private func persistCache() {
         // Only snapshots with windows are worth rehydrating; a signed-out tool drops out.
         let snapshots = states.values.compactMap { state -> UsageSnapshot? in
-            guard state.auth != .signedOut, let snapshot = state.snapshot, !snapshot.windows.isEmpty else { return nil }
+            guard state.auth != .signedOut, let snapshot = state.snapshot, snapshot.hasUsage else { return nil }
             return snapshot
         }
         cache?.save(snapshots)

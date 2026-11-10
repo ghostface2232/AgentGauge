@@ -33,6 +33,15 @@ internal static class AntigravityQuotaParser
         var payload = root.GetObjectOrNull("response")
             ?? root.GetObjectOrNull("summary")
             ?? root;
+        var cli = false;
+        if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("command", out var command))
+        {
+            if (command.GetStringOrNull("name") != "usage" || root.GetStringOrNull("status") != "SUCCESS"
+                || root.GetInt64OrNull("num_turns") != 0 || command.GetObjectOrNull("data") is not { } report)
+                return [];
+            cli = true;
+            payload = report;
+        }
 
         if (!payload.TryGetArray("groups", out var groups))
         {
@@ -40,6 +49,7 @@ internal static class AntigravityQuotaParser
         }
 
         var windows = new List<UsageWindow>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in groups.EnumerateArray())
         {
             if (IsUnavailable(group) || !group.TryGetArray("buckets", out var buckets))
@@ -49,7 +59,7 @@ internal static class AntigravityQuotaParser
 
             foreach (var bucket in buckets.EnumerateArray())
             {
-                if (ParseBucket(bucket, group) is { } window)
+                if (ParseBucket(bucket, group, cli) is { } window && seen.Add(window.Key))
                 {
                     windows.Add(window);
                 }
@@ -59,7 +69,7 @@ internal static class AntigravityQuotaParser
         return windows;
     }
 
-    private static UsageWindow? ParseBucket(JsonElement bucket, JsonElement group)
+    private static UsageWindow? ParseBucket(JsonElement bucket, JsonElement group, bool cli)
     {
         if (bucket.ValueKind != JsonValueKind.Object)
         {
@@ -68,7 +78,7 @@ internal static class AntigravityQuotaParser
 
         // bucketId is the provider-stable identity; without it the window can't be reconciled
         // across refreshes or kept distinct from its sibling family, so the bucket is unusable.
-        if (bucket.GetStringOrNull("bucketId") is not { } rawId || rawId.Trim() is not { Length: > 0 } bucketId)
+        if (bucket.GetStringOrNull(cli ? "id" : "bucketId") is not { } rawId || rawId.Trim() is not { Length: > 0 } bucketId)
         {
             return null;
         }
@@ -86,7 +96,7 @@ internal static class AntigravityQuotaParser
         }
 
         // No usable fraction → skip. Never assume a window is fully spent from a missing value.
-        if (ResolveRemainingFraction(bucket) is not { } remaining)
+        if ((cli ? bucket.GetDoubleOrNull("remaining_fraction") : ResolveRemainingFraction(bucket)) is not { } remaining)
         {
             return null;
         }
@@ -95,10 +105,10 @@ internal static class AntigravityQuotaParser
         {
             Id = bucketId,
             Type = type,
-            GroupLabel = FamilyLabel(bucketId, group.GetStringOrNull("displayName")),
+            GroupLabel = FamilyLabel(bucketId, group.GetStringOrNull(cli ? "name" : "displayName")),
             UsedRatio = Math.Clamp(1.0 - remaining, 0.0, 1.0),
             Label = WindowLabels.For(type),
-            ResetTime = ParseResetTime(bucket),
+            ResetTime = cli ? bucket.GetDateTimeOffsetOrNull("reset_time") : ParseResetTime(bucket),
             Duration = type == UsageWindowType.FiveHour
                 ? TimeSpan.FromHours(5)
                 : TimeSpan.FromDays(7),

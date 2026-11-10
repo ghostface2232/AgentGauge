@@ -368,8 +368,8 @@ public sealed partial class UsageViewModel : ObservableObject
         // "no data" card per default tool and no hint that signing in is the fix. When no
         // window exists anywhere and every registered tool's credentials are known-missing,
         // fold that into the empty state with an explicit sign-in call to action instead.
-        var hasAnyWindow = recorded.Any(t => t.Snapshot is { Windows.Count: > 0 });
-        var signedOutEmpty = state.Tools.Count > 0 && !hasAnyWindow
+        var hasUsage = recorded.Any(t => t.Snapshot is { HasUsage: true });
+        var signedOutEmpty = state.Tools.Count > 0 && !hasUsage
             && _allToolsSignedOut?.Invoke() == true;
 
         IsEmpty = recorded.Count == 0 || signedOutEmpty;
@@ -481,7 +481,7 @@ public sealed partial class UsageViewModel : ObservableObject
         foreach (var tool in tools)
         {
             var name = _registry?.DisplayName(tool.ToolName) ?? tool.ToolName;
-            if (tool.Snapshot is { Windows.Count: > 0 } snapshot)
+            if (tool.Snapshot is { HasUsage: true } snapshot)
             {
                 var (shortWindow, longWindow) = StatusRingSelection.Select(snapshot.Windows);
                 var shown = new[] { shortWindow, longWindow }.OfType<UsageWindow>().ToList();

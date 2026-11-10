@@ -30,6 +30,23 @@ public struct SystemProcessRunner: ProcessRunning {
 
     public func run(_ executable: URL, arguments: [String], environment: [String: String],
                     timeout: TimeInterval, captureOutput: Bool) async -> ProcessResult {
+        await runProcess(executable, arguments: arguments, environment: environment, timeout: timeout,
+                         captureOutput: captureOutput)
+    }
+
+    func usageProbe(_ executable: URL, arguments: [String], environment: [String: String],
+                    timeout: TimeInterval, request: String? = nil, responseID: Int? = nil) async -> Data? {
+        guard !Task.isCancelled else { return nil }
+        let result = await runProcess(executable, arguments: arguments, environment: environment, timeout: timeout,
+                                      captureOutput: true, byteLimit: 1024 * 1024,
+                                      request: request, responseID: responseID)
+        guard !Task.isCancelled, !result.timedOut, result.exitCode == 0 else { return nil }
+        return result.output
+    }
+
+    private func runProcess(_ executable: URL, arguments: [String], environment: [String: String],
+                            timeout: TimeInterval, captureOutput: Bool, byteLimit: Int? = nil,
+                            request: String? = nil, responseID: Int? = nil) async -> ProcessResult {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = executable
@@ -38,7 +55,10 @@ public struct SystemProcessRunner: ProcessRunning {
             // The user's home rather than the inherited folder, so a CLI never picks up project
             // files (or a planted binary) from wherever AgentGauge was started.
             process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-            process.standardInput = FileHandle.nullDevice
+            let input = request.map { _ in Pipe() }
+            let writer = input?.fileHandleForWriting
+            if let writer { _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1) }
+            process.standardInput = input ?? FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             let pipe: Pipe? = captureOutput ? Pipe() : nil
             process.standardOutput = pipe ?? FileHandle.nullDevice
@@ -47,7 +67,11 @@ public struct SystemProcessRunner: ProcessRunning {
             // document grows with every MCP OAuth entry) would otherwise block the writer and
             // only end at the timeout. Started before the launch, so a process that exits at
             // once cannot be judged before its output has anywhere to go.
-            let drain = pipe.map { OutputDrain($0.fileHandleForReading) }
+            let drain = pipe.map {
+                OutputDrain($0.fileHandleForReading, byteLimit: byteLimit, responseID: responseID) {
+                    try? writer?.close()
+                }
+            }
 
             let deliver: @Sendable (Int32?, Data?) -> Void = { exitCode, output in
                 state.finishOnce {
@@ -69,6 +93,9 @@ public struct SystemProcessRunner: ProcessRunning {
                 drain?.stop()
                 state.finishOnce { continuation.resume(returning: .launchFailed) }
                 return
+            }
+            if let request, let writer {
+                try? writer.write(contentsOf: Data(request.utf8))
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
                 guard process.isRunning else { return }
@@ -101,13 +128,20 @@ public struct SystemProcessRunner: ProcessRunning {
         private let descriptor: Int32
         private let queue = DispatchQueue(label: "io.github.ghostface2232.agentgauge.process-output")
         private let source: DispatchSourceRead
+        private let byteLimit: Int?
+        private let responseID: Int?
+        private let onResponse: @Sendable () -> Void
         // Confined to `queue`.
         private var collected = Data()
         private var ended = false
+        private var lineStart = 0
         private var waiters: [@Sendable (Data) -> Void] = []
 
-        init(_ handle: FileHandle) {
+        init(_ handle: FileHandle, byteLimit: Int?, responseID: Int?, onResponse: @escaping @Sendable () -> Void) {
             descriptor = handle.fileDescriptor
+            self.byteLimit = byteLimit
+            self.responseID = responseID
+            self.onResponse = onResponse
             // A spurious wake-up must come back as EAGAIN instead of parking the serial queue.
             // The flag belongs to the read end's own file description; the child's stdout is
             // the write end and stays blocking.
@@ -143,7 +177,13 @@ public struct SystemProcessRunner: ProcessRunning {
             while !ended {
                 let count = Darwin.read(descriptor, &buffer, capacity)
                 if count > 0 {
+                    if let byteLimit, collected.count + count > byteLimit {
+                        collected.removeAll()
+                        onResponse()
+                        return end()
+                    }
                     collected.append(contentsOf: buffer[..<count])
+                    if let responseID, readResponse(id: responseID) { return end() }
                 } else if count < 0 && errno == EINTR {
                     continue
                 } else if count < 0 && errno == EAGAIN {
@@ -152,6 +192,19 @@ public struct SystemProcessRunner: ProcessRunning {
                     return end()
                 }
             }
+        }
+
+        private func readResponse(id: Int) -> Bool {
+            while let newline = collected[lineStart...].firstIndex(of: 10) {
+                let line = Data(collected[lineStart..<newline])
+                lineStart = newline + 1
+                if let object = try? JSONObject.parse(line), object.int64("id") == Int64(id) {
+                    collected = line
+                    onResponse()
+                    return true
+                }
+            }
+            return false
         }
 
         private func end() {

@@ -1,6 +1,6 @@
 namespace Gauge.Models;
 
-public sealed record ResetCreditDeadline(DateTimeOffset ExpiresAt, string? Scope = null)
+public sealed record ResetCreditDeadline(DateTimeOffset ExpiresAt, string? Scope = null, int? Count = null)
 {
     public static readonly TimeSpan WarningLeadTime = TimeSpan.FromDays(2);
 

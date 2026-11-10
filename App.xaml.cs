@@ -163,7 +163,7 @@ public partial class App : Application
             new IUsageProvider[]
             {
                 new ClaudeProvider(_httpClient, credentials, claudeTokenRefresher),
-                new CodexProvider(_httpClient, credentials, codexTokenRefresher),
+                new CodexProvider(_httpClient, credentials, codexTokenRefresher, appServerLocator: locator),
                 _antigravityProvider,
                 new GitHubCopilotProvider(_httpClient, credentials),
             },

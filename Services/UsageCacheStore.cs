@@ -115,6 +115,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         HistoryIdentity = snapshot.HistoryIdentity,
         Plan = snapshot.Plan,
         ResetCredits = snapshot.ResetCredits,
+        AiCreditsUsed = snapshot.AiCreditsUsed,
         ResetCreditDeadlines = snapshot.ResetCreditDeadlines,
         CapturedAt = snapshot.CapturedAt,
         Windows = snapshot.Windows.Select(w => new WindowDto
@@ -139,6 +140,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         HistoryIdentity = dto.HistoryIdentity,
         Plan = dto.Plan,
         ResetCredits = dto.ResetCredits,
+        AiCreditsUsed = dto.AiCreditsUsed,
         ResetCreditDeadlines = dto.ResetCreditDeadlines,
         CapturedAt = dto.CapturedAt,
         Windows = (dto.Windows ?? new List<WindowDto>()).Select(w => new UsageWindow
@@ -177,6 +179,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         // Added after Version 4. Nullable and optional in both directions, so a cache
         // written by an older build simply rehydrates without it — no version bump needed.
         public int? ResetCredits { get; set; }
+        public double? AiCreditsUsed { get; set; }
         public IReadOnlyList<ResetCreditDeadline>? ResetCreditDeadlines { get; set; }
 
         public DateTimeOffset CapturedAt { get; set; }

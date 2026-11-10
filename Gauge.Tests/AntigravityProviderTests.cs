@@ -27,6 +27,27 @@ public sealed class AntigravityProviderTests
     """;
 
     [Fact]
+    public void ReadsOnlyTheAgyUsageCommandReport()
+    {
+        const string json = """
+        {"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"groups":[
+          {"name":"Gemini Models","buckets":[
+            {"id":"gemini-weekly","window":"weekly","remaining_fraction":0.86,"reset_time":"2026-12-01T08:00:00Z"},
+            {"id":"gemini-weekly","window":"weekly","remaining_fraction":0.92},
+            {"id":"gemini-5h","window":"5h"}]},
+          {"name":"Claude and GPT models","buckets":[
+            {"id":"3p-5h","window":"5h","remaining_fraction":1}]}
+        ]}}}
+        """;
+        var windows = AntigravityQuotaParser.Parse(json);
+        Assert.Equal(new[] { "gemini-weekly", "3p-5h" }, windows.Select(window => window.Key));
+        Assert.Equal("Claude/GPT", windows[1].GroupLabel);
+        Assert.Equal(0.14, windows[0].UsedRatio, 4);
+        Assert.Equal(new DateTimeOffset(2026, 12, 1, 8, 0, 0, TimeSpan.Zero), windows[0].ResetTime);
+        Assert.Empty(AntigravityQuotaParser.Parse(json.Replace("\"num_turns\":0", "\"num_turns\":1")));
+    }
+
+    [Fact]
     public async Task NotInstalled_ReturnsEmptySnapshotWithoutReading()
     {
         var attach = new FakeReader(new AntigravityReading(FourWindows, "Pro"));

@@ -448,8 +448,8 @@
                                         <!-- The tool's windows, rendered as bars or gauges per the
                                              app-wide view mode. Both share the same Windows source;
                                              exactly one is visible (IsBarMode / IsGaugeMode), and the
-                                             whole block is shown only when the tool has data. -->
-                                        <Grid Visibility="{Binding HasAnyData, Converter={StaticResource BoolToVis}}">
+                                             whole block is shown only when the tool has usage windows. -->
+                                        <Grid Visibility="{Binding HasUsageWindows, Converter={StaticResource BoolToVis}}">
                                         <!-- Bar layout: one stacked row per window (5시간 / 주간). -->
                                         <ItemsControl
                                             ItemsSource="{Binding Windows}"
@@ -641,7 +641,11 @@
                                         </ItemsControl>
                                         </Grid>
 
-                                        <!-- No windows for this tool at all. -->
+                                        <TextBlock Text="{Binding SupplementalUsage}" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Visibility="{Binding HasSupplementalUsage, Converter={StaticResource BoolToVis}}" />
+                                        <!-- No usage details for this tool at all. -->
                                         <TextBlock
                                             Text="{Binding StatusText}"
                                             Opacity="0.6"

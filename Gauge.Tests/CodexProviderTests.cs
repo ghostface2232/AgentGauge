@@ -15,6 +15,70 @@ namespace Gauge.Tests;
 public sealed class CodexProviderTests
 {
     [Fact]
+    public async Task ManualRefreshCanReadAppServerAfterAnUnusableHttpResponse()
+    {
+        var directory = Directory.CreateTempSubdirectory("Gauge-AppServer-Test");
+        try
+        {
+            var executable = Path.Combine(directory.FullName, "codex.cmd");
+            await File.WriteAllTextAsync(executable, """
+                @echo off
+                "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -Command "$null = [Console]::ReadLine(); $null = [Console]::ReadLine(); if (([Console]::ReadLine() | ConvertFrom-Json).method -ne 'account/rateLimits/read') { exit 1 }"
+                if errorlevel 1 exit /b 1
+                echo {"id":1,"result":{}}
+                echo {"method":"account/rateLimits/updated"}
+                echo {"id":2,"result":{"accountId":"test-account","rateLimits":{"planType":"plus","primary":{"usedPercent":17,"windowDurationMins":10080}}}}
+                """);
+            var provider = new CodexProvider(new HttpClient(new StubHandler("{}")), Available("t", "test-account"),
+                appServerLocator: new AppServerLocator(executable));
+            await Assert.ThrowsAsync<UsageResponseShapeException>(() => provider.GetSnapshotAsync(default));
+
+            var snapshot = await provider.GetSnapshotAsync(FetchInteraction.UserInitiated, default);
+            Assert.Equal("Plus", snapshot.Plan);
+            var window = Assert.Single(snapshot.Windows);
+            Assert.Equal(UsageWindowType.Weekly, window.Type);
+            Assert.Equal(0.17, window.UsedRatio, 4);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private sealed class AppServerLocator(string executable) : ICliLocator
+    {
+        public string? Find(string commandName) => commandName == "codex" ? executable : null;
+    }
+
+    [Fact]
+    public void AppServerResponseUsesDurationsAndKeepsNamedLimits()
+    {
+        const string reply = """
+        {"id":2,"result":{"accountId":"test-account",
+          "rateLimits":{"limitId":"codex","planType":"pro","primary":{
+            "usedPercent":29,"windowDurationMins":10080,"resetsAt":1800000000}},
+          "rateLimitResetCredits":{"availableCount":1,"credits":[{"status":"available","expiresAt":1800000100}]},
+          "rateLimitsByLimitId":{
+            "codex":{"primary":{"usedPercent":29,"windowDurationMins":10080}},
+            "gpt_reserve":{"limitName":"GPT Reserve","primary":{"usedPercent":45,"windowDurationMins":300}},
+            "unknown":{"primary":{"usedPercent":45,"windowDurationMins":60}}
+          }
+        }}
+        """;
+        var payload = CodexProvider.ParseAppServer(reply, "test-account");
+        Assert.NotNull(payload);
+        var (plan, windows, credits, deadlines) = payload.Value;
+        Assert.Equal("Pro 200", plan);
+        Assert.Equal(UsageWindowType.Weekly, windows[0].Type);
+        Assert.Equal("codex-additional-gpt-reserve-18000", windows[1].Key);
+        Assert.Equal("Luna Reserve", windows[1].GroupLabel);
+        Assert.Equal(2, windows.Count);
+        Assert.Equal(1, credits);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1800000100), Assert.Single(deadlines!).ExpiresAt);
+        Assert.Null(CodexProvider.ParseAppServer(reply, "another-account"));
+        Assert.Null(CodexProvider.ParseAppServer("""{"id":2,"error":{"code":-32603}}"""));
+    }
+    [Fact]
     public async Task ParsesPrimaryAndSecondaryWindows()
     {
         const string json = """

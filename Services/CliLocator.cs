@@ -78,6 +78,7 @@ public sealed class CliLocator : ICliLocator
             {
                 "claude" => FindClaudeDesktopCli(),
                 "codex" => FindCodexDesktopCli(),
+                "agy" => FindAgyCli(),
                 _ => null,
             };
         }
@@ -86,6 +87,14 @@ public sealed class CliLocator : ICliLocator
             DiagnosticsLog.Write("auth", $"Desktop app CLI lookup failed: {ex.GetType().Name}");
             return null;
         }
+    }
+
+    private static string? FindAgyCli()
+    {
+        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (local.Length == 0) return null;
+        var path = Path.Combine(local, "agy", "bin", "agy.exe");
+        return File.Exists(path) ? path : null;
     }
 
     private static string? FindClaudeDesktopCli()
