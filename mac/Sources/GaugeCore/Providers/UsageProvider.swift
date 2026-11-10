@@ -58,7 +58,8 @@ public actor CodexEndpoint: UsageEndpoint {
     static let url = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
     static let resetCreditsURL = URL(string: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits")!
     private static let resetCreditRefreshInterval: TimeInterval = 10 * 60
-    private var creditCache: (identity: String, balance: Int, checkedAt: TimeInterval, deadlines: [ResetCreditDeadline]?)?
+    private var creditIdentity: String?
+    private var creditCache: (balance: Int, checkedAt: TimeInterval, deadlines: [ResetCreditDeadline]?)?
     private var creditGate = RateLimitGate(backoff: BackoffPolicy(base: resetCreditRefreshInterval, maximum: 30 * 60))
     private let clock: any MonotonicClock
 
@@ -88,18 +89,25 @@ public actor CodexEndpoint: UsageEndpoint {
 
     private func readCreditDeadlines(_ balance: Int?, credential: ToolCredential, transport: any HTTPTransport, now: Date)
         async throws -> [ResetCreditDeadline]? {
+        let identity = credential.historyIdentity
+            ?? UsageIdentity.hash(subject: nil, token: "\(credential.accountID ?? "")\0\(credential.accessToken)")
+        if creditIdentity != identity {
+            creditIdentity = identity
+            creditCache = nil
+            creditGate.recordSuccess()
+        }
+
         guard let balance, balance > 0 else {
             creditCache = nil
             return nil
         }
 
-        let identity = credential.historyIdentity ?? UsageIdentity.hash(subject: nil, token: credential.accessToken)
         let checkedAt = clock.now()
-        if let cached = creditCache, cached.identity == identity, cached.balance == balance,
+        if let cached = creditCache, cached.balance == balance,
            checkedAt - cached.checkedAt < Self.resetCreditRefreshInterval { return cached.deadlines }
         guard !creditGate.inCooldown(now: checkedAt) else { return nil }
 
-        creditCache = (identity, balance, checkedAt, nil)
+        creditCache = (balance, checkedAt, nil)
         var request = Self.request(Self.resetCreditsURL, credential)
         request.timeoutInterval = 4
         do {
@@ -113,7 +121,7 @@ public actor CodexEndpoint: UsageEndpoint {
             }
             creditGate.recordSuccess()
             let deadlines = try CodexUsageParser.resetCreditDeadlines(from: data)
-            creditCache = (identity, balance, checkedAt, deadlines)
+            creditCache = (balance, checkedAt, deadlines)
             return deadlines
         } catch {
             try Task.checkCancellation()

@@ -73,30 +73,57 @@ final class HTTPUsageProviderTests: XCTestCase {
         let endpoint = CodexEndpoint(clock: clock)
         let credential = ToolCredential(accessToken: "token")
         let now = Date()
-        func usage(_ balance: Int) -> FakeTransport.Reply {
-            .status(200, #"{"rate_limit":{"primary_window":{"used_percent":25}},"rate_limit_reset_credits":{"available_count":\#(balance)}}"#)
-        }
-
-        transport.enqueue(usage(1))
+        transport.enqueue(usageWithCredits(1))
         transport.enqueue(.status(429, "", headers: ["Retry-After": "3600"]))
         let first = try await endpoint.fetch(credential, transport: transport, now: now)
         XCTAssertEqual(first.windows.count, 1)
         XCTAssertNil(first.resetCreditDeadlines)
 
+        transport.enqueue(usageWithCredits(0))
+        let empty = try await endpoint.fetch(credential, transport: transport, now: now)
+        XCTAssertEqual(empty.resetCredits, 0)
         clock.advance(3599)
-        transport.enqueue(usage(2))
+        transport.enqueue(usageWithCredits(2))
         let duringCooldown = try await endpoint.fetch(credential, transport: transport, now: now)
         XCTAssertEqual(duringCooldown.windows.count, 1)
         XCTAssertEqual(duringCooldown.resetCredits, 2)
-        XCTAssertEqual(transport.requestCount, 3)
+        XCTAssertEqual(transport.requestCount, 4)
 
         clock.advance(1)
-        transport.enqueue(usage(2))
-        transport.enqueue(.status(200, #"{"credits":[{"status":"available","expires_at":"2027-03-09T07:59:00Z"}]}"#))
+        transport.enqueue(usageWithCredits(2))
+        transport.enqueue(creditDeadlines)
         let recovered = try await endpoint.fetch(credential, transport: transport, now: now)
         XCTAssertEqual(recovered.resetCreditDeadlines?.count, 1)
-        XCTAssertEqual(transport.requestCount, 5)
+        XCTAssertEqual(transport.requestCount, 6)
     }
+
+    func testCodexCreditCooldownIsResetWhenTheLoginChanges() async throws {
+        let first = ToolCredential(accessToken: "first-token", accountID: "first-workspace")
+        let replacements = [ToolCredential(accessToken: "other-token", accountID: "first-workspace"),
+                            ToolCredential(accessToken: "first-token", accountID: "other-workspace")]
+        for replacement in replacements {
+            let transport = FakeTransport()
+            let endpoint = CodexEndpoint(clock: ManualClock())
+            let now = Date()
+            transport.enqueue(usageWithCredits(1))
+            transport.enqueue(.status(429, "", headers: ["Retry-After": "3600"]))
+            let throttled = try await endpoint.fetch(first, transport: transport, now: now)
+            XCTAssertNil(throttled.resetCreditDeadlines)
+
+            transport.enqueue(usageWithCredits(1))
+            transport.enqueue(creditDeadlines)
+            let switched = try await endpoint.fetch(replacement, transport: transport, now: now)
+            XCTAssertEqual(switched.resetCreditDeadlines?.count, 1)
+            XCTAssertEqual(transport.requestCount, 4)
+        }
+    }
+
+    private func usageWithCredits(_ balance: Int) -> FakeTransport.Reply {
+        .status(200, #"{"rate_limit":{"primary_window":{"used_percent":25}},"rate_limit_reset_credits":{"available_count":\#(balance)}}"#)
+    }
+
+    private let creditDeadlines = FakeTransport.Reply.status(200,
+        #"{"credits":[{"status":"available","expires_at":"2027-03-09T07:59:00Z"}]}"#)
 
     private func makeProvider(
         policy: FetchPolicy, transport: FakeTransport, credentials: FakeCredentials,

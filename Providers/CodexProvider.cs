@@ -38,7 +38,8 @@ public sealed class CodexProvider : UsageProviderBase
     private static readonly TimeSpan ResetCreditRefreshInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan ResetCreditTimeout = TimeSpan.FromSeconds(4);
     private readonly RateLimitGate _creditGate;
-    private (string Identity, int Balance)? _creditCacheKey;
+    private string? _creditIdentity;
+    private int? _creditBalance;
     private long _lastCreditRead;
     private IReadOnlyList<ResetCreditDeadline>? _creditDeadlines;
 
@@ -138,21 +139,28 @@ public sealed class CodexProvider : UsageProviderBase
     private async Task<IReadOnlyList<ResetCreditDeadline>?> ReadCreditDeadlinesAsync(
         ToolCredential credential, int? credits, CancellationToken cancellationToken)
     {
+        var identity = credential.HistoryIdentity
+            ?? UsageIdentity.Hash(null, $"{credential.AccountId}\0{credential.AccessToken}");
+        if (_creditIdentity != identity)
+        {
+            _creditIdentity = identity;
+            _creditBalance = null;
+            _creditGate.Reset();
+        }
+
         if (credits is not > 0)
         {
-            _creditCacheKey = null;
+            _creditBalance = null;
             _creditDeadlines = null;
             return null;
         }
 
-        var identity = credential.HistoryIdentity ?? UsageIdentity.Hash(null, credential.AccessToken);
-        var key = (identity, credits.Value);
-        if (_creditCacheKey == key && Time.GetElapsedTime(_lastCreditRead) < ResetCreditRefreshInterval)
+        if (_creditBalance == credits && Time.GetElapsedTime(_lastCreditRead) < ResetCreditRefreshInterval)
             return _creditDeadlines;
         if (_creditGate.InCooldown(Time.GetTimestamp())) return null;
 
         // The supplemental endpoint is optional and runs at a lower cadence than quota polling.
-        _creditCacheKey = key;
+        _creditBalance = credits;
         _lastCreditRead = Time.GetTimestamp();
         _creditDeadlines = null;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
