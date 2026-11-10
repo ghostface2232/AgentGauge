@@ -317,6 +317,7 @@ private struct DisplaySettings: View {
                         HStack(spacing: 5) {
                             Text(menuBarSelectionLabel)
                                 .lineLimit(1)
+                                .frame(width: 150, alignment: .leading)
                             Image(systemName: "chevron.up.chevron.down")
                                 .imageScale(.small)
                                 .foregroundStyle(.secondary)
@@ -324,6 +325,7 @@ private struct DisplaySettings: View {
                         }
                     }
                     .buttonStyle(.bordered)
+                    .help(menuBarSelectionLabel)
                     .accessibilityLabel(L10n.get("Settings_StatusTarget"))
                     .accessibilityValue(menuBarSelectionLabel)
                     .popover(isPresented: $choosingMenuBarAccounts) {
