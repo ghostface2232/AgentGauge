@@ -746,6 +746,10 @@ struct UsageBar: View {
                         .fill(level.tint)
                         .frame(width: clamped > 0 ? max(proxy.size.width * clamped, proxy.size.height) : 0)
                 } else {
+                    let unattributedWidth = basis == .used ? proxy.size.width *
+                        UsageDailyBreakdown.unattributedUsedRatio(
+                            clamped, datedRatio: dailySegments.reduce(0) { $0 + $1.fraction }) : 0
+                    let unattributedGap = min(segmentGap / 2, unattributedWidth / 4)
                     HStack(spacing: 0) {
                         if basis == .remaining {
                             Capsule().fill(level.tint).frame(width: proxy.size.width * clamped)
@@ -754,7 +758,7 @@ struct UsageBar: View {
                             let width = proxy.size.width * segment.fraction
                             let halfGap = min(segmentGap, width / 4) / 2
                             let leading = index == 0 ? 0 : halfGap
-                            let trailing = index == dailySegments.count - 1 ? 0 : halfGap
+                            let trailing = index == dailySegments.count - 1 ? min(halfGap, unattributedGap) : halfGap
                             let opacity = index.isMultiple(of: 2) ? 1.0 : 0.72
                             RoundedRectangle(cornerRadius: 2.5)
                                 .fill(level.tint.opacity(basis == .remaining ? opacity * 0.5 : opacity))
@@ -769,6 +773,14 @@ struct UsageBar: View {
                                 }
                                 .focusable()
                                 .focused(focusedDay, equals: segment.id)
+                        }
+                        if unattributedWidth > 0 {
+                            // The undated share keeps the total fill accurate without a day tooltip.
+                            RoundedRectangle(cornerRadius: 2.5)
+                                .fill(level.tint.opacity(0.5))
+                                .frame(width: unattributedWidth - unattributedGap)
+                                .padding(.leading, unattributedGap)
+                                .allowsHitTesting(false)
                         }
                     }
                 }

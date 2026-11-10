@@ -11,6 +11,9 @@ public static class UsageDailyBreakdown
     public static readonly TimeSpan Lookback = TimeSpan.FromDays(8);
     private static readonly TimeSpan MaximumGap = TimeSpan.FromHours(12);
 
+    public static double UnattributedUsedRatio(double usedRatio, double datedRatio)
+        => Math.Max(0, usedRatio - datedRatio);
+
     public static IReadOnlyList<DailyUsageSegment> Build(
         UsageWindow window, IReadOnlyList<UsageSample> samples, DateTimeOffset capturedAt,
         TimeZoneInfo? zone = null)

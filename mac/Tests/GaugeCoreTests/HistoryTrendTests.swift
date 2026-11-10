@@ -10,6 +10,8 @@ final class UsageDailyBreakdownTests: XCTestCase {
         XCTAssertEqual(segments.count, 2)
         XCTAssertEqual(segments.first?.usedRatio ?? -1, 0.15, accuracy: 0.000001)
         XCTAssertEqual(segments.last?.usedRatio ?? -1, 0.10, accuracy: 0.000001)
+        XCTAssertEqual(UsageDailyBreakdown.unattributedUsedRatio(0.50, datedRatio: segments.reduce(0) { $0 + $1.usedRatio }),
+                       0.25, accuracy: 0.000001)
         XCTAssertTrue(breakdown([(0, 0.50, nil)]).isEmpty)
     }
 

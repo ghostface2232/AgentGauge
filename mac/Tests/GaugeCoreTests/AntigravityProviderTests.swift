@@ -44,7 +44,7 @@ final class AntigravityProviderTests: XCTestCase {
         let cliProvider = AntigravityProvider(readers: [], isInstalled: { false }, cli: cli)
         let clock = ManualClock()
         let recorder = StatesRecorder()
-        let coordinator = UsageCoordinator(providers: [cliProvider], clock: clock)
+        let coordinator = UsageCoordinator(providers: [cliProvider], cache: nil, clock: clock)
         await coordinator.setEnabledTools([.antigravity])
         await coordinator.setListener { recorder.append($0) }
         await coordinator.refresh(.launch)

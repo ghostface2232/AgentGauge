@@ -82,6 +82,10 @@ public sealed class UsageBar : UserControl
             AddTrack(0, ActualWidth * value, Fill, 1, new CornerRadius(4));
         if (segmented)
         {
+            var unattributedWidth = Basis == UsageDisplayBasis.Used
+                ? ActualWidth * UsageDailyBreakdown.UnattributedUsedRatio(value, Segments!.Sum(s => s.UsedRatio))
+                : 0;
+            var unattributedGap = Math.Min(SegmentGap / 2, unattributedWidth / 4);
             var x = Basis == UsageDisplayBasis.Remaining ? value * ActualWidth : 0;
             for (var i = 0; i < Segments!.Count; i++)
             {
@@ -89,14 +93,17 @@ public sealed class UsageBar : UserControl
                 var width = segment.UsedRatio * ActualWidth;
                 var gap = Math.Min(SegmentGap, width / 4);
                 var leading = i == 0 ? 0 : gap / 2;
-                var trailing = i == Segments.Count - 1 ? 0 : gap / 2;
+                var last = i == Segments.Count - 1;
+                var trailing = last ? Math.Min(gap / 2, unattributedGap) : gap / 2;
                 var opacity = i % 2 == 0 ? 1 : 0.72;
                 if (Basis == UsageDisplayBasis.Remaining) opacity *= 0.5;
                 AddTrack(x + leading, width - leading - trailing, Fill, opacity,
-                    new CornerRadius(i == 0 ? 4 : 2, i == Segments.Count - 1 ? 4 : 2,
-                        i == Segments.Count - 1 ? 4 : 2, i == 0 ? 4 : 2));
+                    new CornerRadius(i == 0 ? 4 : 2, last && unattributedGap < 0.01 ? 4 : 2,
+                        last && unattributedGap < 0.01 ? 4 : 2, i == 0 ? 4 : 2));
                 x += width;
             }
+            // The provider's total still determines the fill. Only measured dates get hit targets.
+            AddTrack(x + unattributedGap, unattributedWidth - unattributedGap, Fill, 0.5, new CornerRadius(2, 4, 4, 2));
         }
         if (_selected >= (Segments?.Count ?? 0)) SelectSegment(-1);
         UpdateDescription();

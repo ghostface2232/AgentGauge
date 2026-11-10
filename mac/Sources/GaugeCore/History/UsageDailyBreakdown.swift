@@ -9,6 +9,10 @@ public enum UsageDailyBreakdown {
     public static let lookback: TimeInterval = 8 * 86_400
     private static let maximumGap: TimeInterval = 12 * 3600
 
+    public static func unattributedUsedRatio(_ usedRatio: Double, datedRatio: Double) -> Double {
+        max(0, usedRatio - datedRatio)
+    }
+
     /// Observed increases within each local day of the current weekly cycle.
     public static func build(window: UsageWindow, samples: [UsageSample], capturedAt: Date,
                              calendar: Calendar = Calendar(identifier: .gregorian)) -> [DailyUsageSegment] {

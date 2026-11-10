@@ -18,6 +18,7 @@ public sealed class UsageDailyBreakdownTests
         Assert.Collection(segments,
             first => AssertSegment(first, new DateOnly(2026, 11, 10), 0.15),
             second => AssertSegment(second, new DateOnly(2026, 11, 11), 0.10));
+        Assert.Equal(0.25, UsageDailyBreakdown.UnattributedUsedRatio(0.50, segments.Sum(s => s.UsedRatio)), 8);
         Assert.Empty(UsageDailyBreakdown.Build(Weekly(0.50), [], Today, TimeZoneInfo.Utc));
     }
 
@@ -41,6 +42,7 @@ public sealed class UsageDailyBreakdownTests
         Assert.Collection(segments,
             first => AssertSegment(first, new DateOnly(2026, 11, 10), 0.30),
             second => AssertSegment(second, new DateOnly(2026, 11, 11), 0.05));
+        Assert.Equal(0, UsageDailyBreakdown.UnattributedUsedRatio(0.35, segments.Sum(s => s.UsedRatio)), 8);
     }
 
     private static UsageWindow Weekly(double used) => new()
