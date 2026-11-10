@@ -298,26 +298,45 @@ private struct GeneralSettings: View {
 
 private struct DisplaySettings: View {
     @Environment(AppModel.self) private var model
+    @State private var choosingMenuBarTools = false
 
     var body: some View {
         @Bindable var model = model
+        let supportsPercent = model.selectedMenuBarTools.map { $0.count == 1 } ?? true
         Form {
             Section {
-                Toggle(L10n.get("Settings_ShowPercent"), isOn: $model.showPercentInMenuBar)
-                let activeStates = model.states.filter { !model.hiddenTools.contains($0.tool) }
-                let targetStates = activeStates.filter { $0.snapshot != nil }
-                let targetTool = StatusTarget.tool(from: model.statusTarget)
-                let hasMatchingTarget = targetTool.map { tool in targetStates.contains { $0.tool == tool } } ?? false
-                // One entry per tool: its logo ring already carries the 5-hour and weekly arcs.
-                Picker(L10n.get("Settings_StatusTarget"), selection: $model.statusTarget) {
-                    Text(L10n.get("StatusTarget_All")).tag("")
-                    ForEach(targetStates) { state in
-                        Text(state.tool.displayName).tag(state.tool.rawValue)
+                LabeledContent(L10n.get("Settings_StatusTarget")) {
+                    Button {
+                        choosingMenuBarTools.toggle()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(menuBarSelectionLabel)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .imageScale(.small)
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
+                        }
                     }
-                    if !model.statusTarget.isEmpty && model.statusTarget != "all" && !hasMatchingTarget {
-                        Text(L10n.get("StatusTarget_Unavailable")).tag(model.statusTarget)
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(L10n.get("Settings_StatusTarget"))
+                    .accessibilityValue(menuBarSelectionLabel)
+                    .popover(isPresented: $choosingMenuBarTools) {
+                        menuBarToolChoices
                     }
                 }
+                Toggle(isOn: Binding(
+                    get: { supportsPercent && model.showPercentInMenuBar },
+                    set: { model.showPercentInMenuBar = $0 }
+                )) {
+                    Text(L10n.get("Settings_ShowPercent"))
+                    if !supportsPercent {
+                        Text(L10n.get("Settings_ShowPercentSingleHelp"))
+                    }
+                }
+                .disabled(!supportsPercent)
+            }
+            Section {
                 Picker(L10n.get("Settings_DisplayBasis"), selection: $model.displayBasis) {
                     Text(L10n.get("Basis_Used")).tag(DisplayBasis.used)
                     Text(L10n.get("Basis_Remaining")).tag(DisplayBasis.remaining)
@@ -347,6 +366,38 @@ private struct DisplaySettings: View {
             }
         }
         .settingsPane()
+    }
+
+    private var menuBarSelectionLabel: String {
+        guard let tools = model.selectedMenuBarTools else { return L10n.get("StatusTarget_All") }
+        if tools.isEmpty { return L10n.get("StatusTarget_None") }
+        if tools.count > 2 { return L10n.format("StatusTarget_Count", tools.count) }
+        return model.visibleTools.filter { tools.contains($0) }.map(\.displayName).joined(separator: ", ")
+    }
+
+    private var menuBarToolChoices: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(L10n.get("StatusTarget_All"), isOn: Binding(
+                get: { model.menuBarSelection == .automatic },
+                set: { model.menuBarSelection = $0 ? .automatic : .services([]) }
+            ))
+            Divider()
+            if model.visibleTools.isEmpty {
+                Text(L10n.get("Settings_NoMenuBarServices"))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(model.visibleTools) { tool in
+                Toggle(isOn: Binding(
+                    get: { model.menuBarSelection.tools?.contains(tool) == true },
+                    set: { model.menuBarSelection.set(tool, selected: $0) }
+                )) {
+                    Text(verbatim: tool.displayName)
+                }
+            }
+        }
+        .toggleStyle(.checkbox)
+        .frame(minWidth: 166, alignment: .leading)
+        .padding(12)
     }
 }
 

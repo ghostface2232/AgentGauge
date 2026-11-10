@@ -22,8 +22,8 @@ final class AppModel {
         didSet { defaults.set(showPercentInMenuBar, forKey: Keys.showPercent) }
     }
 
-    var statusTarget: String {
-        didSet { defaults.set(statusTarget, forKey: Keys.statusTarget) }
+    var menuBarSelection: MenuBarSelection {
+        didSet { defaults.set(menuBarSelection.savedValues, forKey: Keys.menuBarSelection) }
     }
 
     var displayBasis: DisplayBasis {
@@ -72,8 +72,12 @@ final class AppModel {
     private(set) var hiddenTools: Set<ToolKind>
 
     var visibleTools: [ToolKind] { ToolKind.allCases.filter { !hiddenTools.contains($0) } }
+    var selectedMenuBarTools: Set<ToolKind>? { menuBarSelection.tools?.subtracting(hiddenTools) }
     var menuBarSummary: MenuBarSummary {
-        MenuBarSummary(states: states.filter { !hiddenTools.contains($0.tool) }, targetKey: statusTarget)
+        MenuBarSummary(
+            states: states.filter { !hiddenTools.contains($0.tool) },
+            selectedTools: selectedMenuBarTools,
+            displayBasis: displayBasis)
     }
     var isRefreshing: Bool { states.contains(where: \.isRefreshing) }
 
@@ -109,7 +113,6 @@ final class AppModel {
     init() {
         defaults.register(defaults: [
             Keys.showPercent: true,
-            Keys.statusTarget: "",
             Keys.notifyThresholds: true,
             Keys.notifyResets: true,
             Keys.showSparkline: true,
@@ -117,8 +120,8 @@ final class AppModel {
             Keys.autoUpdate: true,
         ])
         showPercentInMenuBar = defaults.bool(forKey: Keys.showPercent)
-        // An older build stored one window ("codex:weekly"); the menu bar now follows a tool.
-        statusTarget = StatusTarget.normalize(defaults.string(forKey: Keys.statusTarget))
+        menuBarSelection = MenuBarSelection(savedValues: defaults.stringArray(forKey: Keys.menuBarSelection),
+                                            legacyTarget: defaults.string(forKey: Keys.statusTarget))
         displayBasis = DisplayBasis(rawValue: defaults.string(forKey: Keys.displayBasis) ?? "") ?? .used
         viewMode = UsageViewMode(rawValue: defaults.string(forKey: Keys.viewMode) ?? "") ?? .bar
         showSparkline = defaults.bool(forKey: Keys.showSparkline)
@@ -456,6 +459,7 @@ final class AppModel {
     private enum Keys {
         static let showPercent = "showPercentInMenuBar"
         static let statusTarget = "statusTarget"
+        static let menuBarSelection = "menuBarSelection"
         static let displayBasis = "displayBasis"
         static let viewMode = "viewMode"
         static let showSparkline = "showSparkline"
