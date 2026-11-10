@@ -18,6 +18,23 @@ final class NotificationEvaluatorTests: XCTestCase {
         XCTAssertTrue(evaluator.evaluate([state(0.95, reset: start, at: start)], now: start).isEmpty)
     }
 
+    func testOnlyTheAccountThatCrossedTheThresholdAlerts() {
+        let account = ToolAccount(tool: .claude, label: "Work")
+        var evaluator = UsageNotificationEvaluator()
+        let reset = start.addingTimeInterval(3600)
+        let primary = state(0.95, reset: reset, at: start)
+        let baseline = state(0.2, reset: reset, at: start)
+        let extra = ToolState(tool: .claude, snapshot: baseline.snapshot, account: account)
+        XCTAssertTrue(evaluator.evaluate([primary, extra], now: start).isEmpty)
+
+        let captured = start + 60
+        let crossing = state(0.92, reset: reset, at: captured)
+        let updated = ToolState(tool: .claude, snapshot: crossing.snapshot, account: account)
+        let alerts = evaluator.evaluate([primary, updated], now: captured)
+        XCTAssertEqual(alerts.map(\.accountKey), [account.key])
+        XCTAssertTrue(alerts.first?.title.contains("Work") == true)
+    }
+
     func testFiveHourAlertsAtDangerOnceAndIgnoresReemits() {
         var evaluator = UsageNotificationEvaluator()
         let reset = start.addingTimeInterval(3600)

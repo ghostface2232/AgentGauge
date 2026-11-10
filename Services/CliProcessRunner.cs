@@ -17,7 +17,8 @@ public interface ICliProcessRunner
     Task<CliProcessResult> RunHiddenAsync(string executable, string arguments, TimeSpan timeout, CancellationToken cancellationToken);
 }
 
-public sealed class CliProcessRunner : ICliProcessRunner
+public sealed class CliProcessRunner(
+    IReadOnlyDictionary<string, string?>? environment = null, string? configDirectory = null) : ICliProcessRunner
 {
     /// <summary>
     /// The folder every CLI starts in: the user's profile rather than whatever folder Gauge
@@ -36,15 +37,19 @@ public sealed class CliProcessRunner : ICliProcessRunner
     {
         // Do not redirect stdout/stderr: login is intentionally user-visible and its
         // output may contain secrets that Gauge must never capture or log.
-        using var process = Process.Start(new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = executable,
             Arguments = arguments,
-            UseShellExecute = true,
+            UseShellExecute = environment is null,
             CreateNoWindow = false,
             WindowStyle = ProcessWindowStyle.Normal,
             WorkingDirectory = NeutralWorkingDirectory,
-        }) ?? throw new InvalidOperationException("CLI 로그인 프로세스를 시작할 수 없습니다.");
+        };
+        if (environment is not null)
+            ConfigureProcess(startInfo, executable, arguments);
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("CLI 로그인 프로세스를 시작할 수 없습니다.");
 
         using var timeoutCts = new CancellationTokenSource(timeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
@@ -80,23 +85,7 @@ public sealed class CliProcessRunner : ICliProcessRunner
             WorkingDirectory = NeutralWorkingDirectory,
         };
 
-        // A .cmd/.bat shim (e.g. npm's claude.cmd) is not a PE image, so it can't be
-        // started directly once UseShellExecute is false (which output redirection
-        // requires). Route those through cmd.exe. The /s + outer-quote form makes cmd
-        // strip exactly the wrapping quotes, so a quoted path with spaces stays intact.
-        var extension = Path.GetExtension(executable);
-        if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
-        {
-            startInfo.FileName = CommandInterpreter;
-            startInfo.Arguments = $"/d /s /c \"\"{executable}\" {arguments}\"";
-        }
-        else
-        {
-            startInfo.FileName = executable;
-            startInfo.Arguments = arguments;
-        }
-
+        ConfigureProcess(startInfo, executable, arguments);
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("CLI 프로세스를 시작할 수 없습니다.");
 
@@ -120,6 +109,33 @@ public sealed class CliProcessRunner : ICliProcessRunner
         {
             TryKill(process);
             throw;
+        }
+    }
+
+    private void ConfigureProcess(ProcessStartInfo startInfo, string executable, string arguments)
+    {
+        if (configDirectory is not null) Directory.CreateDirectory(configDirectory);
+        if (environment is not null)
+        {
+            foreach (var (name, value) in environment)
+            {
+                if (value is null) startInfo.Environment.Remove(name);
+                else startInfo.Environment[name] = value;
+            }
+        }
+
+        // npm's .cmd/.bat shims need cmd.exe when UseShellExecute is false.
+        var extension = Path.GetExtension(executable);
+        if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
+        {
+            startInfo.FileName = CommandInterpreter;
+            startInfo.Arguments = $"/d /s /c \"\"{executable}\" {arguments}\"";
+        }
+        else
+        {
+            startInfo.FileName = executable;
+            startInfo.Arguments = arguments;
         }
     }
 

@@ -19,16 +19,22 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     private bool _isSignedIn;
     private string? _plan;
 
-    public AuthenticationCardViewModel(IAuthenticationProvider provider)
+    public AuthenticationCardViewModel(IAuthenticationProvider provider, ToolAccount? account = null)
     {
         _provider = provider;
         _descriptor = ToolCatalog.For(provider.Tool);
-        ToolName = provider.State.ToolName;
+        Key = account?.Key ?? provider.State.ToolName;
+        ToolName = account?.DisplayName ?? provider.State.ToolName;
+        IsDefaultAccount = account is null;
         LoginCommand = new AsyncRelayCommand(LoginAsync, () => !IsLoginRunning);
-        RemoveCommand = new RelayCommand(() => RemoveRequested?.Invoke(this, EventArgs.Empty));
+        RemoveCommand = new RelayCommand(() => RemoveRequested?.Invoke(this, EventArgs.Empty),
+            () => IsDefaultAccount || !IsLoginRunning);
         Apply(provider.State);
-        provider.StateChanged += (_, state) => Apply(state);
+        provider.StateChanged += OnStateChanged;
     }
+
+    private void OnStateChanged(object? sender, AuthenticationState state) => Apply(state);
+    internal void Detach() => _provider.StateChanged -= OnStateChanged;
 
     /// <summary>The tool this card represents (used by the registry to remove it).</summary>
     public ToolKind Tool => _provider.Tool;
@@ -70,6 +76,9 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     public string VisibilityText => Loc.Get(IsHidden ? "Tool_Hidden" : "Tool_Shown");
 
     public string ToolName { get; }
+    public string Key { get; }
+    public bool IsDefaultAccount { get; }
+    public bool CanAddAccount => IsDefaultAccount && ToolAccount.SupportsAdditionalAccounts(Tool);
     public IAsyncRelayCommand LoginCommand { get; }
 
     /// <summary>Disconnects (removes) the tool from the registry via the settings VM.</summary>
@@ -81,7 +90,8 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     /// button. App-login tools (e.g. Antigravity) hide it and rely on the status message,
     /// which already tells the user to sign in.
     /// </summary>
-    public bool SupportsCliLogin => _descriptor.LoginKind == LoginKind.CliCommand;
+    public bool SupportsCliLogin => _descriptor.LoginKind == LoginKind.CliCommand
+        && (IsDefaultAccount || (Tool != ToolKind.GitHubCopilot && !_isSignedIn));
 
     public event EventHandler? AuthenticationSucceeded;
 
@@ -120,11 +130,13 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
         LoginButtonText = state.Status switch
         {
             AuthenticationStatus.LoginRunning => Loc.Get("Login_Running"),
-            AuthenticationStatus.Available or AuthenticationStatus.Invalid => Loc.Get("Login_Switch"),
+            AuthenticationStatus.Available or AuthenticationStatus.Invalid when IsDefaultAccount => Loc.Get("Login_Switch"),
             _ => Loc.Get("Login"),
         };
         UpdateStatusText();
+        OnPropertyChanged(nameof(SupportsCliLogin));
         LoginCommand.NotifyCanExecuteChanged();
+        RemoveCommand.NotifyCanExecuteChanged();
     }
 
     // Shows "Signed in · {plan}" once signed in with a known plan, otherwise the bare

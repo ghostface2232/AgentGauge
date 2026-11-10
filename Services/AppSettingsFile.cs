@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Gauge.Models;
 
 namespace Gauge.Services;
 
@@ -33,6 +34,7 @@ internal sealed class AppSettingsDto
 {
     public List<string>? EnabledTools { get; set; }
     public List<string>? HiddenTools { get; set; }
+    public List<ToolAccount>? AdditionalAccounts { get; set; }
 
     /// <summary>Two-letter UI language code ("ko" / "en" / "ja"). Null until first resolved.</summary>
     public string? Language { get; set; }

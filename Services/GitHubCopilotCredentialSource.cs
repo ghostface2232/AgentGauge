@@ -27,15 +27,18 @@ public sealed class GitHubCopilotCredentialSource : ICredentialSource
     private readonly IGitHubCliTokenReader _ghTokenReader;
     private readonly Func<string> _localAppData;
     private readonly Func<string> _userProfile;
+    private readonly bool _useLocalFiles;
 
     public GitHubCopilotCredentialSource(
         IGitHubCliTokenReader? ghTokenReader = null,
         Func<string>? localAppData = null,
-        Func<string>? userProfile = null)
+        Func<string>? userProfile = null,
+        bool useLocalFiles = true)
     {
         _ghTokenReader = ghTokenReader ?? new GitHubCliTokenReader();
         _localAppData = localAppData ?? (() => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
         _userProfile = userProfile ?? (() => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        _useLocalFiles = useLocalFiles;
     }
 
     public CredentialOwner Owner => CredentialOwner.CliLocal;
@@ -62,7 +65,7 @@ public sealed class GitHubCopilotCredentialSource : ICredentialSource
         }
 
         // 2) Fall back to a github-copilot apps.json/hosts.json file (gh-less setups).
-        token ??= ReadOAuthTokenFromFile();
+        if (_useLocalFiles) token ??= ReadOAuthTokenFromFile();
 
         if (string.IsNullOrWhiteSpace(token))
         {

@@ -6,6 +6,36 @@ namespace Gauge.Tests;
 
 public sealed class SettingsViewModelTests
 {
+    [Fact]
+    public void AdditionalAccountHasItsOwnSettingsCardAndSurvivesReload()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "GaugeTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var store = new ToolRegistryStore(() => dir);
+            var registry = new ToolRegistry(store);
+            var settings = new SettingsViewModel(registry,
+                new Dictionary<ToolKind, IAuthenticationProvider>
+                {
+                    [ToolKind.Codex] = new FakeAuthenticationProvider(State(AuthenticationStatus.Available, "")),
+                }, new UpdateService(), new GlobalSettingsViewModel(NotificationPreferences.Default, false, UsageViewMode.Bar),
+                accountProvider: _ => new FakeAuthenticationProvider(State(AuthenticationStatus.Available, "")));
+
+            Assert.True(settings.AddAccount(ToolKind.Codex, " Work "));
+            Assert.False(settings.CanAddAccount(ToolKind.Codex, "work"));
+            var account = Assert.Single(new ToolRegistry(store).Accounts);
+            var card = Assert.Single(settings.Authentication, card => card.Key == account.Key);
+            Assert.Equal("Codex · Work", card.ToolName);
+            Assert.False(StatusTargetMatcher.ToolsMatch("Codex", account.Key));
+            Assert.Equal(ToolKind.Codex, StatusTargetMatcher.Descriptor(account.Key)?.Kind);
+
+            card.RemoveCommand.Execute(null);
+            Assert.Equal("Codex", Assert.Single(settings.Authentication).ToolName);
+            Assert.Empty(new ToolRegistry(store).Accounts);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
     [Theory]
     [InlineData(AuthenticationStatus.Missing, "로그인", "사용량을 확인")]
     [InlineData(AuthenticationStatus.Available, "계정 전환", "로그인됨")]

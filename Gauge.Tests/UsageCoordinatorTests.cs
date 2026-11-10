@@ -8,6 +8,68 @@ namespace Gauge.Tests;
 public sealed class UsageCoordinatorTests
 {
     [Fact]
+    public async Task AdditionalAccountKeepsSeparateCacheAndAuthenticationState()
+    {
+        var account = new ToolAccount(Guid.NewGuid(), ToolKind.Codex, "Work");
+        var primary = new StubProvider("Codex");
+        var secondary = new StubProvider("Codex");
+        var service = new UsageService([primary]);
+        service.SetAdditionalProviders([new AccountUsageProvider(account, secondary)]);
+        var persistence = new FakePersistence();
+        using var coordinator = new UsageCoordinator(service, persistence: persistence);
+        var state = UsageState.Empty;
+        var defaultRejections = new List<ToolKind>();
+        var accountRejections = new List<string>();
+        coordinator.Updated += (_, updated) => state = updated;
+        coordinator.AuthenticationRequired += (_, tool) => defaultRejections.Add(tool);
+        coordinator.AccountAuthenticationChanged += (_, result) =>
+        {
+            if (!result.Accepted) accountRejections.Add(result.Key);
+        };
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Equal(new[] { "Codex", account.Key }, persistence.Saved.Select(snapshot => snapshot.ToolName));
+        var lastGood = Assert.Single(state.Tools, tool => tool.ToolName == account.Key).Snapshot;
+        secondary.ThrowAuth = true;
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+        Assert.Empty(defaultRejections);
+        Assert.Equal(account.Key, Assert.Single(accountRejections));
+        Assert.False(Assert.Single(state.Tools, tool => tool.ToolName == "Codex").LastRefreshFailed);
+        var failed = Assert.Single(state.Tools, tool => tool.ToolName == account.Key);
+        Assert.True(failed.LastRefreshFailed);
+        Assert.Same(lastGood, failed.Snapshot);
+
+        service.SetAdditionalProviders([]);
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged, account.Key);
+        Assert.Equal(2, primary.CallCount);
+        Assert.Equal("Codex", Assert.Single(state.Tools).ToolName);
+        Assert.Equal("Codex", Assert.Single(persistence.Saved).ToolName);
+    }
+
+    [Fact]
+    public async Task RemovingAnAccountDuringFetchDiscardsItsResult()
+    {
+        var account = new ToolAccount(Guid.NewGuid(), ToolKind.Codex, "Work");
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new UsageService([]);
+        service.SetAdditionalProviders([new AccountUsageProvider(account, new StubProvider("Codex") { Block = release })]);
+        using var coordinator = new UsageCoordinator(service);
+        var state = UsageState.Empty;
+        coordinator.Updated += (_, updated) => state = updated;
+        coordinator.RefreshStarted += (_, _) => started.TrySetResult();
+
+        var refresh = coordinator.RefreshAsync(RefreshReason.Manual);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        service.SetAdditionalProviders([]);
+        release.SetResult();
+        await refresh;
+
+        Assert.Empty(state.Tools);
+    }
+
+    [Fact]
     public async Task HiddenToolKeepsCacheButStopsPolling()
     {
         var active = true;

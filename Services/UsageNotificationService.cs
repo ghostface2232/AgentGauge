@@ -7,12 +7,13 @@ namespace Gauge.Services;
 /// <summary>Raises evaluated usage alerts as Windows toast notifications.</summary>
 public sealed class UsageNotificationService : IDisposable
 {
-    private readonly UsageNotificationEvaluator _evaluator = new();
+    private readonly UsageNotificationEvaluator _evaluator;
     private NotificationPreferences _preferences = NotificationPreferences.Default;
     private bool _disposed;
 
-    public UsageNotificationService()
+    public UsageNotificationService(Func<string, string>? displayToolName = null)
     {
+        _evaluator = new UsageNotificationEvaluator(displayToolName);
         // The Toolkit's compat layer auto-registers an AUMID + COM activator on the first
         // Show()/handler subscription for unpackaged apps, so it needs no Windows App SDK
         // Singleton package and keeps working under our self-contained xcopy deployment

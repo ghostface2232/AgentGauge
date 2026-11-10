@@ -17,6 +17,7 @@ public sealed class CliCredentialSource : ICredentialSource
 
     private readonly Func<string> _userProfile;
     private readonly Func<string?> _codexHome;
+    private readonly Func<string?> _claudeConfig;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 
     /// <param name="delay">
@@ -25,10 +26,12 @@ public sealed class CliCredentialSource : ICredentialSource
     public CliCredentialSource(
         Func<string>? userProfile = null,
         Func<string?>? codexHome = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        Func<string?>? claudeConfig = null)
     {
         _userProfile = userProfile ?? (() => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         _codexHome = codexHome ?? (() => Environment.GetEnvironmentVariable("CODEX_HOME"));
+        _claudeConfig = claudeConfig ?? (() => Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR"));
         _delay = delay ?? Task.Delay;
     }
 
@@ -50,7 +53,11 @@ public sealed class CliCredentialSource : ICredentialSource
 
     private Task<CredentialReadResult> ReadClaudeAsync(CancellationToken cancellationToken)
     {
-        var path = Path.Combine(_userProfile(), ".claude", ".credentials.json");
+        var profile = _userProfile();
+        var config = _claudeConfig();
+        var hasConfig = !string.IsNullOrWhiteSpace(config);
+        var path = Path.Combine(hasConfig ? config! : Path.Combine(profile, ".claude"), ".credentials.json");
+        var profilePath = Path.Combine(hasConfig ? config! : profile, ".claude.json");
         return ReadJsonAsync(ToolKind.ClaudeCode, path, cancellationToken, root =>
         {
             if (root.GetObjectOrNull("claudeAiOauth") is not { } oauth
@@ -74,7 +81,7 @@ public sealed class CliCredentialSource : ICredentialSource
                 Source = Source,
                 AccessToken = token,
                 ExpiresAt = expiresAt,
-                Plan = ReadClaudeProfilePlan()
+                Plan = ReadClaudeProfilePlan(profilePath)
                     ?? MapClaudePlan(oauth.GetStringOrNull("subscriptionType"), oauth.GetStringOrNull("rateLimitTier")),
             });
         });
@@ -88,11 +95,11 @@ public sealed class CliCredentialSource : ICredentialSource
     /// from the server and moves first. Only personal Max/Pro accounts are read here, and any
     /// failure falls back to the credentials file's own values.
     /// </summary>
-    private string? ReadClaudeProfilePlan()
+    private static string? ReadClaudeProfilePlan(string profilePath)
     {
         try
         {
-            using var stream = File.OpenRead(Path.Combine(_userProfile(), ".claude.json"));
+            using var stream = File.OpenRead(profilePath);
             using var document = JsonDocument.Parse(stream);
             if (document.RootElement.GetObjectOrNull("oauthAccount") is not { } account
                 || account.GetStringOrNull("organizationType") is not { } type

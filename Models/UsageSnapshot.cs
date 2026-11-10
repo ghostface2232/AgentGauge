@@ -1,13 +1,13 @@
 namespace Gauge.Models;
 
 /// <summary>
-/// One tool's usage at one point in time. This is the single shared model the UI
+/// One tool account's usage at one point in time. This is the single shared model the UI
 /// and view models depend on — never on a provider's implementation or source
 /// specifics — so the data source can be swapped without touching the UI.
 /// </summary>
 public sealed record UsageSnapshot
 {
-    /// <summary>Display name of the tool (e.g. "Claude Code", "Codex").</summary>
+    /// <summary>Storage identity. The default account uses the tool's display name for compatibility.</summary>
     public required string ToolName { get; init; }
 
     /// <summary>

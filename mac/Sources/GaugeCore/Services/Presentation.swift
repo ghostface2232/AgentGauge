@@ -74,11 +74,11 @@ public struct MenuBarSummary: Sendable, Equatable {
     public let tooltip: String
 
     public init(states: [ToolState], targetKey: String? = nil) {
-        let target = StatusTarget.tool(from: targetKey)
+        let target = StatusTarget.account(from: targetKey)
         // A target with no usable windows yet is unavailable (as in Settings), so the icon
         // follows the most-used tool instead.
         var chosen: StatusRing?
-        if let target, let state = states.first(where: { $0.tool == target }) {
+        if let target, let state = states.first(where: { $0.id == target }) {
             chosen = StatusRing(state: state)
         }
         if chosen == nil {
@@ -106,7 +106,7 @@ public struct MenuBarSummary: Sendable, Equatable {
             let readings = [ring.short, ring.long].compactMap { window in
                 window.map { "\(WindowLabels.label(for: $0)) \(Int(($0.usedRatio * 100).rounded()))%" }
             }
-            return "\(state.tool.displayName)  \(readings.joined(separator: " · "))"
+            return "\(state.displayName)  \(readings.joined(separator: " · "))"
         }.joined(separator: "\n")
     }
 
@@ -136,22 +136,30 @@ public struct MenuBarSummary: Sendable, Equatable {
     }
 }
 
-/// The menu bar target: empty for overall, otherwise a tool's raw value. Earlier builds
+/// The menu bar target: empty for overall, otherwise the account's storage key. Earlier builds
 /// stored one window ("codex:weekly"); the ring shows a tool's windows together, so such a
 /// value is read as its tool.
 public enum StatusTarget {
     public static func normalize(_ key: String?) -> String {
-        tool(from: key)?.rawValue ?? (key.map { String($0.split(separator: ":", maxSplits: 1).first ?? "") } ?? "")
+        account(from: key)?.storageKey ?? (key.map { String($0.split(separator: ":", maxSplits: 1).first ?? "") } ?? "")
     }
 
-    public static func tool(from key: String?) -> ToolKind? {
+    public static func account(from key: String?) -> UsageAccountKey? {
         guard let key, !key.isEmpty, key.caseInsensitiveCompare("all") != .orderedSame else { return nil }
-        let toolPart = String(key.split(separator: ":", maxSplits: 1).first ?? "")
-        return ToolKind.allCases.first {
+        let parts = key.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        let toolPart = String(parts[0].split(separator: ":", maxSplits: 1).first ?? "")
+        guard let tool = ToolKind.allCases.first(where: {
             $0.rawValue.caseInsensitiveCompare(toolPart) == .orderedSame ||
                 $0.displayName.caseInsensitiveCompare(toolPart) == .orderedSame
+        }) else { return nil }
+        if parts.count == 2 {
+            guard let profileID = UUID(uuidString: String(parts[1])) else { return nil }
+            return UsageAccountKey(tool: tool, profileID: profileID)
         }
+        return UsageAccountKey(tool: tool)
     }
+
+    public static func tool(from key: String?) -> ToolKind? { account(from: key)?.tool }
 }
 
 /// A tool's logo ring: the top arc is the short (5-hour) window, the bottom arc the long one

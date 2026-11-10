@@ -37,6 +37,8 @@ public static class StatusTargetMatcher
     /// <summary>The catalog entry a target or tool name refers to, under any of its aliases.</summary>
     public static ToolDescriptor? Descriptor(string tool)
     {
+        var separator = tool.IndexOf(ToolAccount.KeySeparator);
+        if (separator >= 0) tool = tool[..separator];
         var current = ToolCatalog.CurrentDisplayName(tool);
         return ToolCatalog.All.FirstOrDefault(d =>
             string.Equals(d.DisplayName, current, StringComparison.OrdinalIgnoreCase) ||
@@ -49,6 +51,8 @@ public static class StatusTargetMatcher
         {
             return true;
         }
+
+        if (toolA.Contains(ToolAccount.KeySeparator) || toolB.Contains(ToolAccount.KeySeparator)) return false;
 
         var currentA = ToolCatalog.CurrentDisplayName(toolA);
         var currentB = ToolCatalog.CurrentDisplayName(toolB);

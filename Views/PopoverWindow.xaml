@@ -139,7 +139,7 @@
                              a cell and swap by visibility, so no bool-to-brush converter is
                              needed: the shown chip borrows the reset chip's informational
                              tint, the hidden one a neutral control fill. -->
-                        <Grid ColumnSpacing="12">
+                        <Grid ColumnSpacing="12" Visibility="{Binding IsDefaultAccount, Converter={StaticResource BoolToVis}}">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
@@ -169,6 +169,9 @@
                         <Button Content="{Binding LoginButtonText}" Command="{Binding LoginCommand}"
                                 HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
                                 Visibility="{Binding SupportsCliLogin, Converter={StaticResource BoolToVis}}" />
+                        <Button Content="{loc:Localize Key=Account_Add}" Click="OnAddAccountClicked"
+                                HorizontalAlignment="Stretch"
+                                Visibility="{Binding CanAddAccount, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
                 </Border>
             </DataTemplate>
@@ -302,7 +305,7 @@
                                             <TextBlock
                                                 VerticalAlignment="Center"
                                                 FontSize="16"
-                                                Text="{Binding ToolName}"
+                                                Text="{Binding DisplayName}"
                                                 Style="{StaticResource BodyStrongTextBlockStyle}" />
                                             <TextBlock
                                                 VerticalAlignment="Center"
@@ -446,6 +449,11 @@
                                                 </ctrl:SquircleBorder>
                                             </StackPanel>
                                         </Grid>
+
+                                        <TextBlock Text="{Binding AccountLabel}" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Visibility="{Binding HasAccountLabel, Converter={StaticResource BoolToVis}}" />
 
                                         <!-- The tool's windows, rendered as bars or gauges per the
                                              app-wide view mode. Both share the same Windows source;

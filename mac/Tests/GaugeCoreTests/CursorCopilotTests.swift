@@ -504,19 +504,33 @@ final class GitHubCopilotCredentialTests: XCTestCase {
         XCTAssertEqual(read, .missing)
     }
 
-    func testCLIReaderTrimsTokenAndRequiresCleanExit() async {
+    func testCLIReaderTrimsTokenAndRequiresCleanExit() async throws {
         let gh = URL(fileURLWithPath: "/opt/homebrew/bin/gh")
         let runner = FakeRunner(ProcessResult(exitCode: 0, timedOut: false, launched: true, output: Data("gho_x\n".utf8)))
-        let token = await GitHubCLITokenReader(locator: FakeLocator(gh), runner: runner).token()
+        let token = try await GitHubCLITokenReader(locator: FakeLocator(gh), runner: runner).token()
         XCTAssertEqual(token, "gho_x")
         XCTAssertEqual(runner.arguments, ["auth", "token", "--hostname", "github.com"])
 
         let signedOut = FakeRunner(ProcessResult(exitCode: 1, timedOut: false, launched: true, output: Data()))
-        let none = await GitHubCLITokenReader(locator: FakeLocator(gh), runner: signedOut).token()
+        let none = try await GitHubCLITokenReader(locator: FakeLocator(gh), runner: signedOut).token()
         XCTAssertNil(none)
 
-        let missing = await GitHubCLITokenReader(locator: FakeLocator(nil), runner: runner).token()
+        let missing = try await GitHubCLITokenReader(locator: FakeLocator(nil), runner: runner).token()
         XCTAssertNil(missing)
+    }
+
+    func testNamedAccountUsesGitHubUserWithoutFallingBackToDefaultFiles() async throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try writeHosts(home, #"{ "github.com": { "oauth_token": "gho_default" } }"#)
+        let gh = URL(fileURLWithPath: "/opt/homebrew/bin/gh")
+        let runner = FakeRunner(ProcessResult(exitCode: 1, timedOut: false, launched: true, output: Data()))
+        let reader = GitHubCLITokenReader(locator: FakeLocator(gh), runner: runner, username: "work-user")
+        let source = GitHubCopilotCredentialSource(tokenReader: reader, environment: [:], homeDirectory: home,
+                                                   useLocalFiles: false)
+        let read = await source.read(interactive: false)
+        XCTAssertEqual(read, .missing)
+        XCTAssertEqual(runner.arguments, ["auth", "token", "--hostname", "github.com", "--user", "work-user"])
     }
 
     private func writeHosts(_ home: URL, _ json: String) throws {

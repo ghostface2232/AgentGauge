@@ -70,6 +70,9 @@ final class AppModel {
     }
 
     private(set) var hiddenTools: Set<ToolKind>
+    private(set) var accounts: [ToolAccount]
+    private(set) var signingIn = Set<UsageAccountKey>()
+    private(set) var failedAccountSignIns = Set<UsageAccountKey>()
 
     var visibleTools: [ToolKind] { ToolKind.allCases.filter { !hiddenTools.contains($0) } }
     var menuBarSummary: MenuBarSummary {
@@ -128,9 +131,12 @@ final class AppModel {
         notifyThresholds = defaults.bool(forKey: Keys.notifyThresholds)
         notifyResets = defaults.bool(forKey: Keys.notifyResets)
         hiddenTools = Self.loadHiddenTools(defaults)
+        let configuredAccounts = Self.loadAccounts(defaults)
+        accounts = configuredAccounts
         coordinator = UsageCoordinator(
             providers: ProviderFactory.makeDefault(),
-            cache: UsageCacheStore(directory: UsageCacheStore.defaultDirectory()))
+            cache: UsageCacheStore(directory: UsageCacheStore.defaultDirectory()),
+            additionalProviders: configuredAccounts.compactMap(ProviderFactory.makeAccount))
 
         // The 28-day weekday fold is paid here, off the main thread, not by the first card
         // that reads history.
@@ -182,6 +188,7 @@ final class AppModel {
         if shown {
             hiddenTools.remove(tool)
             evaluator.toolShown(tool)
+            for account in accounts where account.tool == tool { evaluator.toolShown(tool, profileID: account.id) }
         } else {
             hiddenTools.insert(tool)
         }
@@ -208,6 +215,70 @@ final class AppModel {
         case .app(let bundleIdentifier, let name):
             AppLauncher.open(bundleIdentifier: bundleIdentifier, name: name)
         }
+    }
+
+    func accountLabel(_ label: String, for tool: ToolKind) -> String? {
+        guard let label = ToolAccount.validatedLabel(label, for: tool),
+              !accounts.contains(where: { $0.tool == tool && $0.label.caseInsensitiveCompare(label) == .orderedSame })
+        else { return nil }
+        return label
+    }
+
+    func addAccount(_ tool: ToolKind, label: String) {
+        guard let label = accountLabel(label, for: tool) else { return }
+        let account = ToolAccount(tool: tool, label: label)
+        guard let provider = ProviderFactory.makeAccount(account) else { return }
+        accounts.append(account)
+        saveAccounts()
+        Task {
+            guard accounts.contains(account) else { return }
+            await coordinator.addAccount(provider)
+            await coordinator.refresh(.toolsChanged, account: account.key)
+        }
+    }
+
+    func removeAccount(_ account: ToolAccount) {
+        guard !signingIn.contains(account.key) else { return }
+        accounts.removeAll { $0.id == account.id }
+        states.removeAll { $0.id == account.key }
+        failedAccountSignIns.remove(account.key)
+        saveAccounts()
+        Task { await coordinator.removeAccount(account.key) }
+    }
+
+    func refreshAccount(_ key: UsageAccountKey) {
+        Task { await coordinator.refresh(.toolsChanged, account: key) }
+    }
+
+    func signIn(_ account: ToolAccount) {
+        guard let profile = AccountCLIProfile(account: account), signingIn.insert(account.key).inserted else { return }
+        failedAccountSignIns.remove(account.key)
+        Task {
+            defer { signingIn.remove(account.key) }
+            do {
+                try await TerminalLauncher.runAccount(profile)
+                await coordinator.refresh(.toolsChanged, account: account.key)
+            } catch {
+                Log.write("auth", "Account sign-in failed: \(type(of: error))")
+                failedAccountSignIns.insert(account.key)
+            }
+        }
+    }
+
+    private static func loadAccounts(_ defaults: UserDefaults) -> [ToolAccount] {
+        guard let data = defaults.data(forKey: Keys.accounts),
+              let decoded = try? JSONDecoder().decode([ToolAccount].self, from: data) else { return [] }
+        var ids = Set<UUID>()
+        var labels = Set<String>()
+        return decoded.filter {
+            ToolAccount.validatedLabel($0.label, for: $0.tool) == $0.label &&
+                ids.insert($0.id).inserted &&
+                labels.insert("\($0.tool.rawValue)#\($0.label.lowercased())").inserted
+        }
+    }
+
+    private func saveAccounts() {
+        if let data = try? JSONEncoder().encode(accounts) { defaults.set(data, forKey: Keys.accounts) }
     }
 
     /// A tool that is not shown by default starts hidden the first time this build sees it,
@@ -277,13 +348,14 @@ final class AppModel {
     var effectiveViewMode: UsageViewMode { viewModeOverride ?? viewMode }
 
     /// Everything a row shows beside its bar, derived from the window and its recorded history.
-    func details(for tool: ToolKind, window: UsageWindow) -> RowDetails {
+    func details(for account: UsageAccountKey, window: UsageWindow) -> RowDetails {
         var details = RowDetails(reset: ResetTimeFormatter.row(window.resetTime, now: now))
         // Until the background warm-up finishes, reading would wait on its lock on the main
         // thread; the rows simply show no trend for that moment instead.
         _ = historyRevision
-        let samples = historyReady ? history.recent(tool: tool, windowID: window.id) : []
-        let profile = historyReady && paceModel == .automatic ? history.weekdayProfile(tool: tool, windowID: window.id) : nil
+        let samples = historyReady ? history.recent(tool: account.tool, profileID: account.profileID, windowID: window.id) : []
+        let profile = historyReady && paceModel == .automatic
+            ? history.weekdayProfile(tool: account.tool, profileID: account.profileID, windowID: window.id) : nil
         details.pace = PaceClassifier.caption(for: window, now: now, model: paceModel, profile: profile)
         details.eta = UsageEtaClassifier.caption(samples: samples, window: window, now: now)
         if showSparkline && effectiveViewMode == .bar {
@@ -352,6 +424,10 @@ final class AppModel {
     }
 
     private func receive(_ newStates: [ToolState]) {
+        // A queued emission can reach the main actor after a profile was removed or hidden.
+        let newStates = newStates.filter { state in
+            !hiddenTools.contains(state.tool) && (state.account == nil || accounts.contains { $0.key == state.id })
+        }
         states = newStates
         now = Date()
         scheduleRefreshCeilingTick(newStates)
@@ -466,5 +542,6 @@ final class AppModel {
         static let notifyResets = "notifyResets"
         static let hiddenTools = "hiddenTools"
         static let knownTools = "knownTools"
+        static let accounts = "additionalAccounts"
     }
 }

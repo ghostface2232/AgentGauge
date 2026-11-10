@@ -14,20 +14,23 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
     private readonly ToolDescriptor _descriptor;
     private readonly string _command;
     private readonly string _arguments;
+    private readonly string? _missingMessage;
     private readonly SemaphoreSlim _loginGate = new(1, 1);
     private string? _lastCredentialFingerprint;
     private string? _rejectedCredentialFingerprint;
     private bool _credentialsRejected;
 
     public CliAuthenticationProvider(
-        ToolKind tool, ICredentialSource credentials, ICliLocator locator, ICliProcessRunner runner)
+        ToolKind tool, ICredentialSource credentials, ICliLocator locator, ICliProcessRunner runner,
+        string? loginArguments = null, string? missingMessage = null)
     {
         Tool = tool;
         _credentials = credentials;
         _locator = locator;
         _runner = runner;
         _descriptor = ToolCatalog.For(tool);
-        (_command, _arguments) = (_descriptor.LoginCommand, _descriptor.LoginArguments);
+        (_command, _arguments) = (_descriptor.LoginCommand, loginArguments ?? _descriptor.LoginArguments);
+        _missingMessage = missingMessage;
         State = MissingState();
     }
 
@@ -40,7 +43,7 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
     {
         if (IsLoginRunning) return State;
         var result = await _credentials.ReadAsync(Tool, cancellationToken);
-        return SetState(FromCredential(result));
+        return IsLoginRunning ? State : SetState(FromCredential(result));
     }
 
     public async Task<AuthenticationState> LoginAsync(CancellationToken cancellationToken = default)
@@ -103,7 +106,7 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
 
     public void ReportCredentialsAccepted()
     {
-        if (IsLoginRunning || !_credentialsRejected)
+        if (IsLoginRunning || (!_credentialsRejected && _missingMessage is null))
         {
             return;
         }
@@ -111,7 +114,7 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
         _rejectedCredentialFingerprint = null;
         // Flip the card back to signed-in right away; the exact plan label is refreshed on
         // the next RefreshStateAsync (the credential file already has it).
-        if (State.Status == AuthenticationStatus.Invalid)
+        if (State.Status is AuthenticationStatus.Invalid or AuthenticationStatus.Missing)
         {
             SetState(NewState(AuthenticationStatus.Available, _credentials.Source, Loc.Get("Auth_SignedIn")));
         }
@@ -152,7 +155,7 @@ public sealed class CliAuthenticationProvider : IAuthenticationProvider
     }
 
     private AuthenticationState MissingState() => NewState(AuthenticationStatus.Missing, CredentialSource.None,
-        Loc.Get("Auth_Missing"));
+        _missingMessage ?? Loc.Get("Auth_Missing"));
 
     private AuthenticationState Failed(string message) => NewState(AuthenticationStatus.LoginFailed, CredentialSource.None, message);
 

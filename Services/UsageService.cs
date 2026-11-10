@@ -35,6 +35,7 @@ public sealed class UsageService
     internal static readonly TimeSpan DefaultReadDeadline = TimeSpan.FromSeconds(90);
 
     private readonly IReadOnlyList<IUsageProvider> _providers;
+    private volatile IReadOnlyList<IUsageProvider> _additionalProviders = [];
     private readonly Func<ToolKind, bool> _isEnabled;
     private readonly Func<ToolKind, bool> _isActive;
     private readonly TimeSpan _readDeadline;
@@ -63,10 +64,14 @@ public sealed class UsageService
 
     /// <summary>The currently enabled providers, in catalog/registration order.</summary>
     public IReadOnlyList<IUsageProvider> GetEnabledProviders()
-        => _providers.Where(provider => _isEnabled(provider.Tool) && _isActive(provider.Tool)).ToList();
+        => _providers.Concat(_additionalProviders)
+            .Where(provider => _isEnabled(provider.Tool) && _isActive(provider.Tool)).ToList();
+
+    internal void SetAdditionalProviders(IEnumerable<IUsageProvider> providers) =>
+        _additionalProviders = providers.ToArray();
 
     public IReadOnlySet<string> GetRegisteredToolNames() =>
-        _providers.Where(p => _isEnabled(p.Tool)).Select(p => p.ToolName).ToHashSet();
+        _providers.Concat(_additionalProviders).Where(p => _isEnabled(p.Tool)).Select(p => p.ToolName).ToHashSet();
 
     public async Task<IReadOnlyList<ProviderSnapshotResult>> GetAllSnapshotsAsync(CancellationToken cancellationToken)
         => await GetSnapshotsAsync(GetEnabledProviders(), cancellationToken);
@@ -136,7 +141,8 @@ public sealed class UsageService
             var isShutdown = ex is OperationCanceledException && cancellationToken.IsCancellationRequested;
             if (ex is not AuthenticationRequiredException && !isShutdown)
             {
-                DiagnosticsLog.Write("provider", $"{provider.ToolName} refresh failed: {ex.GetType().Name}: {ex.Message}");
+                var toolName = provider is AccountUsageProvider ? ToolCatalog.For(provider.Tool).DisplayName : provider.ToolName;
+                DiagnosticsLog.Write("provider", $"{toolName} refresh failed: {ex.GetType().Name}: {ex.Message}");
             }
             return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Error = ex };
         }

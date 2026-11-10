@@ -17,6 +17,21 @@ public sealed class CredentialSourceTests : IDisposable
     }
 
     [Fact]
+    public async Task ScopedClaudeReadsItsOwnCredentialAndPlanWithoutDefaultFallback()
+    {
+        Write(".claude/.credentials.json", """{"claudeAiOauth":{"accessToken":"default"}}""");
+        Write(".claude.json", """{"oauthAccount":{"organizationType":"claude_pro"}}""");
+        var config = Path.Combine(_root, "work");
+        var source = new CliCredentialSource(() => _root, claudeConfig: () => config);
+        Assert.Equal(CredentialReadStatus.Missing, (await source.ReadAsync(ToolKind.ClaudeCode)).Status);
+
+        Write("work/.credentials.json", """{"claudeAiOauth":{"accessToken":"work","subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}""");
+        var credential = (await source.ReadAsync(ToolKind.ClaudeCode)).Credential;
+        Assert.Equal("work", credential?.AccessToken);
+        Assert.Equal("Max 5x", credential?.Plan);
+    }
+
+    [Fact]
     public async Task MalformedJsonIsInvalidWithoutLeakingContents()
     {
         Write(".claude/.credentials.json", "{ secret-token");

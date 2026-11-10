@@ -9,7 +9,7 @@ namespace Gauge.Services;
 /// The first observation establishes a baseline, so launching Gauge above a threshold
 /// never replays an old alert.
 /// </summary>
-public sealed class UsageNotificationEvaluator
+public sealed class UsageNotificationEvaluator(Func<string, string>? displayToolName = null)
 {
     private const double ResetDropMinimum = 0.10;
 
@@ -235,7 +235,7 @@ public sealed class UsageNotificationEvaluator
             ? ThresholdMask.Danger
             : ThresholdMask.Caution;
 
-    private static UsageNotification CreateThreshold(
+    private UsageNotification CreateThreshold(
         string toolName, UsageWindow window, double threshold, DateTimeOffset now)
     {
         var percent = (int)Math.Round(threshold * 100);
@@ -247,13 +247,13 @@ public sealed class UsageNotificationEvaluator
                 : UsageLevel.Caution,
             ToolName = toolName,
             WindowType = window.Type,
-            Title = NotificationText.ThresholdTitle(toolName, window, percent),
+            Title = NotificationText.ThresholdTitle(displayToolName?.Invoke(toolName) ?? toolName, window, percent),
             Message = ResetTimeFormatter.ForNotification(window.ResetTime, now),
             CreatedAt = now,
         };
     }
 
-    private static UsageNotification CreateReset(
+    private UsageNotification CreateReset(
         string toolName, UsageWindow window, DateTimeOffset now)
     {
         var availablePercent = Math.Clamp((1 - window.UsedRatio) * 100, 0, 100);
@@ -263,7 +263,7 @@ public sealed class UsageNotificationEvaluator
             Level = UsageLevel.Ok,
             ToolName = toolName,
             WindowType = window.Type,
-            Title = NotificationText.ResetTitle(toolName, window),
+            Title = NotificationText.ResetTitle(displayToolName?.Invoke(toolName) ?? toolName, window),
             Message = NotificationText.ResetMessage(availablePercent),
             CreatedAt = now,
         };

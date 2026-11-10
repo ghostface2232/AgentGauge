@@ -30,6 +30,7 @@ public partial class App : Application
     private UsageViewModel? _viewModel;
     private SettingsViewModel? _settingsViewModel;
     private IReadOnlyDictionary<ToolKind, IAuthenticationProvider>? _authentication;
+    private readonly Dictionary<string, AccountConnection> _accountConnections = new();
     private ToolRegistry? _toolRegistry;
     private StartupService? _startupService;
     private NotificationSettingsStore? _notificationSettingsStore;
@@ -168,6 +169,31 @@ public partial class App : Application
             },
             _toolRegistry.IsEnabled, _toolRegistry.IsActive);
 
+        void SyncAccountConnections()
+        {
+            var accounts = _toolRegistry.Accounts;
+            foreach (var key in _accountConnections.Keys.Where(key => !accounts.Any(account => account.Key == key)).ToList())
+            {
+                _accountConnections.Remove(key);
+                _notificationService?.SetToolHidden(key, false);
+            }
+            foreach (var account in accounts)
+            {
+                if (!_accountConnections.ContainsKey(account.Key))
+                    _accountConnections.Add(account.Key, AccountConnection.Create(account, _httpClient, locator));
+                _notificationService?.SetToolHidden(account.Key, _toolRegistry.IsHidden(account.Tool));
+            }
+            usageService.SetAdditionalProviders(accounts.Select(account => _accountConnections[account.Key].Usage));
+        }
+
+        SyncAccountConnections();
+        _toolRegistry.AccountsChanged += (_, key) =>
+        {
+            SyncAccountConnections();
+            _coordinator?.ReemitState();
+            if (_coordinator is { } coordinator) _ = coordinator.RefreshAsync(RefreshReason.ToolsChanged, key);
+        };
+
         // Global settings toggles (notifications, run-on-startup) shown at the top of the
         // settings panel. The view model only emits intent; App owns the services and
         // applies/reconciles the change (see OnGlobal* handlers below). The initial state
@@ -194,7 +220,8 @@ public partial class App : Application
         _autoUpdateSettingsStore = new AutoUpdateSettingsStore();
         _autoUpdate = _autoUpdateSettingsStore.Load();
         var globalSettings = new GlobalSettingsViewModel(
-            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline, _paceModel, _showApiCost, _statusTarget, _autoUpdate);
+            _notificationPreferences, _startupService.IsEnabled(), _viewMode, _displayBasis, _showSparkline,
+            _paceModel, _showApiCost, _statusTarget, _autoUpdate, _toolRegistry.DisplayName);
         globalSettings.NotificationKindToggleRequested += OnNotificationKindToggled;
         globalSettings.StartOnBootToggleRequested += OnGlobalStartOnBootToggled;
         globalSettings.ViewModeChangeRequested += OnGlobalViewModeChanged;
@@ -207,7 +234,8 @@ public partial class App : Application
         globalSettings.LanguageChangeRequested += OnGlobalLanguageChanged;
 
         _updateService = new UpdateService();
-        _settingsViewModel = new SettingsViewModel(_toolRegistry, _authentication, _updateService, globalSettings, _autoUpdateSettingsStore);
+        _settingsViewModel = new SettingsViewModel(_toolRegistry, _authentication, _updateService,
+            globalSettings, _autoUpdateSettingsStore, key => _accountConnections.GetValueOrDefault(key)?.Authentication);
         _settingsViewModel.AuthenticationSucceeded += OnAuthenticationSucceeded;
         _settingsViewModel.SettingsWriteCompleted += (_, saved) => ReportSettingsWrite(saved);
         _settingsViewModel.Update.ExitRequested += OnUpdateExitRequested;
@@ -256,10 +284,11 @@ public partial class App : Application
             readAdaptiveSignals: () => new AdaptiveRefreshSignals(
                 Windows.System.Power.PowerManager.EnergySaverStatus == Windows.System.Power.EnergySaverStatus.On,
                 _sessionLocked));
-        _notificationService = new UsageNotificationService();
+        _notificationService = new UsageNotificationService(_toolRegistry.DisplayName);
         _notificationService.SetPreferences(_notificationPreferences);
         foreach (var kind in _toolRegistry.Enabled)
-            _notificationService.SetToolHidden(ToolCatalog.For(kind).DisplayName, _toolRegistry.IsHidden(kind));
+            foreach (var key in _toolRegistry.AccountKeysFor(kind))
+                _notificationService.SetToolHidden(key, _toolRegistry.IsHidden(kind));
         _toolRegistry.VisibilityChanged += OnToolVisibilityChanged;
         _coordinator.Updated += OnUsageUpdated;
         // These arrive on the UI thread; the started/completed pair drives the small
@@ -272,6 +301,13 @@ public partial class App : Application
         _coordinator.RefreshCompleted += OnRefreshCompleted;
         _coordinator.AuthenticationRequired += OnAuthenticationRequired;
         _coordinator.AuthenticationRecovered += OnAuthenticationRecovered;
+        _coordinator.AccountAuthenticationChanged += (_, outcome) =>
+        {
+            if (!_toolRegistry.IsRegistered(outcome.Key) || !_accountConnections.TryGetValue(outcome.Key, out var account))
+                return;
+            if (outcome.Accepted) account.Authentication.ReportCredentialsAccepted();
+            else account.Authentication.ReportInvalidCredentials();
+        };
         // Adding/removing a service re-fetches immediately so its card appears/disappears.
         _toolRegistry.Changed += OnToolRegistryChanged;
 
@@ -345,7 +381,9 @@ public partial class App : Application
         return enabled.Count > 0 && enabled.All(kind =>
             kind != ToolKind.Antigravity
             && _authentication.TryGetValue(kind, out var provider)
-            && provider.State.Status == AuthenticationStatus.Missing);
+            && provider.State.Status == AuthenticationStatus.Missing)
+            && _accountConnections.Where(pair => _toolRegistry.IsActive(pair.Key))
+                .All(pair => pair.Value.Authentication.State.Status == AuthenticationStatus.Missing);
     }
 
     private void OnRefreshStarted(object? sender, IReadOnlyList<string> toolNames)
@@ -360,6 +398,8 @@ public partial class App : Application
     private void OnUsageUpdated(object? sender, UsageState state)
     {
         // Coordinator marshals this to the UI thread.
+        if (_toolRegistry is { } registry)
+            state = state with { Tools = state.Tools.Where(tool => registry.IsRegistered(tool.ToolName)).ToList() };
         _notificationService?.Process(state);
         _viewModel?.Apply(state);
         // Feed the same snapshots to the settings cards so each shows its plan label.
@@ -373,7 +413,7 @@ public partial class App : Application
             _trayIcon?.UpdateStatusRing(_viewModel.StatusRing, _displayBasis);
         }
         var visibleTools = state.Tools
-            .Where(t => t.HasData && (_toolRegistry is null || ToolCatalog.All.Any(d => d.DisplayName == t.ToolName && _toolRegistry.IsActive(d.Kind))))
+            .Where(t => t.HasData && (_toolRegistry is null || _toolRegistry.IsActive(t.ToolName)))
             .ToList();
         _settingsViewModel?.Global.UpdateStatusTargetOptions(visibleTools, _statusTarget);
     }
@@ -398,7 +438,8 @@ public partial class App : Application
     {
         if (_toolRegistry is null) return;
         var hidden = _toolRegistry.IsHidden(kind);
-        _notificationService?.SetToolHidden(ToolCatalog.For(kind).DisplayName, hidden);
+        foreach (var key in _toolRegistry.AccountKeysFor(kind))
+            _notificationService?.SetToolHidden(key, hidden);
         _coordinator?.ReemitState();
         // A removal clears the hidden flag too; Changed drives that re-fetch, not this path.
         if (!hidden && _toolRegistry.IsEnabled(kind) && _coordinator is { } coordinator)
@@ -424,11 +465,11 @@ public partial class App : Application
         }
     }
 
-    private async void OnAuthenticationSucceeded(object? sender, EventArgs e)
+    private async void OnAuthenticationSucceeded(object? sender, string key)
     {
         if (_coordinator is not null)
         {
-            await _coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
+            await _coordinator.RefreshAsync(RefreshReason.AuthenticationChanged, key);
         }
     }
 

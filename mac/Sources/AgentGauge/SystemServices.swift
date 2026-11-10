@@ -43,7 +43,7 @@ final class NotificationService: NSObject, UNUserNotificationCenterDelegate {
         content.body = notification.message
         // Only the danger crossing earns a sound; everything else arrives quietly.
         if notification.level == .danger { content.sound = .default }
-        content.threadIdentifier = notification.tool.rawValue
+        content.threadIdentifier = notification.accountKey.storageKey
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.add(request) { error in
             if let error { Log.write("notify", "Notification not shown: \(type(of: error))") }
@@ -100,6 +100,56 @@ enum TerminalLauncher {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
         await MainActor.run { _ = NSWorkspace.shared.open(script) }
     }
+
+    /// Waits for the CLI's exit status only. The visible Terminal owns all login output.
+    static func runAccount(_ profile: AccountCLIProfile) async throws {
+        let locator = CLILocator()
+        guard let executable = await locator.locate(profile.signIn.executable) else { throw LoginError.launchFailed }
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: profile.directory, withIntermediateDirectories: true,
+                                        attributes: [.posixPermissions: 0o700])
+        let directory = fileManager.temporaryDirectory.appending(path: "AgentGauge/login-\(UUID().uuidString)",
+                                                                  directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true,
+                                        attributes: [.posixPermissions: 0o700])
+        defer { try? fileManager.removeItem(at: directory) }
+        let script = directory.appending(path: "sign-in.command")
+        let result = directory.appending(path: "result")
+        let environment = await locator.environment(for: executable)
+        let variables = profile.variables.merging(["PATH": environment["PATH"] ?? "/usr/bin:/bin"]) { value, _ in value }
+        var arguments = ["/usr/bin/env"]
+        arguments += profile.clearedVariables.flatMap { ["-u", $0] }
+        arguments += variables.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }
+        arguments.append(executable.path)
+        arguments += profile.signIn.arguments
+        let command = arguments.map(shellQuoted).joined(separator: " ")
+        let home = shellQuoted(fileManager.homeDirectoryForCurrentUser.path)
+        let marker = shellQuoted(result.path)
+        let contents = """
+            #!/bin/zsh -f
+            if cd -- \(home) && \(command); then
+                printf ok > \(marker)
+            else
+                printf failed > \(marker)
+            fi
+            """
+        try (contents + "\n").write(to: script, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+        let opened = await MainActor.run { NSWorkspace.shared.open(script) }
+        guard opened else { throw LoginError.launchFailed }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(600))
+        while clock.now < deadline {
+            switch try? String(contentsOf: result, encoding: .utf8) {
+            case "ok": return
+            case "failed": throw LoginError.unsuccessful
+            default: try await Task.sleep(for: .seconds(1))
+            }
+        }
+        throw LoginError.unsuccessful
+    }
+
+    private enum LoginError: Error { case launchFailed, unsuccessful }
 
     private static func shellQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"

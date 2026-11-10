@@ -33,7 +33,7 @@ public sealed partial class UsageViewModel : ObservableObject
     {
         _serviceStatuses = statuses;
         foreach (var card in Cards)
-            card.ApplyServiceStatus(statuses.FirstOrDefault(s => ToolCatalog.For(s.Tool).DisplayName == card.ToolName));
+            card.ApplyServiceStatus(statuses.FirstOrDefault(s => StatusTargetMatcher.Descriptor(card.ToolName)?.Kind == s.Tool));
     }
     /// <summary>Returns true when every registered tool's credential state is known-Missing
     /// (nobody signed in). Optional so tests and older call sites can omit it; without it
@@ -64,9 +64,8 @@ public sealed partial class UsageViewModel : ObservableObject
 
     /// <summary>
     /// Persists a new card order after a drag on the main screen. Maps each card's tool name
-    /// back to its <see cref="ToolKind"/> (every provider's <c>ToolName</c> is its catalog
-    /// display name) and hands it to the registry, which propagates the order to the settings
-    /// screen via its <see cref="ToolRegistry.Changed"/> event.
+    /// back to its <see cref="ToolKind"/> and hands it to the registry, so accounts for
+    /// the same tool move together and the settings screen follows the shared order.
     /// </summary>
     public void ReorderTools(IReadOnlyList<string> toolNamesInNewOrder)
     {
@@ -75,10 +74,10 @@ public sealed partial class UsageViewModel : ObservableObject
             return;
         }
         var kinds = toolNamesInNewOrder
-            .Select(name => ToolCatalog.All.FirstOrDefault(d => d.DisplayName == name)?.Kind)
+            .Select(name => StatusTargetMatcher.Descriptor(name)?.Kind)
             .OfType<ToolKind>()
             .ToList();
-        _registry.ReorderEnabled(kinds);
+        if (!_registry.ReorderEnabled(kinds)) ResortCards();
     }
 
     /// <summary>Reorders the existing cards in place to match the registry's display order,
@@ -90,22 +89,12 @@ public sealed partial class UsageViewModel : ObservableObject
         {
             return;
         }
-        var target = 0;
-        foreach (var kind in _registry.Enabled)
+        var ordered = Cards.OrderBy(card => OrderOf(card.ToolName))
+            .ThenBy(card => card.ToolName.Contains(ToolAccount.KeySeparator)).ToList();
+        for (var target = 0; target < ordered.Count; target++)
         {
-            var name = ToolCatalog.For(kind).DisplayName;
-            for (var i = target; i < Cards.Count; i++)
-            {
-                if (Cards[i].ToolName == name)
-                {
-                    if (i != target)
-                    {
-                        Cards.Move(i, target);
-                    }
-                    target++;
-                    break;
-                }
-            }
+            var current = Cards.IndexOf(ordered[target]);
+            if (current != target) Cards.Move(current, target);
         }
     }
 
@@ -118,10 +107,11 @@ public sealed partial class UsageViewModel : ObservableObject
         {
             return int.MaxValue;
         }
+        var kind = StatusTargetMatcher.Descriptor(toolName)?.Kind;
         var enabled = _registry.Enabled;
         for (var i = 0; i < enabled.Count; i++)
         {
-            if (ToolCatalog.For(enabled[i]).DisplayName == toolName)
+            if (enabled[i] == kind)
             {
                 return i;
             }
@@ -129,7 +119,7 @@ public sealed partial class UsageViewModel : ObservableObject
         return int.MaxValue;
     }
 
-    /// <summary>One card per tool.</summary>
+    /// <summary>One card per account, grouped by tool.</summary>
     public ObservableCollection<ToolCardViewModel> Cards { get; } = new();
 
     /// <summary>
@@ -330,8 +320,7 @@ public sealed partial class UsageViewModel : ObservableObject
 
     private bool IsUnexpired(long start) => _time.GetElapsedTime(start) < RefreshIndicatorLimit;
 
-    private bool IsVisible(string name) => _registry is null
-        || ToolCatalog.All.Any(d => d.DisplayName == name && _registry.IsActive(d.Kind));
+    private bool IsVisible(string name) => _registry is null || _registry.IsActive(name);
 
     public void Apply(UsageState state)
     {
@@ -343,7 +332,8 @@ public sealed partial class UsageViewModel : ObservableObject
         // Order by the shared registry display order so the cards match the settings screen
         // (and reflect a drag-to-reorder done on either surface). OrderBy is stable, so tools
         // without a registry slot keep the coordinator's relative order at the end.
-        var recorded = state.Tools.Where(t => t.HasData && IsVisible(t.ToolName)).OrderBy(t => OrderOf(t.ToolName)).ToList();
+        var recorded = state.Tools.Where(t => t.HasData && IsVisible(t.ToolName))
+            .OrderBy(t => OrderOf(t.ToolName)).ThenBy(t => t.ToolName.Contains(ToolAccount.KeySeparator)).ToList();
         _lastRecorded = recorded;
 
         HighestUsageRatio = recorded
@@ -423,7 +413,7 @@ public sealed partial class UsageViewModel : ObservableObject
             var existing = Cards.FirstOrDefault(c => c.ToolName == tool.ToolName);
             if (existing is null)
             {
-                var card = new ToolCardViewModel(tool, _history)
+                var card = new ToolCardViewModel(tool, _history, _registry?.FindAccount(tool.ToolName)?.Label)
                 {
                     ViewMode = ViewMode, DisplayBasis = DisplayBasis, ShowSparkline = ShowSparkline,
                     PaceModel = PaceModel,
@@ -465,7 +455,7 @@ public sealed partial class UsageViewModel : ObservableObject
     /// </summary>
     private const int TooltipSummaryBudget = 84;
 
-    private static string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools)
+    private string BuildTrayTooltipSummary(IReadOnlyList<CachedUsage> tools)
     {
         if (tools.Count == 0)
         {
@@ -480,18 +470,19 @@ public sealed partial class UsageViewModel : ObservableObject
         var compact = new List<string>();
         foreach (var tool in tools)
         {
+            var name = _registry?.DisplayName(tool.ToolName) ?? tool.ToolName;
             if (tool.Snapshot is { Windows.Count: > 0 } snapshot)
             {
                 var (shortWindow, longWindow) = StatusRingSelection.Select(snapshot.Windows);
                 var shown = new[] { shortWindow, longWindow }.OfType<UsageWindow>().ToList();
                 if (shown.Count == 0) shown.Add(snapshot.Windows.MaxBy(w => w.UsedRatio)!);
-                lines.Add($"{tool.ToolName}  {string.Join(" · ", shown.Select(w => $"{w.Label} {w.UsedRatio * 100:0}%"))}");
-                compact.Add($"{tool.ToolName} {snapshot.Windows.Max(w => w.UsedRatio) * 100:0}%");
+                lines.Add($"{name}  {string.Join(" · ", shown.Select(w => $"{w.Label} {w.UsedRatio * 100:0}%"))}");
+                compact.Add($"{name} {snapshot.Windows.Max(w => w.UsedRatio) * 100:0}%");
             }
             else
             {
-                lines.Add(Loc.Format("Tray_NoData", tool.ToolName));
-                compact.Add(Loc.Format("Tray_NoData", tool.ToolName));
+                lines.Add(Loc.Format("Tray_NoData", name));
+                compact.Add(Loc.Format("Tray_NoData", name));
             }
         }
 

@@ -93,7 +93,7 @@ public final class UsageHistoryStore: @unchecked Sendable {
         let captured = Self.roundedToMillisecond(snapshot.capturedAt)
         var fresh: [(key: Key, window: UsageWindow, sample: UsageSample)] = []
         for window in snapshot.windows where window.usedRatio.isFinite {
-            let key = Key(tool: snapshot.tool.rawValue, window: window.id)
+            let key = Key(tool: snapshot.accountKey.storageKey, window: window.id)
             guard !fresh.contains(where: { $0.key == key }) else { continue }
             hydrate(key)
             if let last = profiles[key]?.last?.capturedAt ?? tail[key]?.last?.capturedAt, captured <= last {
@@ -148,11 +148,12 @@ public final class UsageHistoryStore: @unchecked Sendable {
     /// Recorded samples for one window over the trailing `lookback` (at most the six-hour
     /// memory tail), oldest first. Empty when nothing was recorded. Served from memory once
     /// the window is hydrated.
-    public func recent(tool: ToolKind, windowID: String, lookback: TimeInterval = memoryTailSpan) -> [UsageSample] {
+    public func recent(tool: ToolKind, profileID: UUID? = nil, windowID: String,
+                       lookback: TimeInterval = memoryTailSpan) -> [UsageSample] {
         lock.lock()
         defer { lock.unlock() }
         guard !isClosed else { return [] }
-        let key = Key(tool: tool.rawValue, window: windowID)
+        let key = Key(tool: UsageAccountKey(tool: tool, profileID: profileID).storageKey, window: windowID)
         hydrate(key)
         let cutoff = now().addingTimeInterval(-lookback)
         return (tail[key] ?? []).filter { $0.capturedAt >= cutoff }
@@ -160,11 +161,11 @@ public final class UsageHistoryStore: @unchecked Sendable {
 
     /// How one window's consumption has fallen across the local weekdays over the recent
     /// weeks, for the automatic pace model. Nil when nothing was recorded for the window.
-    public func weekdayProfile(tool: ToolKind, windowID: String) -> UsageWeekdayProfile? {
+    public func weekdayProfile(tool: ToolKind, profileID: UUID? = nil, windowID: String) -> UsageWeekdayProfile? {
         lock.lock()
         defer { lock.unlock() }
         guard !isClosed else { return nil }
-        let key = Key(tool: tool.rawValue, window: windowID)
+        let key = Key(tool: UsageAccountKey(tool: tool, profileID: profileID).storageKey, window: windowID)
         hydrate(key)
         return profiles[key]?.profile()
     }

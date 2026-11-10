@@ -35,6 +35,21 @@ final class UsageHistoryStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    func testAccountsHaveSeparateHistoryForTheSameToolAndWindow() {
+        let store = makeStore()
+        let id = UUID()
+        let primary = UsageSnapshot(tool: .codex, plan: nil, windows: [UsageWindow(type: .fiveHour, usedRatio: 0.2)],
+                                    capturedAt: start)
+        var secondary = primary
+        secondary.profileID = id
+        secondary.windows[0].usedRatio = 0.8
+        store.record(primary)
+        store.record(secondary)
+        XCTAssertEqual(store.recent(tool: .codex, windowID: window).map(\.usedRatio), [0.2])
+        XCTAssertEqual(store.recent(tool: .codex, profileID: id, windowID: window).map(\.usedRatio), [0.8])
+        store.close()
+    }
+
     private func makeStore(timeZone: TimeZone? = nil) -> UsageHistoryStore {
         let clock = self.clock!
         return UsageHistoryStore(directory: directory, timeZone: timeZone ?? utc, now: { clock.now })

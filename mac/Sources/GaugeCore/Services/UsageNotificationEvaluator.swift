@@ -9,6 +9,8 @@ public struct UsageNotification: Sendable, Equatable {
     public var kind: UsageNotificationKind
     public var level: UsageLevel
     public var tool: ToolKind
+    public var profileID: UUID? = nil
+    public var accountKey: UsageAccountKey { UsageAccountKey(tool: tool, profileID: profileID) }
     public var windowID: String
     public var title: String
     public var message: String
@@ -30,7 +32,7 @@ public struct UsageNotificationEvaluator: Sendable {
     private var observations: [Key: Observation] = [:]
     /// Tools just shown again, whose next snapshot is the coordinator's cache from before
     /// they were hidden.
-    private var resumingTools = Set<ToolKind>()
+    private var resumingAccounts = Set<UsageAccountKey>()
     /// Windows whose baseline came from such a snapshot: the next newer observation replaces
     /// it rather than being compared with it, so a reset or crossing that happened while the
     /// tool was hidden is never replayed when it comes back.
@@ -43,14 +45,14 @@ public struct UsageNotificationEvaluator: Sendable {
     public mutating func resetBaseline() {
         observations.removeAll()
         resumeBaseline.removeAll()
-        resumingTools.removeAll()
+        resumingAccounts.removeAll()
     }
 
     /// A hidden tool was shown again. Hidden tools are not emitted, so their history is
     /// already gone; this makes sure the stale cache that arrives first cannot become the
     /// baseline the first live read is compared against.
-    public mutating func toolShown(_ tool: ToolKind) {
-        resumingTools.insert(tool)
+    public mutating func toolShown(_ tool: ToolKind, profileID: UUID? = nil) {
+        resumingAccounts.insert(UsageAccountKey(tool: tool, profileID: profileID))
     }
 
     public mutating func evaluate(_ states: [ToolState], now: Date) -> [UsageNotification] {
@@ -67,20 +69,20 @@ public struct UsageNotificationEvaluator: Sendable {
             // tool's resume mark is for, so this uses it up; left set, it would make the first
             // live reading a throwaway baseline and swallow the second one too.
             if state.isRehydrated {
-                resumingTools.remove(snapshot.tool)
+                resumingAccounts.remove(state.id)
                 continue
             }
 
             // A failed refresh re-serves the last good snapshot: keep its keys alive without
             // evaluating cached values as new transitions.
             if state.lastRefreshFailed {
-                windows.forEach { present.insert(Key(tool: snapshot.tool, window: $0.id)) }
+                windows.forEach { present.insert(Key(account: state.id, window: $0.id)) }
                 continue
             }
 
-            let resuming = resumingTools.remove(snapshot.tool) != nil
+            let resuming = resumingAccounts.remove(state.id) != nil
             for window in windows {
-                let key = Key(tool: snapshot.tool, window: window.id)
+                let key = Key(account: state.id, window: window.id)
                 present.insert(key)
                 guard let previous = observations[key], !resuming else {
                     observations[key] = .baseline(window, capturedAt: snapshot.capturedAt)
@@ -97,7 +99,7 @@ public struct UsageNotificationEvaluator: Sendable {
                 let reset = Self.isReset(previous, window)
                 if reset, Self.supportsResetNotification(window.type),
                    previous.highestRatio >= Self.minimumThreshold(window.type) {
-                    notifications.append(Self.resetNotification(snapshot.tool, window))
+                    notifications.append(Self.resetNotification(state, window))
                 }
 
                 // A new cycle re-arms its thresholds even when no reset toast is due: usage can
@@ -107,7 +109,7 @@ public struct UsageNotificationEvaluator: Sendable {
                 var crossed: Set<Double> = newCycle ? [] : previous.crossed
                 for threshold in Self.thresholds(window.type)
                 where !crossed.contains(threshold) && previous.ratio < threshold && window.usedRatio >= threshold {
-                    notifications.append(Self.thresholdNotification(snapshot.tool, window, threshold: threshold, now: now))
+                    notifications.append(Self.thresholdNotification(state, window, threshold: threshold, now: now))
                     crossed.insert(threshold)
                 }
                 // A polling gap that spans a reset into an already-high cycle is marked
@@ -166,28 +168,30 @@ public struct UsageNotificationEvaluator: Sendable {
         Set(thresholds(window.type).filter { window.usedRatio >= $0 })
     }
 
-    private static func thresholdNotification(_ tool: ToolKind, _ window: UsageWindow, threshold: Double, now: Date) -> UsageNotification {
+    private static func thresholdNotification(_ state: ToolState, _ window: UsageWindow, threshold: Double, now: Date) -> UsageNotification {
         UsageNotification(
             kind: .threshold,
             level: threshold >= UsageLevel.dangerThreshold ? .danger : .caution,
-            tool: tool,
+            tool: state.tool,
+            profileID: state.id.profileID,
             windowID: window.id,
-            title: NotificationText.thresholdTitle(tool: tool, window: window, percent: Int((threshold * 100).rounded())),
+            title: NotificationText.thresholdTitle(toolName: state.displayName, window: window, percent: Int((threshold * 100).rounded())),
             message: ResetTimeFormatter.notification(window.resetTime, now: now))
     }
 
-    private static func resetNotification(_ tool: ToolKind, _ window: UsageWindow) -> UsageNotification {
+    private static func resetNotification(_ state: ToolState, _ window: UsageWindow) -> UsageNotification {
         UsageNotification(
             kind: .reset,
             level: .ok,
-            tool: tool,
+            tool: state.tool,
+            profileID: state.id.profileID,
             windowID: window.id,
-            title: NotificationText.resetTitle(tool: tool, window: window),
+            title: NotificationText.resetTitle(toolName: state.displayName, window: window),
             message: NotificationText.resetMessage(availablePercent: min(max((1 - window.usedRatio) * 100, 0), 100)))
     }
 
     private struct Key: Hashable, Sendable {
-        var tool: ToolKind
+        var account: UsageAccountKey
         var window: String
     }
 

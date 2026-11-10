@@ -20,6 +20,7 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
     private bool _suspendSideEffects;
     private string _statusTarget = string.Empty;
     private IReadOnlyList<CachedUsage> _statusTargetTools = [];
+    private readonly Func<string, string> _displayToolName;
 
     public GlobalSettingsViewModel(
         NotificationPreferences notifications,
@@ -30,8 +31,10 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         WeeklyPaceModel paceModel = WeeklyPaceModel.Uniform,
         bool showApiCost = false,
         string statusTarget = "",
-        bool autoUpdate = true)
+        bool autoUpdate = true,
+        Func<string, string>? displayToolName = null)
     {
+        _displayToolName = displayToolName ?? (key => key);
         SyncFromSystem(notifications, startOnBoot);
         _suspendSideEffects = true;
         _statusTarget = statusTarget ?? string.Empty;
@@ -208,7 +211,7 @@ public sealed partial class GlobalSettingsViewModel : ObservableObject
         // arcs already carry its 5-hour and weekly windows.
         foreach (var tool in tools)
         {
-            newOptions.Add(tool.ToolName);
+            newOptions.Add(_displayToolName(tool.ToolName));
             newKeys.Add(tool.ToolName);
         }
 

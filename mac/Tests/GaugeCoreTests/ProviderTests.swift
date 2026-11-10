@@ -307,9 +307,12 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         var lookupFailure: Int32?
         var result: KeychainPasswordResult = .notFound
         var passwordReads = 0
+        var lookupServices: [String] = []
+        var passwordServices: [String] = []
 
         func newestItem(service: String) async -> KeychainItemLookup {
             lock.withLock { () -> KeychainItemLookup in
+                lookupServices.append(service)
                 if let lookupFailure { return .failed(lookupFailure) }
                 return item.map(KeychainItemLookup.found) ?? .notFound
             }
@@ -317,12 +320,26 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         func password(service: String, account: String?) async -> KeychainPasswordResult {
             lock.withLock {
                 passwordReads += 1
+                passwordServices.append(service)
                 return result
             }
         }
     }
 
     private let document = Data(#"{"claudeAiOauth":{"accessToken":"tok","subscriptionType":"pro"}}"#.utf8)
+
+    func testAdditionalClaudeAccountReadsOnlyItsScopedKeychainService() async {
+        let keychain = FakeKeychain()
+        keychain.item = KeychainItem(account: "me", modified: Date(timeIntervalSince1970: 1))
+        keychain.result = .data(document)
+        let directory = URL(fileURLWithPath: "/agentgauge-test/work-profile", isDirectory: true)
+        let source = ClaudeCredentialSource(keychain: keychain, environment: [:], scopedConfigDirectory: directory)
+
+        let read = await source.read(interactive: false)
+        XCTAssertEqual(read, .available(ToolCredential(accessToken: "tok", plan: "Pro")))
+        XCTAssertEqual(keychain.lookupServices, ["Claude Code-credentials-189f7b27"])
+        XCTAssertEqual(keychain.passwordServices, keychain.lookupServices)
+    }
 
     func testSecretIsReadAgainOnlyWhenTheItemChanges() async {
         let keychain = FakeKeychain()

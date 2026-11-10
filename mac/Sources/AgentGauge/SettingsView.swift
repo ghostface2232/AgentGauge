@@ -224,15 +224,20 @@ private extension View {
 
 private extension View {
     /// One tab's form: grouped like System Settings, fixed width, as tall as its content.
-    func settingsPane() -> some View {
-        formStyle(.grouped)
-            .scrollDisabled(true)
+    @ViewBuilder
+    func settingsPane(scrollable: Bool = false) -> some View {
+        let form = formStyle(.grouped)
             .softTopScrollEdge()
             .frame(width: 460)
-            .fixedSize(horizontal: false, vertical: true)
             // With no bar or line under the tabs, the grouped form's top inset reads as a gap;
             // pulled up so the first group sits closer below the tab bar.
             .padding(.top, -14)
+        if scrollable {
+            form.frame(height: 440)
+        } else {
+            form.scrollDisabled(true)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Content passing under the toolbar (the pane mid-transition) blurs away like system
@@ -306,13 +311,12 @@ private struct DisplaySettings: View {
                 Toggle(L10n.get("Settings_ShowPercent"), isOn: $model.showPercentInMenuBar)
                 let activeStates = model.states.filter { !model.hiddenTools.contains($0.tool) }
                 let targetStates = activeStates.filter { $0.snapshot != nil }
-                let targetTool = StatusTarget.tool(from: model.statusTarget)
-                let hasMatchingTarget = targetTool.map { tool in targetStates.contains { $0.tool == tool } } ?? false
-                // One entry per tool: its logo ring already carries the 5-hour and weekly arcs.
+                let target = StatusTarget.account(from: model.statusTarget)
+                let hasMatchingTarget = target.map { key in targetStates.contains { $0.id == key } } ?? false
                 Picker(L10n.get("Settings_StatusTarget"), selection: $model.statusTarget) {
                     Text(L10n.get("StatusTarget_All")).tag("")
                     ForEach(targetStates) { state in
-                        Text(state.tool.displayName).tag(state.tool.rawValue)
+                        Text(verbatim: state.displayName).tag(state.id.storageKey)
                     }
                     if !model.statusTarget.isEmpty && model.statusTarget != "all" && !hasMatchingTarget {
                         Text(L10n.get("StatusTarget_Unavailable")).tag(model.statusTarget)
@@ -352,6 +356,7 @@ private struct DisplaySettings: View {
 
 private struct AccountSettings: View {
     @Environment(AppModel.self) private var model
+    @State private var addingFor: ToolKind?
 
     var body: some View {
         Form {
@@ -359,14 +364,51 @@ private struct AccountSettings: View {
                 ForEach(ToolKind.allCases) { tool in
                     AccountRow(
                         tool: tool,
-                        state: model.states.first { $0.tool == tool },
-                        shown: !model.hiddenTools.contains(tool),
-                        onShownChange: { model.setShown(tool, $0) },
-                        onSignIn: { model.signIn(tool) })
+                        onAddAccount: ToolAccount.supports(tool) ? { addingFor = tool } : nil)
+                    ForEach(model.accounts.filter { $0.tool == tool }) { account in
+                        AccountRow(tool: tool, account: account)
+                    }
                 }
             }
         }
-        .settingsPane()
+        .settingsPane(scrollable: model.accounts.count > 2)
+        .sheet(item: $addingFor) { tool in
+            AccountEditor(tool: tool)
+        }
+    }
+}
+
+private struct AccountEditor: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    let tool: ToolKind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L10n.get("Account_Add")).font(.headline)
+            Text(verbatim: tool.displayName).foregroundStyle(.secondary)
+            TextField(L10n.get(tool == .githubCopilot ? "Account_GitHubUsername" : "Account_Name"), text: $name)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(save)
+            if !name.isEmpty && model.accountLabel(name, for: tool) == nil {
+                Text(L10n.get("Account_InvalidName")).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Spacer()
+                Button(L10n.get("Account_Cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L10n.get("Account_Add"), action: save).keyboardShortcut(.defaultAction)
+                    .disabled(model.accountLabel(name, for: tool) == nil)
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+    }
+
+    private func save() {
+        guard model.accountLabel(name, for: tool) != nil else { return }
+        model.addAccount(tool, label: name)
+        dismiss()
     }
 }
 
@@ -409,16 +451,21 @@ private struct AboutSettings: View {
 }
 
 private struct AccountRow: View {
+    @Environment(AppModel.self) private var model
     let tool: ToolKind
-    let state: ToolState?
-    let shown: Bool
-    let onShownChange: (Bool) -> Void
-    let onSignIn: () -> Void
+    var account: ToolAccount? = nil
+    var onAddAccount: (() -> Void)? = nil
+
+    private var key: UsageAccountKey { account?.key ?? UsageAccountKey(tool: tool) }
+    private var state: ToolState? { model.states.first { $0.id == key } }
+    private var shown: Bool { !model.hiddenTools.contains(tool) }
+    private var signingIn: Bool { model.signingIn.contains(key) }
+    private var namedCopilot: Bool { account != nil && tool == .githubCopilot }
 
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: tool.displayName)
+                Text(verbatim: account?.displayName ?? tool.displayName)
                 if let status {
                     Text(status)
                         .font(.caption)
@@ -427,16 +474,38 @@ private struct AccountRow: View {
                 }
             }
             Spacer(minLength: 12)
-            if needsSignIn {
-                Button(AuthText.signInAction(tool), action: onSignIn)
+            if shown && state?.auth == .keychainDenied {
+                Button(L10n.get("Action_TryAgain")) { model.refreshAccount(key) }.buttonStyle(.bordered).controlSize(.small)
+            } else if shown && needsSignIn && !signingIn {
+                if namedCopilot {
+                    Button(L10n.get("Action_TryAgain")) { model.refreshAccount(key) }.buttonStyle(.bordered).controlSize(.small)
+                } else {
+                    Button(AuthText.signInAction(tool)) {
+                        if let account { model.signIn(account) }
+                        else { model.signIn(tool) }
+                    }
+                    .buttonStyle(.bordered)
                     .controlSize(.small)
+                }
             }
-            Toggle(L10n.get("Settings_ShowTool"), isOn: Binding(get: { shown }, set: onShownChange))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .help(L10n.get("Settings_ShowToolHelp"))
-                .accessibilityLabel("\(tool.displayName) \(L10n.get("Settings_ShowTool"))")
+            if let onAddAccount {
+                Button(L10n.get("Account_Add"), action: onAddAccount).buttonStyle(.bordered).controlSize(.small)
+                    .disabled(!shown)
+            }
+            if let account {
+                Button { model.removeAccount(account) } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .help(L10n.get("Account_Remove"))
+                    .accessibilityLabel(L10n.get("Account_Remove"))
+                    .disabled(signingIn)
+            } else {
+                Toggle(L10n.get("Settings_ShowTool"), isOn: Binding(get: { shown }, set: { model.setShown(tool, $0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .help(L10n.get("Settings_ShowToolHelp"))
+                    .accessibilityLabel("\(tool.displayName) \(L10n.get("Settings_ShowTool"))")
+            }
         }
     }
 
@@ -446,7 +515,10 @@ private struct AccountRow: View {
     }
 
     private var status: String? {
+        if signingIn { return L10n.get("Account_LoginRunning") }
+        if model.failedAccountSignIns.contains(key), needsSignIn { return L10n.get("Account_LoginFailed") }
         guard let state, shown else { return nil }
+        if namedCopilot && needsSignIn { return L10n.get("Account_CopilotSignIn") }
         switch state.auth {
         case .signedIn where tool == .antigravity && state.snapshot?.windows.isEmpty != false:
             return L10n.get("Auth_Antigravity")
