@@ -59,7 +59,8 @@ public struct UsageBurndown: Sendable, Equatable {
         // real cycle boundary splits: a provider recomputing its own utilization slightly
         // downward must not cost the row its history.
         if let boundary = valid.indices.dropFirst().last(where: {
-            UsageCycleBoundary.isReset(valid[$0 - 1], valid[$0])
+            valid[$0].isManualReset(after: valid[$0 - 1])
+                || UsageCycleBoundary.isReset(valid[$0 - 1], valid[$0])
         }) {
             valid = Array(valid[boundary...])
         }

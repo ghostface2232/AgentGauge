@@ -296,6 +296,29 @@ public sealed class UsageHistoryStoreTests : IDisposable
         AssertWeights(profile, monday: 0.05);
     }
 
+    [Theory]
+    [InlineData(1, 0.15)]
+    [InlineData(2, 0.25)]
+    public void WeekdayProfileSkipsOnlyTheManualResetIntervalAcrossReopen(int balanceAfterDrop, double expected)
+    {
+        var start = _time.Now;
+        var reset = start.AddHours(2);
+        var window = UsageWindowType.FiveHour.ToString();
+        using (var store = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc))
+        {
+            RecordAt(store, start, .70, reset, credits: 2);
+            RecordAt(store, start.AddMinutes(15), .80, reset, credits: 2);
+            RecordAt(store, start.AddMinutes(30), .10, reset.AddHours(1), credits: balanceAfterDrop);
+            RecordAt(store, start.AddMinutes(45), .15, reset.AddHours(1), credits: balanceAfterDrop);
+            AssertWeights(store.GetWeekdayProfile("Codex", window)!, monday: expected);
+        }
+
+        using var reopened = new UsageHistoryStore(_dir, _time, TimeZoneInfo.Utc);
+        Assert.Equal(new int?[] { 2, 2, balanceAfterDrop, balanceAfterDrop },
+            reopened.GetRecent("Codex", window, TimeSpan.FromHours(1)).Select(s => s.ResetCredits));
+        AssertWeights(reopened.GetWeekdayProfile("Codex", window)!, monday: expected);
+    }
+
     [Fact]
     public void WeekdayProfilePairsTheFirstReadingAfterRestartWithTheLastStoredOne()
     {
@@ -332,10 +355,11 @@ public sealed class UsageHistoryStoreTests : IDisposable
         Assert.Equal(1, profile.DaysObserved);
     }
 
-    private void RecordAt(UsageHistoryStore store, DateTimeOffset capturedAt, double ratio, DateTimeOffset? resetTime = null)
+    private void RecordAt(UsageHistoryStore store, DateTimeOffset capturedAt, double ratio,
+        DateTimeOffset? resetTime = null, int? credits = null)
     {
         _time.Now = capturedAt;
-        var snapshot = Snapshot("Codex", ratio, capturedAt);
+        var snapshot = Snapshot("Codex", ratio, capturedAt) with { ResetCredits = credits };
         if (resetTime is { } reset)
         {
             snapshot = snapshot with { Windows = [snapshot.Windows[0] with { ResetTime = reset }] };

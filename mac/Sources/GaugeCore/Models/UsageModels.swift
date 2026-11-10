@@ -126,6 +126,7 @@ public struct UsageWindow: Codable, Sendable, Hashable, Identifiable {
     public var providerID: String?
     /// Language-neutral family/model scope (e.g. "Fable"); windows sharing it are grouped.
     public var groupLabel: String?
+    public var resetCredits: Int?
     /// Utilization in [0, 1].
     public var usedRatio: Double
     /// Localization key for a label not derived from `type`. The key is persisted, never
@@ -168,6 +169,24 @@ public struct UsageWindow: Codable, Sendable, Hashable, Identifiable {
     public var label: String { WindowLabels.label(for: self) }
 }
 
+/// Expiry of an available manual reset, separate from any scheduled usage rollover.
+public struct ResetCreditDeadline: Codable, Sendable, Hashable {
+    public let expiresAt: Date
+    public let scope: String?
+
+    public init(expiresAt: Date, scope: String? = nil) {
+        self.expiresAt = expiresAt
+        self.scope = scope
+    }
+
+    public static let warningLeadTime: TimeInterval = 2 * 86_400
+
+    public static func upcoming(_ deadlines: [Self]?, now: Date) -> Self? {
+        deadlines?.filter { $0.expiresAt > now && $0.expiresAt.timeIntervalSince(now) <= warningLeadTime }
+            .min { $0.expiresAt < $1.expiresAt }
+    }
+}
+
 /// One tool's usage at one point in time — the single model the UI depends on, so a data
 /// source can be swapped without touching the UI.
 public struct UsageSnapshot: Codable, Sendable, Hashable {
@@ -178,13 +197,16 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     /// Manual rate-limit resets the account holds (Codex). Nil means the tool exposes no
     /// such allowance; 0 means it does and the balance is spent — the two stay distinct.
     public var resetCredits: Int?
+    public var resetCreditDeadlines: [ResetCreditDeadline]?
     public var capturedAt: Date
 
-    public init(tool: ToolKind, plan: String?, windows: [UsageWindow], resetCredits: Int? = nil, capturedAt: Date) {
+    public init(tool: ToolKind, plan: String?, windows: [UsageWindow], resetCredits: Int? = nil,
+                resetCreditDeadlines: [ResetCreditDeadline]? = nil, capturedAt: Date) {
         self.tool = tool
         self.plan = plan
         self.windows = windows
         self.resetCredits = resetCredits
+        self.resetCreditDeadlines = resetCreditDeadlines
         self.capturedAt = capturedAt
     }
 }

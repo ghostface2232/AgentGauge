@@ -361,7 +361,7 @@ final class AppModel {
         // Detection stops entirely while every kind is off; re-enabling resets the baseline.
         guard notifyThresholds || notifyResets else { return }
         let alerts = evaluator.evaluate(newStates, now: now)
-        for alert in alerts where (alert.kind == .threshold && notifyThresholds) || (alert.kind == .reset && notifyResets) {
+        for alert in alerts where alert.kind == .reset ? notifyResets : notifyThresholds {
             notifier.post(alert)
         }
     }

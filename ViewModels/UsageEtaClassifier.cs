@@ -55,47 +55,23 @@ public static class UsageEtaClassifier
         var cutoff = now - Lookback;
         var recent = samples.Where(s => s.CapturedAt >= cutoff && s.CapturedAt <= now).ToList();
 
-        // Samples before the newest cycle boundary belong to the previous allowance;
-        // averaging across it would fit the slope to a drop that never happened.
-        var start = 0;
+        var segments = new List<int> { 0 };
         for (var i = 1; i < recent.Count; i++)
         {
-            if (UsageCycleBoundary.IsReset(recent[i - 1], recent[i]))
+            if (recent[i].IsManualResetAfter(recent[i - 1]))
             {
-                start = i;
+                segments.Add(i);
+            }
+            else if (UsageCycleBoundary.IsReset(recent[i - 1], recent[i]))
+            {
+                // A scheduled rollover still discards the previous cycle's readings.
+                segments.Clear();
+                segments.Add(i);
             }
         }
-        if (start > 0)
-        {
-            recent = recent.Skip(start).ToList();
-        }
+        segments.Add(recent.Count);
 
-        if (recent.Count < MinimumSamples
-            || recent[^1].CapturedAt - recent[0].CapturedAt < MinimumSpan)
-        {
-            return null;
-        }
-
-        // Least-squares slope in ratio-per-second over (time, ratio). More stable than the
-        // endpoint difference when readings arrive at uneven intervals.
-        var t0 = recent[0].CapturedAt;
-        double sumX = 0, sumY = 0, sumXy = 0, sumXx = 0;
-        foreach (var sample in recent)
-        {
-            var x = (sample.CapturedAt - t0).TotalSeconds;
-            var y = sample.UsedRatio;
-            sumX += x;
-            sumY += y;
-            sumXy += x * y;
-            sumXx += x * x;
-        }
-        var n = recent.Count;
-        var denominator = n * sumXx - sumX * sumX;
-        if (denominator <= 0)
-        {
-            return null;
-        }
-        var slope = (n * sumXy - sumX * sumY) / denominator;
+        var slope = FitSlope(recent, segments);
         if (!double.IsFinite(slope) || slope <= 0)
         {
             return null;
@@ -113,6 +89,49 @@ public static class UsageEtaClassifier
         // A projection already in the past means the fit overshot the clamped ratio;
         // the percent and pace warning cover that state, so stay quiet.
         return eta > now ? eta : null;
+    }
+
+    // Fit a shared rate with a separate starting level for each allowance. The reset
+    // interval contributes neither usage nor time, and the projection uses the latest ratio.
+    private static double FitSlope(IReadOnlyList<UsageSample> samples, List<int> segments)
+    {
+        var observedCount = 0;
+        var observedSpan = TimeSpan.Zero;
+        double covariance = 0, variance = 0;
+        for (var segment = 1; segment < segments.Count; segment++)
+        {
+            var start = segments[segment - 1];
+            var end = segments[segment];
+            // A window waiting at 100% before a manual reset cannot measure further demand.
+            if (segment < segments.Count - 1)
+            {
+                while (end - start >= 2 && samples[end - 1].UsedRatio >= 1 && samples[end - 2].UsedRatio >= 1)
+                    end--;
+            }
+
+            var count = end - start;
+            if (count < 2) continue;
+
+            var origin = samples[start].CapturedAt;
+            observedCount += count;
+            observedSpan += samples[end - 1].CapturedAt - origin;
+            double sumX = 0, sumY = 0, sumXy = 0, sumXx = 0;
+            for (var i = start; i < end; i++)
+            {
+                var x = (samples[i].CapturedAt - origin).TotalSeconds;
+                var y = samples[i].UsedRatio;
+                sumX += x;
+                sumY += y;
+                sumXy += x * y;
+                sumXx += x * x;
+            }
+            // With one segment, keep the original arithmetic exactly.
+            var divisor = segments.Count == 2 ? 1 : count;
+            covariance += (count * sumXy - sumX * sumY) / divisor;
+            variance += (count * sumXx - sumX * sumX) / divisor;
+        }
+        return observedCount >= MinimumSamples && observedSpan >= MinimumSpan && variance > 0
+            ? covariance / variance : double.NaN;
     }
 
     private static string Format(TimeSpan untilEta)

@@ -26,7 +26,8 @@ public static class UsageBurndown
         // real cycle boundary splits: a provider recomputing its own utilization slightly
         // downward must not cost the row its history.
         for (var i = valid.Count - 1; i > 0; i--)
-            if (UsageCycleBoundary.IsReset(valid[i - 1], valid[i]))
+            if (valid[i].IsManualResetAfter(valid[i - 1])
+                || UsageCycleBoundary.IsReset(valid[i - 1], valid[i]))
             {
                 valid = valid.Skip(i).ToList();
                 break;

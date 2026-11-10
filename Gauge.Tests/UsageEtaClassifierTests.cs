@@ -12,6 +12,28 @@ public sealed class UsageEtaClassifierTests
     private static readonly DateTimeOffset Now = new(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public void ManualResetKeepsTheMeasuredSlopeAndProjectsFromTheNewBalance()
+    {
+        var reset = Now.AddHours(2);
+        UsageSample At(int minutes, double ratio, int balance) => new(Now.AddMinutes(minutes), ratio, reset, balance);
+        UsageSample[] readings = [At(-60, .60, 1), At(-45, .70, 1), At(-30, .80, 1), At(-15, .10, 0), At(0, .20, 0)];
+
+        var eta = UsageEtaClassifier.ProjectExhaustion(readings, Now);
+        Assert.NotNull(eta);
+        Assert.InRange((eta.Value - Now).TotalMinutes, 119.99, 120.01);
+        Assert.Null(UsageEtaClassifier.ProjectExhaustion(readings.Select(s => s with { ResetCredits = 1 }).ToArray(), Now));
+        var expired = readings.Select(s => s with { ResetCreditExpiry = Now.AddMinutes(-20) }).ToArray();
+        Assert.Null(UsageEtaClassifier.ProjectExhaustion(expired, Now));
+        Assert.Null(UsageEtaClassifier.ProjectExhaustion([readings[2], readings[3], readings[4]], Now));
+
+        UsageSample[] capped = [At(-75, .80, 1), At(-60, .90, 1), At(-45, 1, 1),
+            At(-30, 1, 1), At(-15, .10, 0), At(0, .20, 0)];
+        var etaAfterCap = UsageEtaClassifier.ProjectExhaustion(capped, Now);
+        Assert.NotNull(etaAfterCap);
+        Assert.InRange((etaAfterCap.Value - Now).TotalMinutes, 119.99, 120.01);
+    }
+
+    [Fact]
     public void SteadyBurnProjectsExhaustionCaption()
     {
         // 0.30/hour over the last hour, 60% remaining → exhausted in 2 hours.

@@ -103,6 +103,37 @@ final class UsageEtaClassifierTests: XCTestCase {
         XCTAssertEqual(fresh, UsageEtaClassifier.projectExhaustion(samples: series, now: now))
     }
 
+    func testManualResetKeepsTheMeasuredSlopeAndProjectsFromTheNewBalance() throws {
+        let reset = now.addingTimeInterval(2 * 3600)
+        func at(_ minutes: Double, _ ratio: Double, _ balance: Int) -> UsageSample {
+            UsageSample(capturedAt: now + minutes * 60, usedRatio: ratio, resetTime: reset, resetCredits: balance)
+        }
+        let readings = [at(-60, 0.60, 1), at(-45, 0.70, 1), at(-30, 0.80, 1),
+                        at(-15, 0.10, 0), at(0, 0.20, 0)]
+        let eta = try XCTUnwrap(UsageEtaClassifier.projectExhaustion(samples: readings, now: now))
+        XCTAssertEqual(eta.timeIntervalSince(now), 7200, accuracy: 0.01)
+        let unchanged = readings.map {
+            UsageSample(capturedAt: $0.capturedAt, usedRatio: $0.usedRatio, resetTime: reset, resetCredits: 1)
+        }
+        XCTAssertNil(UsageEtaClassifier.projectExhaustion(samples: unchanged, now: now))
+        let expired = readings.map { reading in
+            var sample = reading
+            sample.resetCreditExpiry = now - 1200
+            return sample
+        }
+        XCTAssertNil(UsageEtaClassifier.projectExhaustion(samples: expired, now: now))
+        XCTAssertNil(UsageEtaClassifier.projectExhaustion(samples: Array(readings.suffix(3)), now: now))
+
+        let capped = [at(-75, 0.80, 1), at(-60, 0.90, 1), at(-45, 1, 1),
+                      at(-30, 1, 1), at(-15, 0.10, 0), at(0, 0.20, 0)]
+        let etaAfterCap = try XCTUnwrap(UsageEtaClassifier.projectExhaustion(samples: capped, now: now))
+        XCTAssertEqual(etaAfterCap.timeIntervalSince(now), 7200, accuracy: 0.01)
+
+        let window = UsageWindow(type: .fiveHour, usedRatio: 0.20, resetTime: reset, duration: 5 * 3600)
+        XCTAssertNil(UsageBurndown.build(window: window, samples: readings, now: now))
+        XCTAssertEqual(UsageBurndown.build(window: window, samples: unchanged, now: now)?.points.count, 5)
+    }
+
     func testRecalculatedUsageWithinOneCycleKeepsTheSeries() {
         let reset = now.addingTimeInterval(3 * 3600)
         let series = [

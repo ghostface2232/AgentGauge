@@ -9,4 +9,17 @@ namespace Gauge.Models;
 /// <c>UsageCycleBoundary</c>), and is null for a provider that reports none.
 /// </summary>
 public readonly record struct UsageSample(
-    DateTimeOffset CapturedAt, double UsedRatio, DateTimeOffset? ResetTime = null);
+    DateTimeOffset CapturedAt, double UsedRatio, DateTimeOffset? ResetTime = null,
+    int? ResetCredits = null, DateTimeOffset? ResetCreditExpiry = null)
+{
+    private const double MinimumManualResetDrop = 0.05;
+
+    public bool IsManualResetAfter(UsageSample previous)
+        // A balance change alone does not tell us which window reset. A drop after the
+        // old window expired cannot be separated from an ordinary rollover.
+        => CapturedAt > previous.CapturedAt
+            && ResetCredits is { } balance && previous.ResetCredits is { } prior && balance < prior
+            && UsedRatio <= previous.UsedRatio - MinimumManualResetDrop
+            && (previous.ResetTime is not { } scheduled || CapturedAt < scheduled)
+            && (previous.ResetCreditExpiry is not { } expiry || CapturedAt < expiry);
+}

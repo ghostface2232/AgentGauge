@@ -364,7 +364,7 @@
                                                  line up side by side from that edge — the status
                                                  chip first, the reset chip keeping the edge. When the
                                                  API-cost caption and the status chip are shown too, the
-                                                 reset chip drops its label (ShowHeaderChipLabels). The
+                                                 expiry chip keeps just the remaining time. The
                                                  status chip is always icon only; its tooltip and
                                                  automation name carry the full text. MinHeight="16" on each chip's inner
                                                  row is the caption's line height, so an icon-only chip
@@ -409,39 +409,27 @@
                                                         </Grid>
                                                     </ctrl:SquircleBorder>
                                                 </HyperlinkButton>
-                                                <!-- Manual rate-limit resets the account holds (Codex).
-                                                     A chip rather than another plain caption, because this
-                                                     is a countable balance and not a property of the plan;
-                                                     the squircle keeps it from reading as a clickable pill,
-                                                     and the tinted fill alone carries it — an outline would
-                                                     add a second edge next to the card's own. The chip text
-                                                     is terse, so the spelled-out form goes to the tooltip
-                                                     and the automation peer. The border is Raw, so the
-                                                     accessible text lives on the inner TextLeafPanel: one
-                                                     Text peer that keeps the balance reachable when the
-                                                     icon-only header hides the short label. -->
                                                 <ctrl:SquircleBorder
                                                     VerticalAlignment="Center"
                                                     Radius="8"
                                                     Smoothing="0.75"
                                                     Padding="8,4,9,5"
-                                                    Fill="{ThemeResource ResetChipFillBrush}"
+                                                    Fill="{ThemeResource StatusChipFillBrush}"
                                                     ToolTipService.ToolTip="{Binding ResetCreditsDescription}"
-                                                    Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVis}}">
+                                                    Visibility="{Binding HasResetCreditWarning, Converter={StaticResource BoolToVis}}">
                                                     <ctrl:TextLeafPanel Spacing="4" MinHeight="16"
                                                         AutomationProperties.Name="{Binding ResetCreditsDescription}">
                                                         <FontIcon
                                                             VerticalAlignment="Center"
                                                             FontSize="10"
-                                                            Glyph="&#xE72C;"
-                                                            Foreground="{ThemeResource ResetChipTextBrush}" />
+                                                            Glyph="&#xE917;"
+                                                            Foreground="{ThemeResource StatusChipTextBrush}" />
                                                         <TextBlock
                                                             VerticalAlignment="Center"
                                                             FontSize="11"
-                                                            Text="{Binding ResetCreditsText}"
-                                                            Foreground="{ThemeResource ResetChipTextBrush}"
-                                                            Style="{StaticResource CaptionTextBlockStyle}"
-                                                            Visibility="{Binding ShowHeaderChipLabels, Converter={StaticResource BoolToVis}}" />
+                                                            Text="{Binding WarningResetCreditsText}"
+                                                            Foreground="{ThemeResource StatusChipTextBrush}"
+                                                            Style="{StaticResource CaptionTextBlockStyle}" />
                                                     </ctrl:TextLeafPanel>
                                                 </ctrl:SquircleBorder>
                                             </StackPanel>
