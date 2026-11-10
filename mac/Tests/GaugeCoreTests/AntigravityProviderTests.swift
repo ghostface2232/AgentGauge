@@ -36,6 +36,59 @@ private final class FakeReader: AntigravityReader, @unchecked Sendable {
 /// Orchestration for `AntigravityProvider`: attach first then delegate, the not-installed empty
 /// result, and the failures that preserve the coordinator's cache.
 final class AntigravityProviderTests: XCTestCase {
+    func testSkippedBackgroundCLIReadKeepsTheLastSuccessfulState() async throws {
+        let engine = FakeReader(AntigravityReading(quotaJSON: oneWindow, plan: "Pro"))
+        let cli = FakeCLI(report: oneWindow)
+        let appProvider = AntigravityProvider(readers: [engine], isInstalled: { true })
+        let engineSnapshot = try await appProvider.fetch(.background).snapshot
+        let cliProvider = AntigravityProvider(readers: [], isInstalled: { false }, cli: cli)
+        let clock = ManualClock()
+        let recorder = StatesRecorder()
+        let coordinator = UsageCoordinator(providers: [cliProvider], cache: nil, clock: clock)
+        await coordinator.setEnabledTools([.antigravity])
+        await coordinator.setListener { recorder.append($0) }
+        await coordinator.refresh(.launch)
+        XCTAssertEqual(recorder.all.last?.first?.lastRefreshSkipped, true)
+        XCTAssertEqual(recorder.all.last?.first?.lastRefreshFailed, false)
+        XCTAssertNil(recorder.all.last?.first?.snapshot)
+
+        await coordinator.refresh(.toolsChanged)
+        let snapshot = try XCTUnwrap(recorder.all.last?.first?.snapshot)
+        XCTAssertEqual(snapshot.sourceLabel, "agy")
+        XCTAssertNotEqual(snapshot.historyKey, engineSnapshot.historyKey)
+        clock.advance(3600)
+        await coordinator.refresh(.scheduled)
+        XCTAssertEqual(recorder.all.last?.first?.snapshot, snapshot)
+        XCTAssertEqual(recorder.all.last?.first?.lastRefreshFailed, false)
+    }
+
+    private struct FakeCLI: AntigravityCLIReading, CLILocating {
+        let report: Data
+        var locator: any CLILocating { self }
+        func locate(_ name: String) async -> URL? { URL(fileURLWithPath: "/test/agy") }
+        func environment(for executable: URL) async -> [String: String] { [:] }
+        func usage(_ executable: URL) async -> Data? { report }
+    }
+
+    func testAgyUsageReportSharesEngineWindowIDs() throws {
+        let report = """
+        {"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"groups":[
+          {"name":"Gemini Models","buckets":[
+            {"id":"gemini-weekly","window":"weekly","remaining_fraction":0.86,"reset_time":"2026-12-01T08:00:00Z"},
+            {"id":"gemini-weekly","window":"weekly","remaining_fraction":0.92},
+            {"id":"gemini-5h","window":"5h"}]},
+          {"name":"Claude and GPT models","buckets":[
+            {"id":"3p-5h","window":"5h","remaining_fraction":1}]}
+        ]}}}
+        """
+        let windows = try AntigravityQuotaParser.windows(from: Data(report.utf8))
+        XCTAssertEqual(windows.map(\.id), ["gemini-weekly", "3p-5h"])
+        XCTAssertEqual(windows.last?.groupLabel, "Claude/GPT")
+        XCTAssertEqual(windows.first?.resetTime, Timestamp.parse("2026-12-01T08:00:00Z"))
+        let modelResponse = report.replacingOccurrences(of: "\"num_turns\":0", with: "\"num_turns\":1")
+        XCTAssertTrue(try AntigravityQuotaParser.windows(from: Data(modelResponse.utf8)).isEmpty)
+    }
+
     func testNotInstalledReturnsCleanEmptySnapshotWithoutReading() async throws {
         let attach = FakeReader(AntigravityReading(quotaJSON: fourWindows, plan: "Pro"))
         let provider = AntigravityProvider(readers: [attach], isInstalled: { false })

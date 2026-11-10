@@ -3,6 +3,7 @@ using System.Text;
 using Gauge.Models;
 using Gauge.Providers;
 using Gauge.Services;
+using Gauge.ViewModels;
 
 namespace Gauge.Tests;
 
@@ -39,6 +40,59 @@ public sealed class GitHubCopilotProviderTests
         Assert.Equal(UsageIdentity.Hash(null, "first"), first.LegacyCopilotTokenIdentity);
         Assert.Equal(first.HistoryKey, rotated.HistoryKey);
         Assert.NotEqual(first.HistoryKey, switched.HistoryKey);
+    }
+
+    [Theory]
+    [InlineData("42.5", true, 42.5)]
+    [InlineData("0", true, 0.0)]
+    [InlineData("0", false, null)]
+    [InlineData("-3", true, null)]
+    [InlineData("invalid", true, null)]
+    public async Task SyntheticCreditBillingKeepsAmountWithoutInventingAQuota(
+        string used, bool tokenBilling, double? expected)
+    {
+        var json = $$"""
+        {
+          "copilot_plan": "individual",
+          "token_based_billing": {{(tokenBilling ? "true" : "false")}},
+          "quota_snapshots": {
+            "premium_interactions": {
+              "credits_used": "{{used}}", "entitlement": 0, "remaining": 0, "percent_remaining": 100
+            },
+            "chat": { "credits_used": "{{used}}", "entitlement": 0, "remaining": 0, "percent_remaining": 100 }
+          }
+        }
+        """;
+        var snapshot = await new GitHubCopilotProvider(new HttpClient(new StubHandler(json)), TokenSource())
+            .GetSnapshotAsync(default);
+
+        Assert.Equal(expected, snapshot.AiCreditsUsed);
+        Assert.Equal(expected.HasValue, snapshot.HasUsage);
+        Assert.Empty(snapshot.Windows);
+        var card = new ToolCardViewModel(new CachedUsage { ToolName = snapshot.ToolName, Snapshot = snapshot });
+        Assert.Equal(expected.HasValue, card.HasAnyData);
+        Assert.Equal(expected.HasValue, card.HasSupplementalUsage);
+    }
+
+    [Fact]
+    public async Task SyntheticChatCreditFallbackCoexistsWithMeteredRequests()
+    {
+        const string json = """
+        {
+          "copilot_plan": "individual",
+          "quota_reset_date": "2026-12-01",
+          "quota_snapshots": {
+            "premium_interactions": { "entitlement": 300, "remaining": 125 },
+            "chat": { "unlimited": true, "credits_used": 18.75 }
+          }
+        }
+        """;
+        var snapshot = await new GitHubCopilotProvider(new HttpClient(new StubHandler(json)), TokenSource())
+            .GetSnapshotAsync(default);
+        Assert.Equal(18.75, snapshot.AiCreditsUsed);
+        var premium = Assert.Single(snapshot.Windows);
+        Assert.Equal(175, premium.UsedTokens);
+        Assert.Equal(new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.Zero), premium.ResetTime);
     }
 
     [Fact]

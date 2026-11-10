@@ -7,6 +7,19 @@ namespace Gauge.Tests;
 
 public sealed class UsageViewModelTests
 {
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(42.5)]
+    public void CreditsOnlySnapshotRendersCardAndTrayTooltip(double credits)
+    {
+        var viewModel = new UsageViewModel();
+        var empty = WithEmptyRecord("GitHub Copilot");
+        viewModel.Apply(State(empty with { Snapshot = empty.Snapshot! with { AiCreditsUsed = credits } }));
+
+        Assert.True(Assert.Single(viewModel.Cards).HasSupplementalUsage);
+        Assert.Contains(Loc.Format("Usage_AiCreditsUsed", credits), viewModel.TrayTooltipSummary);
+    }
+
     [Fact]
     public void ApplyShowsCardForToolWithUsage()
     {

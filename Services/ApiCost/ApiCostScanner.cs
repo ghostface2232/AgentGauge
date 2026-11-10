@@ -166,7 +166,20 @@ public sealed class ApiCostScanner
                 unpricedModels.Add(row.Model);
             }
         }
-        return new ApiCostEstimate(tool, year, month, cost, priced, unpriced, unpricedModels.ToList(), scannedAt);
+        var days = ledger.Files.Values.Where(file => file.Tool == tool)
+            .SelectMany(file => file.Days).Where(row => !ApiCostPricing.IsExcluded(row.Model))
+            .GroupBy(row => row.Day).OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var prices = group.Select(row => ApiCostPricing.Cost(row.Model, row.Tokens, row.LongContext)).ToList();
+                return DateOnly.TryParseExact(group.Key, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var day)
+                    ? new ApiCostDay(day, prices.Sum(price => price ?? 0), prices.Any(price => price is null)) : null;
+            }).OfType<ApiCostDay>().ToList();
+        return new ApiCostEstimate(tool, year, month, cost, priced, unpriced, unpricedModels.ToList(), scannedAt)
+        {
+            Days = days,
+        };
     }
 
     // A file the ledger does not know, whose opening bytes match an entry whose file has

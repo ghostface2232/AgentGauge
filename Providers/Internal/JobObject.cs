@@ -41,7 +41,9 @@ internal sealed class JobObject : IDisposable
             Marshal.StructureToPtr(info, buffer, false);
             if (!SetInformationJobObject(_handle, JobObjectExtendedLimitInformation, buffer, (uint)length))
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "SetInformationJobObject failed");
+                var error = Marshal.GetLastWin32Error();
+                Dispose();
+                throw new Win32Exception(error, "SetInformationJobObject failed");
             }
         }
         finally
@@ -61,11 +63,11 @@ internal sealed class JobObject : IDisposable
 
     public void Dispose()
     {
-        if (_handle != IntPtr.Zero)
+        var handle = Interlocked.Exchange(ref _handle, IntPtr.Zero);
+        if (handle != IntPtr.Zero)
         {
             // Closing the last handle triggers KILL_ON_JOB_CLOSE, terminating the whole tree.
-            CloseHandle(_handle);
-            _handle = IntPtr.Zero;
+            CloseHandle(handle);
         }
     }
 

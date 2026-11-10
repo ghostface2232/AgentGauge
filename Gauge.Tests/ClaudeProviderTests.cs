@@ -67,6 +67,7 @@ public sealed class ClaudeProviderTests
 
         var deadline = Assert.Single(snapshot.ResetCreditDeadlines!);
         Assert.Equal("Fable", deadline.Scope);
+        Assert.Equal(1, deadline.Count);
         Assert.Equal(new DateTimeOffset(2099, 3, 9, 7, 59, 0, TimeSpan.Zero), deadline.ExpiresAt);
         Assert.Equal(0, Assert.Single(snapshot.Windows, w => w.GroupLabel is null).ResetCredits);
         Assert.Equal(1, Assert.Single(snapshot.Windows, w => w.GroupLabel == "Fable").ResetCredits);

@@ -1,5 +1,6 @@
 using Gauge.Models;
 using Gauge.Providers.Internal;
+using Gauge.Services;
 
 namespace Gauge.Providers;
 
@@ -33,6 +34,7 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
     private readonly IReadOnlyList<IAntigravityReader> _sources;
     private readonly Func<bool> _isInstalled;
     private readonly IDisposable[] _owned;
+    private readonly IAntigravityCliReader? _cli;
 
     public AntigravityProvider()
     {
@@ -49,13 +51,16 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
         _isInstalled = () => installRoot is not null
             && File.Exists(AntigravityInstall.EngineExecutablePath(installRoot));
         _owned = new IDisposable[] { host, client };
+        _cli = new AntigravityCliReader(new CliLocator());
     }
 
-    internal AntigravityProvider(IReadOnlyList<IAntigravityReader> sources, Func<bool> isInstalled)
+    internal AntigravityProvider(IReadOnlyList<IAntigravityReader> sources, Func<bool> isInstalled,
+        IAntigravityCliReader? cli = null)
     {
         _sources = sources;
         _isInstalled = isInstalled;
         _owned = Array.Empty<IDisposable>();
+        _cli = cli;
     }
 
     public ToolKind Tool => ToolKind.Antigravity;
@@ -63,37 +68,39 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
     public string ToolName => ToolCatalog.For(ToolKind.Antigravity).DisplayName;
 
     public async Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
+        => await GetSnapshotAsync(FetchInteraction.Background, cancellationToken);
+
+    public async Task<UsageSnapshot> GetSnapshotAsync(FetchInteraction interaction, CancellationToken cancellationToken)
     {
-        // Not installed: a clean "no data" state, not a failure.
-        if (!_isInstalled())
+        var hasEngine = _isInstalled();
+        foreach (var source in hasEngine ? _sources : Array.Empty<IAntigravityReader>())
         {
-            return EmptySnapshot();
+            if (await source.ReadAsync(cancellationToken) is { } reading && ToSnapshot(reading) is { } snapshot)
+                return snapshot;
         }
-
-        AntigravityReading? reading = null;
-        foreach (var source in _sources)
+        if (_cli is { IsInstalled: true } cli)
         {
-            reading = await source.ReadAsync(cancellationToken);
-            if (reading is not null)
-            {
-                break;
-            }
+            // A signed-out CLI can ask to sign in, so only launch on an explicit refresh.
+            if (interaction == FetchInteraction.Background) throw new UsageRefreshSkippedException();
+            if (await cli.ReadAsync(cancellationToken) is { } report && ToSnapshot(report) is { } fallback)
+                return fallback with { HistoryIdentity = "antigravity-cli", SourceLabel = "agy" };
         }
+        else if (!hasEngine) return EmptySnapshot();
+        throw new AntigravityUnavailableException("Antigravity returned no usage windows.");
+    }
 
-        // Installed but no engine returned usage (signed out, warming, or a transport error):
-        // fail so the coordinator keeps the last good snapshot rather than clearing the card.
-        if (reading is null)
+    private UsageSnapshot? ToSnapshot(AntigravityReading reading)
+    {
+        IReadOnlyList<UsageWindow> windows;
+        try
         {
-            throw new AntigravityUnavailableException("No Antigravity engine returned usage.");
+            windows = AntigravityQuotaParser.Parse(reading.QuotaJson);
         }
-
-        var windows = AntigravityQuotaParser.Parse(reading.QuotaJson);
-
-        // An availability-only response with no known windows must not overwrite a useful cache.
-        if (windows.Count == 0)
+        catch (System.Text.Json.JsonException)
         {
-            throw new AntigravityUnavailableException("Antigravity returned no usage windows.");
+            return null;
         }
+        if (windows.Count == 0) return null;
 
         return new UsageSnapshot
         {

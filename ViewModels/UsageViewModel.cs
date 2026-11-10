@@ -133,6 +133,18 @@ public sealed partial class UsageViewModel : ObservableObject
         {
             card.ViewMode = mode;
         }
+        OnPropertyChanged(nameof(CanShowDailyUsage));
+    }
+
+    [ObservableProperty]
+    public partial bool ShowDailyUsage { get; set; }
+
+    public bool CanShowDailyUsage => ViewMode == UsageViewMode.Bar
+        && Cards.Any(card => card.Windows.Any(row => row.IsWeekly));
+
+    partial void OnShowDailyUsageChanged(bool value)
+    {
+        foreach (var card in Cards) card.ShowDailyUsage = value;
     }
 
     /// <summary>
@@ -347,6 +359,7 @@ public sealed partial class UsageViewModel : ObservableObject
             : Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
         RefreshCards(recorded);
+        OnPropertyChanged(nameof(CanShowDailyUsage));
         ExpireRefreshIndicators();
         ApplyServiceStatuses(_serviceStatuses);
 
@@ -355,8 +368,8 @@ public sealed partial class UsageViewModel : ObservableObject
         // "no data" card per default tool and no hint that signing in is the fix. When no
         // window exists anywhere and every registered tool's credentials are known-missing,
         // fold that into the empty state with an explicit sign-in call to action instead.
-        var hasAnyWindow = recorded.Any(t => t.Snapshot is { Windows.Count: > 0 });
-        var signedOutEmpty = state.Tools.Count > 0 && !hasAnyWindow
+        var hasUsage = recorded.Any(t => t.Snapshot is { HasUsage: true });
+        var signedOutEmpty = state.Tools.Count > 0 && !hasUsage
             && _allToolsSignedOut?.Invoke() == true;
 
         IsEmpty = recorded.Count == 0 || signedOutEmpty;
@@ -413,6 +426,7 @@ public sealed partial class UsageViewModel : ObservableObject
                 {
                     ViewMode = ViewMode, DisplayBasis = DisplayBasis, ShowSparkline = ShowSparkline,
                     PaceModel = PaceModel,
+                    ShowDailyUsage = ShowDailyUsage,
                 };
                 card.ApplyApiCost(_apiCosts.GetValueOrDefault(card.ToolName));
                 Cards.Add(card);
@@ -474,6 +488,12 @@ public sealed partial class UsageViewModel : ObservableObject
                 if (shown.Count == 0) shown.Add(snapshot.Windows.MaxBy(w => w.UsedRatio)!);
                 lines.Add($"{name}  {string.Join(" · ", shown.Select(w => $"{w.Label} {w.UsedRatio * 100:0}%"))}");
                 compact.Add($"{name} {snapshot.Windows.Max(w => w.UsedRatio) * 100:0}%");
+            }
+            else if (tool.Snapshot?.AiCreditsUsed is { } credits)
+            {
+                var summary = $"{name}  {Loc.Format("Usage_AiCreditsUsed", credits)}";
+                lines.Add(summary);
+                compact.Add(summary);
             }
             else
             {

@@ -159,8 +159,17 @@ public struct ApiCostScanner: Sendable {
             }
         }
         let names = unpricedModels.sorted { $0.key < $1.key }.map(\.value)
-        return ApiCostEstimate(tool: tool, year: year, month: month, costUSD: cost, pricedTokens: priced,
-                               unpricedTokens: unpriced, unpricedModels: names, scannedAt: scannedAt)
+        var estimate = ApiCostEstimate(tool: tool, year: year, month: month, costUSD: cost, pricedTokens: priced,
+                                       unpricedTokens: unpriced, unpricedModels: names, scannedAt: scannedAt)
+        for file in ledger.files.values where file.tool == tool.rawValue {
+            for row in file.days where !ApiCostPricing.isExcluded(row.model) {
+                let price = ApiCostPricing.cost(row.model, row.tokens, longContext: row.longContext)
+                let current = estimate.days[row.day, default: ApiCostDay(costUSD: 0, isFloor: false)]
+                estimate.days[row.day] = ApiCostDay(costUSD: current.costUSD + (price ?? 0),
+                                                   isFloor: current.isFloor || price == nil)
+            }
+        }
+        return estimate
     }
 
     // MARK: - Files
@@ -322,8 +331,7 @@ public struct ApiCostScanner: Sendable {
     }
 
     private func dayKey(_ date: Date) -> String {
-        let parts = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+        ApiCostDay.key(for: date, calendar: calendar)
     }
 }
 

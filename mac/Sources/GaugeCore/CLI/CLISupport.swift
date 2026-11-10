@@ -89,6 +89,47 @@ public struct SystemProcessRunner: ProcessRunning {
         }
     }
 
+    func usageProbe(_ executable: URL, arguments: [String], environment: [String: String],
+                    timeout: TimeInterval, request: String? = nil, responseID: Int? = nil,
+                    workingDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) async -> Data? {
+        guard !Task.isCancelled else { return nil }
+        let pipe = Pipe()
+        let stdout = pipe.fileHandleForWriting
+        guard let child = try? SpawnedEngine.spawn(executable: executable.path, arguments: arguments,
+            marker: ("AGENTGAUGE_USAGE_PROBE", UUID().uuidString), environment: environment,
+            workingDirectory: workingDirectory.path, stdout: stdout.fileDescriptor, pipeInput: request != nil) else { return nil }
+        try? stdout.close()
+        let drain = OutputDrain(pipe.fileHandleForReading, byteLimit: 1024 * 1024, responseID: responseID)
+
+        if let request, let input = child.stdinWriter {
+            _ = fcntl(input, F_SETNOSIGPIPE, 1)
+            try? FileHandle(fileDescriptor: input, closeOnDealloc: false).write(contentsOf: Data(request.utf8))
+        }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
+        while !Task.isCancelled, clock.now < deadline {
+            if child.exitStatus() != nil || drain.hasEnded { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        if responseID == nil {
+            // EOF can precede the root's exit status by a scheduling tick.
+            while !Task.isCancelled, child.exitStatus() == nil, clock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        let succeeded = !Task.isCancelled && clock.now < deadline
+            && (responseID != nil || child.exitStatus() == 0)
+        // Termination also closes stdout inherited by descendants. Drain buffered bytes
+        // afterwards, while the unreaped leader still protects its process group during cleanup.
+        await child.terminate()
+        let output = await withCheckedContinuation { continuation in
+            drain.whenEnded { continuation.resume(returning: $0) }
+            drain.stop()
+        }
+        return succeeded && !Task.isCancelled && !output.isEmpty ? output : nil
+    }
+
     /// Collects a child's stdout through a dispatch source rather than a blocking read, because
     /// the read side must be able to give up on a pipe that never reaches EOF. Closing a
     /// FileHandle under a thread blocked in `readDataToEndOfFile` is undefined, and that call
@@ -101,13 +142,19 @@ public struct SystemProcessRunner: ProcessRunning {
         private let descriptor: Int32
         private let queue = DispatchQueue(label: "io.github.ghostface2232.agentgauge.process-output")
         private let source: DispatchSourceRead
+        private let byteLimit: Int?
+        private let responseID: Int?
         // Confined to `queue`.
         private var collected = Data()
         private var ended = false
+        private var matchedResponse = false
+        private var lineStart = 0
         private var waiters: [@Sendable (Data) -> Void] = []
 
-        init(_ handle: FileHandle) {
+        init(_ handle: FileHandle, byteLimit: Int? = nil, responseID: Int? = nil) {
             descriptor = handle.fileDescriptor
+            self.byteLimit = byteLimit
+            self.responseID = responseID
             // A spurious wake-up must come back as EAGAIN instead of parking the serial queue.
             // The flag belongs to the read end's own file description; the child's stdout is
             // the write end and stays blocking.
@@ -117,6 +164,8 @@ public struct SystemProcessRunner: ProcessRunning {
             source.setCancelHandler { try? handle.close() }
             source.resume()
         }
+
+        var hasEnded: Bool { queue.sync { ended } }
 
         /// Calls back with everything read once the pipe reaches EOF or `stop` gives up on it.
         func whenEnded(_ waiter: @escaping @Sendable (Data) -> Void) {
@@ -143,7 +192,12 @@ public struct SystemProcessRunner: ProcessRunning {
             while !ended {
                 let count = Darwin.read(descriptor, &buffer, capacity)
                 if count > 0 {
+                    if let byteLimit, collected.count + count > byteLimit {
+                        collected.removeAll()
+                        return end()
+                    }
                     collected.append(contentsOf: buffer[..<count])
+                    if let responseID, readResponse(id: responseID) { return end() }
                 } else if count < 0 && errno == EINTR {
                     continue
                 } else if count < 0 && errno == EAGAIN {
@@ -154,9 +208,23 @@ public struct SystemProcessRunner: ProcessRunning {
             }
         }
 
+        private func readResponse(id: Int) -> Bool {
+            while let newline = collected[lineStart...].firstIndex(of: 10) {
+                let line = Data(collected[lineStart..<newline])
+                lineStart = newline + 1
+                if let object = try? JSONObject.parse(line), object.int64("id") == Int64(id) {
+                    collected = line
+                    matchedResponse = true
+                    return true
+                }
+            }
+            return false
+        }
+
         private func end() {
             guard !ended else { return }
             ended = true
+            if responseID != nil && !matchedResponse { collected.removeAll() }
             source.cancel()
             let current = waiters
             waiters = []

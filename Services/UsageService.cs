@@ -3,6 +3,8 @@ using Gauge.Providers;
 
 namespace Gauge.Services;
 
+internal sealed class UsageRefreshSkippedException : Exception;
+
 /// <summary>Outcome of one provider's snapshot attempt.</summary>
 public sealed record ProviderSnapshotResult
 {
@@ -15,6 +17,8 @@ public sealed record ProviderSnapshotResult
 
     /// <summary>The failure, if the provider threw.</summary>
     public Exception? Error { get; init; }
+
+    internal bool Skipped { get; init; }
 
     public bool Succeeded => Error is null && Snapshot is not null;
 }
@@ -128,6 +132,10 @@ public sealed class UsageService
                 TaskScheduler.Default);
             var snapshot = await read.WaitAsync(_readDeadline, cancellationToken);
             return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Snapshot = snapshot };
+        }
+        catch (UsageRefreshSkippedException)
+        {
+            return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Skipped = true };
         }
         catch (Exception ex)
         {

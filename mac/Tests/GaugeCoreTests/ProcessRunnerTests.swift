@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import GaugeCore
@@ -14,6 +15,18 @@ final class SystemProcessRunnerTests: XCTestCase {
 
     private func text(_ result: ProcessResult) -> String? {
         result.output.map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    func testUsageProbeStopsDescendantsAfterTheRootExits() async throws {
+        let output = await runner.usageProbe(shell, arguments: ["-c", "sleep 20 & printf '%s' \"$!\""],
+                                             environment: environment, timeout: 3)
+        let pid = try XCTUnwrap(output.flatMap { Int32(String(decoding: $0, as: UTF8.self)) })
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(3))
+        while kill(pid, 0) == 0, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(kill(pid, 0), -1)
     }
 
     /// The login-shell probe's hazard: a background daemon started from ~/.zshrc inherits stdout.

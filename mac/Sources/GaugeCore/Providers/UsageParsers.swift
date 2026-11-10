@@ -5,6 +5,7 @@ public struct UsagePayload: Sendable, Equatable {
     public var windows: [UsageWindow]
     public var resetCredits: Int?
     public var resetCreditDeadlines: [ResetCreditDeadline]?
+    public var aiCreditsUsed: Double?
     var historyIdentity: String?
     var legacyCopilotTokenIdentity: String?
 
@@ -42,8 +43,13 @@ public enum ClaudeUsageParser {
                   let starts = grant.date("starts_at"), starts <= now,
                   let ends = grant.date("ends_at"), ends > now else { continue }
             let clears = Set(grant.storage["clears"] as? [String] ?? [])
-            let deadline = ResetCreditDeadline(expiresAt: ends, scope: clears == ["seven_day_overage_included"] ? "Fable" : nil)
-            if !deadlines.contains(deadline) { deadlines.append(deadline) }
+            let scope = clears == ["seven_day_overage_included"] ? "Fable" : nil
+            if let index = deadlines.firstIndex(where: { $0.expiresAt == ends && $0.scope == scope }) {
+                let total = min((deadlines[index].count ?? 0) + Int(count), Int(Int32.max))
+                deadlines[index] = ResetCreditDeadline(expiresAt: ends, scope: scope, count: total)
+            } else {
+                deadlines.append(ResetCreditDeadline(expiresAt: ends, scope: scope, count: Int(count)))
+            }
             for scope in clears { balances[scope] = min(balances[scope, default: 0] + Int(count), Int(Int32.max)) }
         }
 
@@ -111,16 +117,80 @@ public enum CodexUsageParser {
 
     public static func payload(from data: Data) throws -> UsagePayload {
         let root = try JSONObject.parse(data)
+        guard root.contains("rate_limit") || root.contains("additional_rate_limits") else {
+            throw UsageFetchError.invalidResponse
+        }
+        if let limits = root.storage["rate_limit"], !(limits is NSNull), JSONObject(limits) == nil {
+            throw UsageFetchError.invalidResponse
+        }
+        if let additional = root.storage["additional_rate_limits"], !(additional is NSNull), !(additional is [Any]) {
+            throw UsageFetchError.invalidResponse
+        }
         var windows: [UsageWindow] = []
         if let rateLimit = root.object("rate_limit") {
+            for key in ["primary_window", "secondary_window"] {
+                if let value = rateLimit.storage[key], !(value is NSNull), JSONObject(value) == nil {
+                    throw UsageFetchError.invalidResponse
+                }
+            }
             if let window = window(rateLimit, "primary_window", fallback: .fiveHour) { windows.append(window) }
             if let window = window(rateLimit, "secondary_window", fallback: .weekly) { windows.append(window) }
         }
         windows += additionalRateLimits(root)
+        if windows.isEmpty, let reported = root.object("rate_limit"),
+           reported.object("primary_window") != nil || reported.object("secondary_window") != nil {
+            throw UsageFetchError.invalidResponse
+        }
         return UsagePayload(
             plan: ProviderText.planLabel(root.string("plan_type"), known: knownPlans),
             windows: windows,
             resetCredits: resetCredits(root))
+    }
+
+    static func appServerPayload(from data: Data, accountID: String? = nil) throws -> UsagePayload? {
+        let reply = try JSONObject.parse(data)
+        guard let result = reply.object("result") else { return nil }
+        if let accountID, let reportedID = result.string("accountId"), reportedID != accountID { return nil }
+        let byID = result.object("rateLimitsByLimitId")
+        let legacy = result.object("rateLimits")
+        let legacyID = ProviderText.normalize(legacy?.string("limitId"))
+        let account = byID?.object("codex") ?? (legacyID == nil || legacyID == "codex" ? legacy : nil)
+
+        var windows: [UsageWindow] = []
+        var seen = Set<String>()
+        func addWindows(_ limits: JSONObject, prefix: String? = nil, label: String? = nil) {
+            let keys: [(String, UsageWindowType)] = [("primary", .fiveHour), ("secondary", .weekly)]
+            for (key, fallback) in keys {
+                if let entry = window(limits, key, fallback: fallback, idPrefix: prefix,
+                                      groupLabel: label, appServer: true), seen.insert(entry.id).inserted {
+                    windows.append(entry)
+                }
+            }
+        }
+        func addScopedWindows(_ id: String, limits: JSONObject) {
+            let slug = ProviderText.slug(id)
+            guard !slug.isEmpty else { return }
+            let label = displayName(ProviderText.normalize(limits.string("limitName")) ?? id)
+            addWindows(limits, prefix: "codex-additional-\(slug)", label: label)
+        }
+        if let account { addWindows(account) }
+        if let byID {
+            for id in byID.storage.keys.sorted() where id != "codex" {
+                if let limits = byID.object(id) { addScopedWindows(id, limits: limits) }
+            }
+        }
+        if let legacy, let legacyID, legacyID != "codex" { addScopedWindows(legacyID, limits: legacy) }
+        guard !windows.isEmpty else { return nil }
+        let credits = result.object("rateLimitResetCredits")
+        let count = credits?.int64("availableCount").flatMap { $0 >= 0 ? Int(exactly: $0) : nil }
+        var expiries = Set<Date>()
+        let deadlines = credits?.objects("credits")?.compactMap { entry -> ResetCreditDeadline? in
+            guard entry.string("status") == "available", let epoch = entry.int64("expiresAt") else { return nil }
+            let expiry = Date(timeIntervalSince1970: TimeInterval(epoch))
+            return expiries.insert(expiry).inserted ? ResetCreditDeadline(expiresAt: expiry) : nil
+        }
+        return UsagePayload(plan: ProviderText.planLabel(account?.string("planType") ?? legacy?.string("planType"), known: knownPlans),
+                            windows: windows, resetCredits: count, resetCreditDeadlines: deadlines)
     }
 
     static func resetCreditDeadlines(from data: Data) throws -> [ResetCreditDeadline]? {
@@ -148,14 +218,19 @@ public enum CodexUsageParser {
     /// dropped rather than reinterpreted by position.
     private static func window(
         _ rateLimit: JSONObject, _ key: String, fallback: UsageWindowType,
-        idPrefix: String? = nil, groupLabel: String? = nil
+        idPrefix: String? = nil, groupLabel: String? = nil, appServer: Bool = false
     ) -> UsageWindow? {
-        guard let object = rateLimit.object(key), let usedPercent = object.double("used_percent") else { return nil }
-        let resetTime = object.int64("reset_at").map { Date(timeIntervalSince1970: TimeInterval($0)) }
-        let seconds = object.int64("limit_window_seconds")
+        guard let object = rateLimit.object(key),
+              let usedPercent = object.double(appServer ? "usedPercent" : "used_percent") else { return nil }
+        let resetTime = object.int64(appServer ? "resetsAt" : "reset_at").map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        let durationKey = appServer ? "windowDurationMins" : "limit_window_seconds"
+        let seconds = object.int64(durationKey).flatMap { value -> Int64? in
+            guard appServer else { return value }
+            return (0...Int64.max / 60).contains(value) ? value * 60 : nil
+        }
         let type: UsageWindowType
         let duration: TimeInterval?
-        if object.contains("limit_window_seconds") {
+        if object.contains(durationKey) && (!appServer || !(object.storage[durationKey] is NSNull)) {
             guard let seconds, let classified = classify(seconds) else { return nil }
             type = classified
             duration = TimeInterval(seconds)

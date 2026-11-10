@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http;
 using System.Text.Json;
 using Gauge.Localization;
@@ -80,9 +81,31 @@ public sealed class GitHubCopilotProvider : UsageProviderBase
         _knownLogin = identity is null ? null : (tokenIdentity, identity);
         return Snapshot(plan, windows) with
         {
+            AiCreditsUsed = ParseAiCredits(root),
             HistoryIdentity = identity ?? tokenIdentity,
             LegacyCopilotTokenIdentity = identity is null ? null : tokenIdentity,
         };
+    }
+
+    private static double? ParseAiCredits(JsonElement root)
+    {
+        if (root.GetObjectOrNull("quota_snapshots") is not { } snapshots) return null;
+        var premium = snapshots.GetObjectOrNull("premium_interactions");
+        var chat = snapshots.GetObjectOrNull("chat");
+        // The same credit pool can appear in both entries. Prefer premium and never add them.
+        var used = ReadCredits(premium) ?? ReadCredits(chat);
+        return used is not null && (used > 0 || root.GetBoolOrNull("token_based_billing") == true
+            || premium?.GetBoolOrNull("unlimited") == true || chat?.GetBoolOrNull("unlimited") == true)
+            ? used : null;
+    }
+
+    private static double? ReadCredits(JsonElement? quota)
+    {
+        var amount = quota?.GetDoubleOrNull("credits_used");
+        if (amount is null && double.TryParse(quota?.GetStringOrNull("credits_used"),
+                NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+            amount = parsed;
+        return amount is >= 0 and { } value && double.IsFinite(value) ? value : null;
     }
 
     /// <summary>
@@ -102,7 +125,7 @@ public sealed class GitHubCopilotProvider : UsageProviderBase
         // and reads an offset-less value as UTC. Captured responses carry a full Z timestamp,
         // but the field is undocumented and its name says UTC, so a bare date must not be
         // read as local time — that would move the reset by the user's own offset.
-        var reset = root.GetDateTimeOffsetOrNull("quota_reset_date_utc");
+        var reset = root.GetDateTimeOffsetOrNull("quota_reset_date_utc") ?? root.GetDateTimeOffsetOrNull("quota_reset_date");
         var windows = new List<UsageWindow>();
         foreach (var quota in snapshots.EnumerateObject())
         {
@@ -111,7 +134,8 @@ public sealed class GitHubCopilotProvider : UsageProviderBase
             {
                 continue;
             }
-            if (snap.GetBoolOrNull("has_quota") == false || snap.GetBoolOrNull("unlimited") == true)
+            if (snap.GetBoolOrNull("has_quota") == false || snap.GetBoolOrNull("unlimited") == true
+                || (snap.GetDoubleOrNull("entitlement") == 0 && snap.GetDoubleOrNull("remaining") == 0))
             {
                 continue;
             }

@@ -474,7 +474,7 @@ public sealed class UsageCoordinator : IDisposable
     private static bool IsLiveServerSuccess(
         ProviderSnapshotResult result, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
     {
-        if (!result.Succeeded || result.Snapshot is not { Windows.Count: > 0 } snapshot)
+        if (!result.Succeeded || result.Snapshot is not { HasUsage: true } snapshot)
         {
             return false;
         }
@@ -565,6 +565,11 @@ public sealed class UsageCoordinator : IDisposable
                 }
 
                 _cache.TryGetValue(result.ToolName, out var previous);
+                if (result.Skipped)
+                {
+                    _cache.TryAdd(result.ToolName, new CachedUsage { ToolName = result.ToolName });
+                    continue;
+                }
                 _cache[result.ToolName] = result.Succeeded
                     ? new CachedUsage
                     {

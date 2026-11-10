@@ -51,10 +51,10 @@ public sealed class UsageHistoryStore : IUsageHistoryRecorder, IUsageHistorySour
     private static readonly TimeSpan Retention = TimeSpan.FromDays(90);
     private static readonly TimeSpan PruneInterval = TimeSpan.FromHours(24);
 
-    // Reads for ETA/trends only ever need a short trailing span, so recent samples are
-    // mirrored in memory and GetRecent never touches the database (it can be called on
+    // A full weekly cycle is needed for daily bar segments. Samples are mirrored in
+    // memory and GetRecent never touches the database (it can be called on
     // the UI thread while a refresh is writing on the coordinator thread).
-    private static readonly TimeSpan MemoryTailSpan = TimeSpan.FromHours(6);
+    private static readonly TimeSpan MemoryTailSpan = TimeSpan.FromDays(8);
 
     // The automatic pace model's weekday profile is folded from this much history at
     // hydration and then kept current from each recorded reading, so — like the tail — it

@@ -110,6 +110,16 @@ public sealed partial class ToolCardViewModel : ObservableObject
     [ObservableProperty]
     public partial bool ShowSparkline { get; set; } = true;
 
+    [ObservableProperty]
+    public partial bool ShowDailyUsage { get; set; }
+
+    partial void OnShowDailyUsageChanged(bool value)
+    {
+        foreach (var row in Windows) row.ShowDailyUsage = value;
+    }
+
+    private ApiCostEstimate? _apiCost;
+
     partial void OnShowSparklineChanged(bool value)
     {
         foreach (var row in Windows)
@@ -185,6 +195,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// <summary>Shows or clears the cost estimate; null clears it (option off).</summary>
     public void ApplyApiCost(ApiCostEstimate? estimate)
     {
+        _apiCost = estimate;
+        foreach (var row in Windows) ApplyDailyCost(row);
         if (estimate is null || estimate.IsEmpty)
         {
             ApiCostText = "";
@@ -215,8 +227,24 @@ public sealed partial class ToolCardViewModel : ObservableObject
         static string Count(long value) => string.Format(Loc.Culture, "{0:N0}", value);
     }
 
+    private void ApplyDailyCost(UsageWindowRowViewModel row)
+    {
+        // Local logs cover the default tool, not named accounts or model-scoped quotas.
+        row.SetDailyCosts(AccountLabel is null && !ToolName.Contains(ToolAccount.KeySeparator)
+            && !row.HasFamilyLabel ? _apiCost?.Days ?? [] : []);
+    }
+
     [ObservableProperty]
     public partial bool HasAnyData { get; set; }
+
+    [ObservableProperty]
+    public partial bool HasUsageWindows { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSupplementalUsage))]
+    public partial string SupplementalUsage { get; set; } = "";
+
+    public bool HasSupplementalUsage => SupplementalUsage.Length > 0;
 
     /// <summary>
     /// True when this card is showing its last good snapshot because the latest refresh
@@ -251,16 +279,30 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
         var now = DateTimeOffset.UtcNow;
         var deadline = ResetCreditDeadline.Upcoming(cached.Snapshot?.ResetCreditDeadlines, now);
+        var supplemental = cached.Snapshot?.ResetCreditDeadlines?
+            .Where(d => d.ExpiresAt > now && d.Count is > 0)
+            .GroupBy(d => d.Scope)
+            .Select(group =>
+            {
+                var label = Loc.Format("Usage_ResetBalance", group.Sum(d => (long)d.Count!.Value));
+                return group.Key is { } scope ? $"{scope} · {label}" : label;
+            }).ToList() ?? [];
+        if (cached.Snapshot?.SourceLabel is { } source)
+            supplemental.Add(Loc.Format("Usage_Source", source));
+        if (cached.Snapshot?.AiCreditsUsed is { } credits)
+            supplemental.Add(Loc.Format("Usage_AiCreditsUsed", credits));
+        SupplementalUsage = string.Join("\n", supplemental);
         ResetCreditRemaining = deadline is null ? string.Empty : ResetCreditText.Remaining(deadline, now);
         ResetCreditsDescription = deadline is null ? string.Empty : ResetCreditText.Description(deadline);
 
         var windows = OrderForDisplay(cached.Snapshot?.Windows ?? Array.Empty<UsageWindow>());
+        HasUsageWindows = windows.Count > 0;
         var historyKey = cached.Snapshot?.HistoryKey ?? ToolName;
 
         if (windows.Count == 0)
         {
-            HasAnyData = false;
-            StatusText = Loc.Get("NoData");
+            HasAnyData = HasSupplementalUsage;
+            StatusText = HasAnyData ? "" : Loc.Get("NoData");
             Windows.Clear();
             GaugeGroups.Clear();
             return;
@@ -292,6 +334,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
                 existing = new UsageWindowRowViewModel(window, DisplayBasis)
                 {
                     ShowSparkline = ShowSparkline, PaceModel = PaceModel, WeekdayProfile = profile,
+                    ShowDailyUsage = ShowDailyUsage,
                 };
                 Windows.Insert(Math.Min(index, Windows.Count), existing);
             }
@@ -304,6 +347,11 @@ public sealed partial class ToolCardViewModel : ObservableObject
             existing.EtaText = UsageEtaClassifier.ForRow(window, samples);
             // The row re-resolves any active hover against the new points itself.
             existing.Burndown = UsageBurndown.Build(window, samples, DateTimeOffset.UtcNow);
+            existing.DailySegments = window.Type == UsageWindowType.Weekly
+                ? UsageDailyBreakdown.Build(window,
+                    _history?.GetRecent(historyKey, window.Key, UsageDailyBreakdown.Lookback) ?? [],
+                    cached.Snapshot!.CapturedAt) : [];
+            ApplyDailyCost(existing);
         }
 
         AssignGroupHeaders(windows);

@@ -67,19 +67,108 @@ public sealed class CodexProvider : UsageProviderBase
     };
 
     private readonly HttpClient _http;
+    private readonly ICredentialSource _credentials;
+    private readonly ICliLocator? _appServerLocator;
 
     public CodexProvider(
         HttpClient http,
         ICredentialSource credentials,
         IDelegatedTokenRefresher? refresher = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        ICliLocator? appServerLocator = null)
         : base(credentials, Policy, refresher, time)
     {
         _http = http;
+        _credentials = credentials;
+        _appServerLocator = appServerLocator;
         _creditGate = new RateLimitGate(new BackoffPolicy(ResetCreditRefreshInterval, TimeSpan.FromMinutes(30)), Time);
     }
 
     public override ToolKind Tool => ToolKind.Codex;
+
+    private const string RateLimitsRequest = """
+        {"id":1,"method":"initialize","params":{"clientInfo":{"name":"agentgauge","version":"1.0"}}}
+        {"method":"initialized"}
+        {"id":2,"method":"account/rateLimits/read"}
+        """ + "\n";
+
+    protected override async Task<UsageSnapshot> FetchSnapshotAsync(
+        ToolCredential credential, FetchInteraction interaction, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await FetchSnapshotAsync(credential, cancellationToken);
+        }
+        catch (Exception error) when (interaction == FetchInteraction.UserInitiated
+            && _appServerLocator is not null && error is UsageResponseShapeException or JsonException)
+        {
+            if (_appServerLocator.Find("codex") is { } executable
+                && (await _credentials.ReadAsync(Tool, cancellationToken)).Credential == credential)
+            {
+                var reply = await CliUsageProbe.RunAsync(executable,
+                    "-c cli_auth_credentials_store=file -s read-only -a never app-server",
+                    TimeSpan.FromSeconds(12), cancellationToken, RateLimitsRequest, 2);
+                if (reply is not null && ParseAppServer(reply, credential.AccountId) is { } payload
+                    && (await _credentials.ReadAsync(Tool, cancellationToken)).Credential == credential)
+                    return Snapshot(payload.Plan, payload.Windows, payload.Credits) with
+                    {
+                        ResetCreditDeadlines = payload.Deadlines,
+                    };
+            }
+            throw;
+        }
+    }
+
+    internal static (string? Plan, IReadOnlyList<UsageWindow> Windows, int? Credits,
+        IReadOnlyList<ResetCreditDeadline>? Deadlines)? ParseAppServer(string reply, string? accountId = null)
+    {
+        using var document = JsonDocument.Parse(reply);
+        if (document.RootElement.GetObjectOrNull("result") is not { } result) return null;
+        if (accountId is not null && result.GetStringOrNull("accountId") is { } reportedId && reportedId != accountId)
+            return null;
+        var byId = result.GetObjectOrNull("rateLimitsByLimitId");
+        var legacy = result.GetObjectOrNull("rateLimits");
+        var legacyId = ProviderText.Normalize(legacy?.GetStringOrNull("limitId"));
+        var account = byId?.GetObjectOrNull("codex") ?? (legacyId is null or "codex" ? legacy : null);
+
+        var windows = new List<UsageWindow>();
+        var seen = new HashSet<string>();
+        void AddWindows(JsonElement entry, string? prefix = null, string? label = null)
+        {
+            foreach (var (key, type) in new[] { ("primary", UsageWindowType.FiveHour), ("secondary", UsageWindowType.Weekly) })
+                if (ParseWindow(entry, key, type, prefix, label, appServer: true) is { } window && seen.Add(window.Key))
+                    windows.Add(window);
+        }
+
+        void AddScopedWindows(string id, JsonElement entry)
+        {
+            var slug = ProviderText.Slug(id);
+            if (slug.Length > 0)
+                AddWindows(entry, $"codex-additional-{slug}",
+                    AdditionalLimitDisplayName(ProviderText.Normalize(entry.GetStringOrNull("limitName")) ?? id));
+        }
+
+        if (account is { } rateLimit) AddWindows(rateLimit);
+        if (byId is { } additional)
+            foreach (var entry in additional.EnumerateObject())
+                if (entry.Name != "codex") AddScopedWindows(entry.Name, entry.Value);
+        if (legacy is { } legacyRateLimit && legacyId is not (null or "codex"))
+            AddScopedWindows(legacyId, legacyRateLimit);
+
+        if (windows.Count == 0) return null;
+        var creditInfo = result.GetObjectOrNull("rateLimitResetCredits");
+        var credits = creditInfo?.GetInt64OrNull("availableCount") is >= 0 and var count
+            ? (int?)Math.Min(count, int.MaxValue) : null;
+        var deadlines = new HashSet<ResetCreditDeadline>();
+        if (creditInfo is { } info && info.TryGetArray("credits", out var entries))
+            foreach (var entry in entries.EnumerateArray())
+                if (entry.GetStringOrNull("status") == "available"
+                    && UnixTime(entry.GetInt64OrNull("expiresAt")) is { } expiry)
+                    deadlines.Add(new(expiry));
+
+        return (ProviderText.PlanLabel(account?.GetStringOrNull("planType") ?? legacy?.GetStringOrNull("planType"), KnownPlans),
+            windows, credits, deadlines.Count > 0 ? deadlines.ToArray() : null);
+    }
 
     protected override async Task<UsageSnapshot> FetchSnapshotAsync(
         ToolCredential credential, CancellationToken cancellationToken)
@@ -94,12 +183,18 @@ public sealed class CodexProvider : UsageProviderBase
         using var document = await JsonDocument.ParseAsync(stream, default, cancellationToken);
         var root = document.RootElement;
         UsageResponseShapeException.ThrowUnlessAnyProperty(root, ToolName, "rate_limit", "additional_rate_limits");
+        if (HasUnexpectedType(root, "rate_limit", JsonValueKind.Object)
+            || HasUnexpectedType(root, "additional_rate_limits", JsonValueKind.Array))
+            throw new UsageResponseShapeException(ToolName);
 
         var plan = ProviderText.PlanLabel(root.GetStringOrNull("plan_type"), KnownPlans);
 
         var windows = new List<UsageWindow>();
         if (root.GetObjectOrNull("rate_limit") is { } rateLimit)
         {
+            if (HasUnexpectedType(rateLimit, "primary_window", JsonValueKind.Object)
+                || HasUnexpectedType(rateLimit, "secondary_window", JsonValueKind.Object))
+                throw new UsageResponseShapeException(ToolName);
             if (ParseWindow(rateLimit, "primary_window", UsageWindowType.FiveHour) is { } primary)
             {
                 windows.Add(primary);
@@ -125,6 +220,9 @@ public sealed class CodexProvider : UsageProviderBase
         var deadlines = await ReadCreditDeadlinesAsync(credential, credits, cancellationToken);
         return Snapshot(plan, windows, credits) with { ResetCreditDeadlines = deadlines };
     }
+
+    private static bool HasUnexpectedType(JsonElement element, string key, JsonValueKind expected) =>
+        element.TryGetProperty(key, out var value) && value.ValueKind != JsonValueKind.Null && value.ValueKind != expected;
 
     private static HttpRequestMessage CreateRequest(string url, ToolCredential credential)
     {
@@ -221,21 +319,23 @@ public sealed class CodexProvider : UsageProviderBase
         string property,
         UsageWindowType fallbackType,
         string? idPrefix = null,
-        string? groupLabel = null)
+        string? groupLabel = null,
+        bool appServer = false)
     {
         if (rateLimit.GetObjectOrNull(property) is not { } window
-            || window.GetDoubleOrNull("used_percent") is not { } usedPercent)
+            || window.GetDoubleOrNull(appServer ? "usedPercent" : "used_percent") is not { } usedPercent)
         {
             return null;
         }
 
-        var resetTime = window.GetInt64OrNull("reset_at") is { } epoch
-            ? DateTimeOffset.FromUnixTimeSeconds(epoch)
-            : (DateTimeOffset?)null;
-        var durationSeconds = window.GetInt64OrNull("limit_window_seconds");
+        var resetTime = UnixTime(window.GetInt64OrNull(appServer ? "resetsAt" : "reset_at"));
+        var durationKey = appServer ? "windowDurationMins" : "limit_window_seconds";
+        var durationSeconds = window.GetInt64OrNull(durationKey);
+        if (appServer)
+            durationSeconds = durationSeconds is >= 0 and <= long.MaxValue / 60 ? durationSeconds * 60 : null;
         UsageWindowType type;
         TimeSpan? duration;
-        if (window.TryGetProperty("limit_window_seconds", out _))
+        if (window.TryGetProperty(durationKey, out var rawDuration) && (!appServer || rawDuration.ValueKind != JsonValueKind.Null))
         {
             // Once the provider supplies a duration, it is the contract. Do not silently
             // reinterpret a new or malformed duration by primary/secondary position.
@@ -270,6 +370,9 @@ public sealed class CodexProvider : UsageProviderBase
             Duration = duration,
         };
     }
+
+    private static DateTimeOffset? UnixTime(long? epoch) =>
+        epoch is >= -62135596800 and <= 253402300799 ? DateTimeOffset.FromUnixTimeSeconds(epoch.Value) : null;
 
     private static UsageWindowType? ClassifyWindow(long durationSeconds) => durationSeconds switch
     {

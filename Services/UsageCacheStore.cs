@@ -114,7 +114,9 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         ToolName = snapshot.ToolName,
         HistoryIdentity = snapshot.HistoryIdentity,
         Plan = snapshot.Plan,
+        SourceLabel = snapshot.SourceLabel,
         ResetCredits = snapshot.ResetCredits,
+        AiCreditsUsed = snapshot.AiCreditsUsed,
         ResetCreditDeadlines = snapshot.ResetCreditDeadlines,
         CapturedAt = snapshot.CapturedAt,
         Windows = snapshot.Windows.Select(w => new WindowDto
@@ -138,7 +140,9 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         ToolName = ToolCatalog.CurrentDisplayName(dto.ToolName),
         HistoryIdentity = dto.HistoryIdentity,
         Plan = dto.Plan,
+        SourceLabel = dto.SourceLabel,
         ResetCredits = dto.ResetCredits,
+        AiCreditsUsed = dto.AiCreditsUsed,
         ResetCreditDeadlines = dto.ResetCreditDeadlines,
         CapturedAt = dto.CapturedAt,
         Windows = (dto.Windows ?? new List<WindowDto>()).Select(w => new UsageWindow
@@ -173,10 +177,12 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         public string ToolName { get; set; } = "";
         public string? HistoryIdentity { get; set; }
         public string? Plan { get; set; }
+        public string? SourceLabel { get; set; }
 
         // Added after Version 4. Nullable and optional in both directions, so a cache
         // written by an older build simply rehydrates without it — no version bump needed.
         public int? ResetCredits { get; set; }
+        public double? AiCreditsUsed { get; set; }
         public IReadOnlyList<ResetCreditDeadline>? ResetCreditDeadlines { get; set; }
 
         public DateTimeOffset CapturedAt { get; set; }

@@ -21,6 +21,8 @@ public sealed record UsageSnapshot
     /// </summary>
     public string? Plan { get; init; }
 
+    public string? SourceLabel { get; init; }
+
     /// <summary>
     /// The windows this tool exposes. A tool may have a 5-hour window, a weekly
     /// window, scoped model limits, any subset of those, or none — the list reflects
@@ -35,6 +37,11 @@ public sealed record UsageSnapshot
     /// and no window to attach to. Null for every tool that exposes no such allowance.
     /// </summary>
     public int? ResetCredits { get; init; }
+
+    /// <summary>Reported AI credits consumed, with no implied allowance.</summary>
+    public double? AiCreditsUsed { get; init; }
+
+    public bool HasUsage => Windows.Count > 0 || AiCreditsUsed is not null;
 
     /// <summary>Expiry times for available manual resets, separate from scheduled usage rollovers.</summary>
     public IReadOnlyList<ResetCreditDeadline>? ResetCreditDeadlines { get; init; }

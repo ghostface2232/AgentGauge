@@ -48,17 +48,33 @@ public enum GitHubCopilotUsageParser {
 
     public static func payload(from data: Data) throws -> UsagePayload {
         let root = try JSONObject.parse(data)
+        guard ["quota_snapshots", "copilot_plan", "access_type_sku"].contains(where: root.contains) else {
+            throw UsageFetchError.invalidResponse
+        }
         var payload = UsagePayload(
             plan: plan(copilotPlan: root.string("copilot_plan"), sku: root.string("access_type_sku")),
             windows: windows(root))
         payload.historyIdentity = UsageIdentity.forGitHubLogin(root.string("login"))
+        let snapshots = root.object("quota_snapshots")
+        let premium = snapshots?.object("premium_interactions")
+        let chat = snapshots?.object("chat")
+        if let used = creditAmount(premium) ?? creditAmount(chat),
+           used > 0 || root.bool("token_based_billing") == true
+               || premium?.bool("unlimited") == true || chat?.bool("unlimited") == true {
+            payload.aiCreditsUsed = used
+        }
         return payload
+    }
+
+    private static func creditAmount(_ quota: JSONObject?) -> Double? {
+        guard let amount = quota?.double("credits_used"), amount >= 0 else { return nil }
+        return amount
     }
 
     private static func windows(_ root: JSONObject) -> [UsageWindow] {
         guard let snapshots = root.object("quota_snapshots") else { return [] }
         // The field name says UTC; Timestamp reads a bare date as UTC, never local time.
-        let reset = root.date("quota_reset_date_utc")
+        let reset = root.date("quota_reset_date_utc") ?? root.date("quota_reset_date")
         // JSON object order is not preserved by the decoder, so order explicitly.
         let ids = snapshots.storage.keys.sorted { lhs, rhs in
             let left = quotaOrder.firstIndex(of: lhs.lowercased()) ?? quotaOrder.count
@@ -70,6 +86,7 @@ public enum GitHubCopilotUsageParser {
             // one without a usable fraction is skipped — never assumed spent.
             guard let quota = snapshots.object(id),
                   quota.bool("has_quota") != false, quota.bool("unlimited") != true,
+                  !(quota.double("entitlement") == 0 && quota.double("remaining") == 0),
                   let used = usedRatio(quota) else { return nil }
             // Absolute request counts ("128 / 300") when both halves are present; remaining
             // alone cannot produce a denominator.

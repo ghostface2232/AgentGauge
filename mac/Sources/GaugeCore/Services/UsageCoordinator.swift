@@ -16,6 +16,7 @@ public struct ToolState: Sendable, Equatable, Identifiable {
     /// The last good snapshot; kept through failures and shown with its capture time.
     public var snapshot: UsageSnapshot?
     public var lastRefreshFailed = false
+    public internal(set) var lastRefreshSkipped = false
     public var auth: AuthState = .unknown
     public var isRefreshing = false
     /// When the current read started, in `SystemMonotonicClock` seconds, so the UI can cap how
@@ -312,12 +313,13 @@ public actor UsageCoordinator {
         switch result {
         case .success(let outcome):
             state.lastRefreshFailed = false
+            state.lastRefreshSkipped = false
             state.isRehydrated = false
             state.snapshot = outcome.snapshot
             state.snapshot?.profileID = key.profileID
             if !outcome.signedIn {
                 state.auth = .signedOut
-            } else if outcome.isLive && !outcome.snapshot.windows.isEmpty {
+            } else if outcome.isLive && outcome.snapshot.hasUsage {
                 // Only a genuine live read proves the server accepted the token, so only it
                 // clears a sticky rejection; a cache serve after a 401 must not.
                 state.auth = .signedIn
@@ -327,11 +329,17 @@ public actor UsageCoordinator {
             states[key] = state
             if outcome.isLive || !outcome.signedIn { persistCache() }
         case .failure(let error):
+            if error is UsageRefreshSkipped {
+                state.lastRefreshSkipped = true
+                states[key] = state
+                return
+            }
             if HTTPUsageProvider.isCancellation(error) {
                 states[key] = state
                 return
             }
             state.lastRefreshFailed = true
+            state.lastRefreshSkipped = false
             switch error as? UsageFetchError {
             case .authenticationRequired:
                 state.auth = .rejected
@@ -359,7 +367,7 @@ public actor UsageCoordinator {
     private func persistCache() {
         // Only snapshots with windows are worth rehydrating; a signed-out tool drops out.
         let snapshots = states.values.compactMap { state -> UsageSnapshot? in
-            guard state.auth != .signedOut, let snapshot = state.snapshot, !snapshot.windows.isEmpty else { return nil }
+            guard state.auth != .signedOut, let snapshot = state.snapshot, snapshot.hasUsage else { return nil }
             return snapshot
         }
         cache?.save(snapshots)

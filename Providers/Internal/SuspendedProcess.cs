@@ -16,6 +16,9 @@ internal sealed class SuspendedProcess : IDisposable
     private const uint CreateSuspended = 0x00000004;
     private const uint CreateNoWindow = 0x08000000;
     private const uint CreateUnicodeEnvironment = 0x00000400;
+    private const uint ExtendedStartupInfoPresent = 0x00080000;
+    private const int UseStandardHandles = 0x00000100;
+    private static readonly IntPtr HandleListAttribute = new(0x00020002);
     private const uint StillActive = 259;
 
     private IntPtr _processHandle;
@@ -37,22 +40,59 @@ internal sealed class SuspendedProcess : IDisposable
 
     public static SuspendedProcess Create(
         string executablePath, IReadOnlyList<string> arguments, string? workingDirectory)
+        => CreateCore(executablePath, WindowsCommandLine.Join(executablePath, arguments), workingDirectory);
+
+    internal static SuspendedProcess CreateRedirected(string executablePath, string arguments,
+        string? workingDirectory, string environment, IntPtr input, IntPtr output, IntPtr error)
+        => CreateCore(executablePath, WindowsCommandLine.Join(executablePath, []) + " " + arguments,
+            workingDirectory, environment, [input, output, error]);
+
+    private static SuspendedProcess CreateCore(string executablePath, string commandLine, string? workingDirectory,
+        string? environment = null, IntPtr[]? handles = null)
     {
-        var commandLine = WindowsCommandLine.Join(executablePath, arguments);
-        var startupInfo = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() };
+        var startupInfo = new STARTUPINFOEX { StartupInfo = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() } };
+        var flags = CreateSuspended | CreateNoWindow | CreateUnicodeEnvironment;
+        var environmentPtr = IntPtr.Zero;
+        var attributes = IntPtr.Zero;
+        var handleList = IntPtr.Zero;
 
         // CreateProcessW may write to the command-line buffer, so pass a mutable native copy.
         var commandLinePtr = Marshal.StringToHGlobalUni(commandLine);
         try
         {
+            if (environment is not null) environmentPtr = Marshal.StringToHGlobalUni(environment);
+            if (handles is not null)
+            {
+                // Limit inheritance to this probe's stdio even when several providers launch concurrently.
+                var size = UIntPtr.Zero;
+                InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref size);
+                attributes = Marshal.AllocHGlobal(checked((nint)size));
+                if (!InitializeProcThreadAttributeList(attributes, 1, 0, ref size))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                startupInfo.AttributeList = attributes;
+                var bytes = handles.Length * IntPtr.Size;
+                handleList = Marshal.AllocHGlobal(bytes);
+                Marshal.Copy(handles, 0, handleList, handles.Length);
+                if (!UpdateProcThreadAttribute(attributes, 0, HandleListAttribute, handleList, (UIntPtr)bytes, IntPtr.Zero, IntPtr.Zero))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                startupInfo.StartupInfo = new STARTUPINFO
+                {
+                    cb = Marshal.SizeOf<STARTUPINFOEX>(),
+                    dwFlags = UseStandardHandles,
+                    hStdInput = handles[0],
+                    hStdOutput = handles[1],
+                    hStdError = handles[2],
+                };
+                flags |= ExtendedStartupInfoPresent;
+            }
             var created = CreateProcessW(
                 executablePath,
                 commandLinePtr,
                 IntPtr.Zero,
                 IntPtr.Zero,
-                bInheritHandles: false,
-                CreateSuspended | CreateNoWindow | CreateUnicodeEnvironment,
-                IntPtr.Zero,
+                bInheritHandles: handles is not null,
+                flags,
+                environmentPtr,
                 workingDirectory,
                 ref startupInfo,
                 out var processInformation);
@@ -69,6 +109,10 @@ internal sealed class SuspendedProcess : IDisposable
         }
         finally
         {
+            if (startupInfo.AttributeList != IntPtr.Zero) DeleteProcThreadAttributeList(startupInfo.AttributeList);
+            Marshal.FreeHGlobal(attributes);
+            Marshal.FreeHGlobal(handleList);
+            Marshal.FreeHGlobal(environmentPtr);
             Marshal.FreeHGlobal(commandLinePtr);
         }
     }
@@ -132,6 +176,13 @@ internal sealed class SuspendedProcess : IDisposable
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct STARTUPINFOEX
+    {
+        public STARTUPINFO StartupInfo;
+        public IntPtr AttributeList;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct PROCESS_INFORMATION
     {
         public IntPtr hProcess;
@@ -150,8 +201,18 @@ internal sealed class SuspendedProcess : IDisposable
         uint dwCreationFlags,
         IntPtr lpEnvironment,
         string? lpCurrentDirectory,
-        ref STARTUPINFO lpStartupInfo,
+        ref STARTUPINFOEX lpStartupInfo,
         out PROCESS_INFORMATION lpProcessInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, int flags, ref UIntPtr size);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value,
+        UIntPtr size, IntPtr previousValue, IntPtr returnSize);
+
+    [DllImport("kernel32.dll")]
+    private static extern void DeleteProcThreadAttributeList(IntPtr list);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint ResumeThread(IntPtr hThread);

@@ -22,13 +22,24 @@ enum AntigravityQuotaParser {
     static func windows(from root: JSONObject) -> [UsageWindow] {
         // The payload arrives under "response"; tolerate a "summary" alias and a bare root that
         // already carries "groups", the kind of drift seen across engine builds.
-        let payload = root.object("response") ?? root.object("summary") ?? root
+        let payload: JSONObject
+        let cli = root.contains("command")
+        if cli {
+            guard root.string("status") == "SUCCESS", root.int64("num_turns") == 0,
+                  let command = root.object("command"), command.string("name") == "usage",
+                  let report = command.object("data") else { return [] }
+            payload = report
+        } else {
+            payload = root.object("response") ?? root.object("summary") ?? root
+        }
         guard let groups = payload.objects("groups") else { return [] }
 
         var windows: [UsageWindow] = []
+        var seen = Set<String>()
         for group in groups where !isUnavailable(group) {
             for bucket in group.objects("buckets") ?? [] {
-                if let window = window(bucket, groupName: group.string("displayName")) {
+                if let window = window(bucket, groupName: group.string(cli ? "name" : "displayName"), cli: cli),
+                   seen.insert(window.id).inserted {
                     windows.append(window)
                 }
             }
@@ -36,19 +47,19 @@ enum AntigravityQuotaParser {
         return windows
     }
 
-    private static func window(_ bucket: JSONObject, groupName: String?) -> UsageWindow? {
+    private static func window(_ bucket: JSONObject, groupName: String?, cli: Bool) -> UsageWindow? {
         // bucketId is the provider-stable identity; without it the window cannot be reconciled
         // across refreshes or kept apart from its sibling family's window of the same type.
-        guard let bucketID = ProviderText.normalize(bucket.string("bucketId")),
+        guard let bucketID = ProviderText.normalize(bucket.string(cli ? "id" : "bucketId")),
               !isUnavailable(bucket),
               let type = windowType(bucket.string("window")),
-              let remaining = remainingFraction(bucket) else { return nil }
+              let remaining = cli ? bucket.double("remaining_fraction") : remainingFraction(bucket) else { return nil }
         return UsageWindow(
             type: type,
             providerID: bucketID,
             groupLabel: familyLabel(bucketID: bucketID, groupName: groupName),
             usedRatio: min(max(1 - remaining, 0), 1),
-            resetTime: resetTime(bucket),
+            resetTime: cli ? bucket.date("reset_time") : resetTime(bucket),
             duration: type == .fiveHour ? 5 * 3600 : 7 * 86400)
     }
 

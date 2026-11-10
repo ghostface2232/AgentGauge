@@ -173,10 +173,12 @@ public struct UsageWindow: Codable, Sendable, Hashable, Identifiable {
 public struct ResetCreditDeadline: Codable, Sendable, Hashable {
     public let expiresAt: Date
     public let scope: String?
+    public let count: Int?
 
-    public init(expiresAt: Date, scope: String? = nil) {
+    public init(expiresAt: Date, scope: String? = nil, count: Int? = nil) {
         self.expiresAt = expiresAt
         self.scope = scope
+        self.count = count
     }
 
     public static let warningLeadTime: TimeInterval = 2 * 86_400
@@ -201,15 +203,18 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     var historyKey: String { accountKey.historyKey(historyIdentity) }
     /// Plan label (e.g. "Max 5x", "Plus"); can be present without any window data.
     public var plan: String?
+    public internal(set) var sourceLabel: String?
     public var windows: [UsageWindow]
     /// Manual rate-limit resets the account holds (Codex). Nil means the tool exposes no
     /// such allowance; 0 means it does and the balance is spent — the two stay distinct.
     public var resetCredits: Int?
     public var resetCreditDeadlines: [ResetCreditDeadline]?
+    public var aiCreditsUsed: Double?
+    public var hasUsage: Bool { !windows.isEmpty || aiCreditsUsed != nil }
     public var capturedAt: Date
 
     private enum CodingKeys: String, CodingKey {
-        case tool, profileID, historyIdentity, plan, windows, resetCredits, resetCreditDeadlines, capturedAt
+        case tool, profileID, historyIdentity, plan, sourceLabel, windows, resetCredits, resetCreditDeadlines, aiCreditsUsed, capturedAt
     }
 
     public init(tool: ToolKind, plan: String?, windows: [UsageWindow], resetCredits: Int? = nil,

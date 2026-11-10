@@ -244,6 +244,20 @@ struct PopoverView: View {
             Text(verbatim: "AgentGauge")
                 .font(.headline)
             Spacer(minLength: 8)
+            if model.canShowDailyUsage {
+                Button {
+                    model.showDailyUsage.toggle()
+                } label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(model.showDailyUsage ? Color.accentColor : Color.primary)
+                        .frame(width: 18, height: 18)
+                }
+                .iconButtonStyle()
+                .accessibilityLabel(L10n.get("DailyUsage_Label"))
+                .accessibilityAddTraits(model.showDailyUsage ? .isSelected : [])
+                .help(L10n.get("DailyUsage_Help"))
+            }
             Button {
                 model.refreshNow()
             } label: {
@@ -306,6 +320,8 @@ struct PopoverView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
+                .lineLimit(1)
+                .help(updatedText)
             Spacer(minLength: 8)
             if update.isAvailable || update.isBusy || update.hasFailedInstall {
                 // Installing quits and relaunches the app, so it stays a deliberate click.
@@ -387,11 +403,37 @@ struct ToolCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            content
+            let supplemental = supplementalUsage
+            if !windows.isEmpty || supplemental.isEmpty || state.lastRefreshFailed { content }
+            if !supplemental.isEmpty {
+                Text(verbatim: supplemental)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(Metrics.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardBackground()
+    }
+
+    private var supplementalUsage: String {
+        let deadlines = state.snapshot?.resetCreditDeadlines?.filter {
+            $0.expiresAt > model.now && ($0.count ?? 0) > 0
+        } ?? []
+        let scopes = Dictionary(grouping: deadlines, by: \.scope)
+        var lines = scopes.keys.sorted { ($0 ?? "") < ($1 ?? "") }.map { scope in
+            let count = scopes[scope, default: []].reduce(0) { $0 + ($1.count ?? 0) }
+            let label = L10n.format("Usage_ResetBalance", count.formatted(.number.locale(L10n.locale)))
+            return scope.map { "\($0) · \(label)" } ?? label
+        }
+        if let source = state.snapshot?.sourceLabel {
+            lines.append(L10n.format("Usage_Source", source))
+        }
+        if let credits = state.snapshot?.aiCreditsUsed {
+            let amount = credits.formatted(.number.precision(.fractionLength(0...2)).locale(L10n.locale))
+            lines.append(L10n.format("Usage_AiCreditsUsed", amount))
+        }
+        return lines.joined(separator: "\n")
     }
 
     private var header: some View {
@@ -421,7 +463,7 @@ struct ToolCard: View {
             }
             Spacer(minLength: 6)
             // Both can show at once: stale, but a retry is running.
-            if state.lastRefreshFailed && !windows.isEmpty {
+            if state.lastRefreshFailed && (!windows.isEmpty || !supplementalUsage.isEmpty) {
                 Image(systemName: "exclamationmark.arrow.circlepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -496,7 +538,7 @@ struct ToolCard: View {
         case .keychainDenied:
             message(L10n.get("Auth_KeychainDenied"), action: L10n.get("Action_TryAgain"), perform: onRetry)
         case .unknown, .signedIn:
-            if state.isRefreshing || (state.auth == .unknown && !state.lastRefreshFailed) {
+            if state.isRefreshing || (state.auth == .unknown && !state.lastRefreshFailed && !state.lastRefreshSkipped) {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(L10n.get("Loading"))
@@ -574,6 +616,25 @@ struct StatusChip: View {
     }
 }
 
+struct DailyBarSegment: Identifiable {
+    let id: Date
+    let fraction: Double
+    let description: String
+
+    init(segment: DailyUsageSegment, cost: ApiCostDay?) {
+        id = segment.day
+        fraction = segment.usedRatio
+        let date = segment.day.formatted(.dateTime.month(.abbreviated).day().locale(L10n.locale))
+        let percent = (fraction * 100).formatted(.number.precision(.fractionLength(0...1)).locale(L10n.locale))
+        var text = L10n.format("DailyUsage_Day", date, percent)
+        if let cost {
+            let amount = String(format: "%.2f", NSDecimalNumber(decimal: cost.costUSD).doubleValue)
+            text += " · " + L10n.format(cost.isFloor ? "DailyUsage_CostFloor" : "DailyUsage_Cost", amount)
+        }
+        description = text
+    }
+}
+
 /// Everything a row shows besides the bar itself, derived once per window by `AppModel`.
 struct RowDetails {
     var reset: String
@@ -581,12 +642,13 @@ struct RowDetails {
     var eta: String?
     var counts: String?
     var burndown: UsageBurndown?
+    var dailySegments: [DailyBarSegment] = []
 
     func accessibilityText(window: UsageWindow, basis: DisplayBasis) -> String {
         let name = [window.groupLabel, WindowLabels.label(for: window)].compactMap { $0 }.joined(separator: " ")
         let percent = basis.percent(for: window.usedRatio)
         let base = L10n.format(basis == .used ? "Ax_Used" : "Ax_Remaining", name, percent, reset)
-        return [base, counts, pace, eta].compactMap { $0 }.joined(separator: ", ")
+        return ([base, counts, pace, eta].compactMap { $0 } + dailySegments.map(\.description)).joined(separator: ", ")
     }
 }
 
@@ -596,6 +658,8 @@ struct UsageRow: View {
     let basis: DisplayBasis
     let showsSparkline: Bool
     @State private var hoverText: String?
+    @State private var hoveredDay: Date?
+    @FocusState private var focusedDay: Date?
 
     var body: some View {
         let percent = basis.percent(for: window.usedRatio)
@@ -616,16 +680,20 @@ struct UsageRow: View {
                     .contentTransition(.numericText(value: Double(percent)))
                     .frame(minWidth: 36, alignment: .trailing)
             }
-            UsageBar(fraction: basis.fraction(for: window.usedRatio), level: UsageLevel(ratio: window.usedRatio))
+            UsageBar(fraction: basis.fraction(for: window.usedRatio), level: UsageLevel(ratio: window.usedRatio),
+                     basis: basis, dailySegments: details.dailySegments, hoveredDay: $hoveredDay, focusedDay: $focusedDay)
             // The counts share the caption row when there is no pace to show, and move to the
             // ETA row otherwise, so a quota with counts never adds a near-empty line.
-            let caption = hoverText ?? details.reset
+            let day = hoveredDay ?? focusedDay
+            let dailyCaption = details.dailySegments.first { $0.id == day }?.description
+            let caption = dailyCaption ?? hoverText ?? details.reset
             let trailing = details.pace ?? details.counts
             let countsBelow = details.pace != nil ? details.counts : nil
             if !caption.isEmpty || trailing != nil {
                 HStack(spacing: 8) {
                     Text(caption)
                         .contentTransition(.opacity)
+                        .help(caption)
                     Spacer(minLength: 8)
                     if let pace = details.pace {
                         Text(pace).help(L10n.get("Pace_Tooltip"))
@@ -661,15 +729,61 @@ struct UsageRow: View {
 struct UsageBar: View {
     let fraction: Double
     let level: UsageLevel
+    let basis: DisplayBasis
+    let dailySegments: [DailyBarSegment]
+    @Binding var hoveredDay: Date?
+    let focusedDay: FocusState<Date?>.Binding
+
+    private let segmentGap: CGFloat = 2
 
     var body: some View {
         GeometryReader { proxy in
             let clamped = min(max(fraction, 0), 1)
             ZStack(alignment: .leading) {
                 Capsule().fill(.quaternary)
-                Capsule()
-                    .fill(level.tint)
-                    .frame(width: clamped > 0 ? max(proxy.size.width * clamped, proxy.size.height) : 0)
+                if dailySegments.isEmpty {
+                    Capsule()
+                        .fill(level.tint)
+                        .frame(width: clamped > 0 ? max(proxy.size.width * clamped, proxy.size.height) : 0)
+                } else {
+                    let unattributedWidth = basis == .used ? proxy.size.width *
+                        UsageDailyBreakdown.unattributedUsedRatio(
+                            clamped, datedRatio: dailySegments.reduce(0) { $0 + $1.fraction }) : 0
+                    let unattributedGap = min(segmentGap / 2, unattributedWidth / 4)
+                    HStack(spacing: 0) {
+                        if basis == .remaining {
+                            Capsule().fill(level.tint).frame(width: proxy.size.width * clamped)
+                        }
+                        ForEach(Array(dailySegments.enumerated()), id: \.element.id) { index, segment in
+                            let width = proxy.size.width * segment.fraction
+                            let halfGap = min(segmentGap, width / 4) / 2
+                            let leading = index == 0 ? 0 : halfGap
+                            let trailing = index == dailySegments.count - 1 ? min(halfGap, unattributedGap) : halfGap
+                            let opacity = index.isMultiple(of: 2) ? 1.0 : 0.72
+                            RoundedRectangle(cornerRadius: 2.5)
+                                .fill(level.tint.opacity(basis == .remaining ? opacity * 0.5 : opacity))
+                                .frame(width: width - leading - trailing)
+                                .padding(.leading, leading)
+                                .padding(.trailing, trailing)
+                                .contentShape(Rectangle())
+                                .help(segment.description)
+                                .onHover { inside in
+                                    if inside { hoveredDay = segment.id }
+                                    else if hoveredDay == segment.id { hoveredDay = nil }
+                                }
+                                .focusable()
+                                .focused(focusedDay, equals: segment.id)
+                        }
+                        if unattributedWidth > 0 {
+                            // The undated share keeps the total fill accurate without a day tooltip.
+                            RoundedRectangle(cornerRadius: 2.5)
+                                .fill(level.tint.opacity(0.5))
+                                .frame(width: unattributedWidth - unattributedGap)
+                                .padding(.leading, unattributedGap)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                }
             }
         }
         .frame(height: 6)

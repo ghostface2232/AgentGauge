@@ -114,7 +114,7 @@ public sealed class ClaudeProvider : UsageProviderBase
                 ? scopes.EnumerateArray().Where(scope => scope.ValueKind == JsonValueKind.String)
                     .Select(scope => scope.GetString()!).ToHashSet(StringComparer.Ordinal)
                 : [];
-            deadlines.Add(new(ends, clears.SetEquals(["seven_day_overage_included"]) ? "Fable" : null));
+            deadlines.Add(new(ends, clears.SetEquals(["seven_day_overage_included"]) ? "Fable" : null, (int)count));
             foreach (var scope in clears)
                 balances[scope] = (int)Math.Min(balances.GetValueOrDefault(scope) + count, int.MaxValue);
         }
@@ -132,7 +132,13 @@ public sealed class ClaudeProvider : UsageProviderBase
                 windows[i] = window with { ResetCredits = balances.GetValueOrDefault(scope) };
         }
 
-        return Snapshot(credential.Plan, windows) with { ResetCreditDeadlines = deadlines.Distinct().ToArray() };
+        return Snapshot(credential.Plan, windows) with
+        {
+            ResetCreditDeadlines = deadlines.GroupBy(d => (d.ExpiresAt, d.Scope))
+                .Select(group => new ResetCreditDeadline(group.Key.ExpiresAt, group.Key.Scope,
+                    (int)Math.Min(group.Sum(d => (long)d.Count!.Value), int.MaxValue)))
+                .ToArray(),
+        };
     }
 
     private async Task<HttpResponseMessage> ReadUsageAsync(ToolCredential credential, CancellationToken cancellationToken)
