@@ -114,6 +114,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         ToolName = snapshot.ToolName,
         HistoryIdentity = snapshot.HistoryIdentity,
         Plan = snapshot.Plan,
+        SourceLabel = snapshot.SourceLabel,
         ResetCredits = snapshot.ResetCredits,
         AiCreditsUsed = snapshot.AiCreditsUsed,
         ResetCreditDeadlines = snapshot.ResetCreditDeadlines,
@@ -139,6 +140,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         ToolName = ToolCatalog.CurrentDisplayName(dto.ToolName),
         HistoryIdentity = dto.HistoryIdentity,
         Plan = dto.Plan,
+        SourceLabel = dto.SourceLabel,
         ResetCredits = dto.ResetCredits,
         AiCreditsUsed = dto.AiCreditsUsed,
         ResetCreditDeadlines = dto.ResetCreditDeadlines,
@@ -175,6 +177,7 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         public string ToolName { get; set; } = "";
         public string? HistoryIdentity { get; set; }
         public string? Plan { get; set; }
+        public string? SourceLabel { get; set; }
 
         // Added after Version 4. Nullable and optional in both directions, so a cache
         // written by an older build simply rehydrates without it — no version bump needed.

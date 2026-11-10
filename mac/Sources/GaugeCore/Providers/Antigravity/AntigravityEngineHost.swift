@@ -101,11 +101,14 @@ struct SpawnedEngine: Sendable {
     }
 
     let pid: pid_t
-    let stdinWriter: Int32
+    let stdinWriter: Int32?
     let marker: (name: String, value: String)
     let spawnedAt: UInt64
 
-    static func spawn(executable: String, arguments: [String], marker: (String, String)) throws -> SpawnedEngine {
+    static func spawn(executable: String, arguments: [String], marker: (String, String),
+                      environment: [String: String] = ProcessInfo.processInfo.environment,
+                      workingDirectory: String? = nil, stdout: Int32? = nil,
+                      pipeInput: Bool = true) throws -> SpawnedEngine {
         var pipeEnds: [Int32] = [0, 0]
         guard pipe(&pipeEnds) == 0 else { throw SpawnError(operation: "pipe", code: errno) }
         let (reader, writer) = (pipeEnds[0], pipeEnds[1])
@@ -118,11 +121,18 @@ struct SpawnedEngine: Sendable {
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_adddup2(&actions, reader, STDIN_FILENO)
-        // The engine's output carries account details and sign-in URLs: discard it unread.
-        posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0)
+        if pipeInput {
+            posix_spawn_file_actions_adddup2(&actions, reader, STDIN_FILENO)
+        } else {
+            posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
+        }
+        if let stdout {
+            posix_spawn_file_actions_adddup2(&actions, stdout, STDOUT_FILENO)
+        } else {
+            posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0)
+        }
         posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
-        posix_spawn_file_actions_addchdir_np(&actions, (executable as NSString).deletingLastPathComponent)
+        posix_spawn_file_actions_addchdir_np(&actions, workingDirectory ?? (executable as NSString).deletingLastPathComponent)
 
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
@@ -139,7 +149,7 @@ struct SpawnedEngine: Sendable {
         sigemptyset(&noSignals)
         posix_spawnattr_setsigmask(&attributes, &noSignals)
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = environment
         environment[marker.0] = marker.1
         let argv = ([executable] + arguments).map { strdup($0) } + [nil]
         let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
@@ -155,7 +165,8 @@ struct SpawnedEngine: Sendable {
             close(writer)
             throw SpawnError(operation: "posix_spawn", code: result)
         }
-        return SpawnedEngine(pid: pid, stdinWriter: writer, marker: marker, spawnedAt: started)
+        if !pipeInput { close(writer) }
+        return SpawnedEngine(pid: pid, stdinWriter: pipeInput ? writer : nil, marker: marker, spawnedAt: started)
     }
 
     /// The exit status if the engine has exited, without reaping it: the zombie keeps the PID
@@ -180,7 +191,7 @@ struct SpawnedEngine: Sendable {
 
     private func terminateNow() {
         // Graceful first: the engine exits on stdin EOF (about half a second, verified live).
-        close(stdinWriter)
+        if let stdinWriter { close(stdinWriter) }
         killpg(pid, SIGTERM)
         let graceDeadline = Date().addingTimeInterval(AntigravityEngineHost.terminationGrace)
         while exitStatus() == nil, Date() < graceDeadline { usleep(50_000) }
@@ -210,7 +221,7 @@ struct SpawnedEngine: Sendable {
             guard let started = isOurs(candidate) else { continue }
             if DarwinProcessTable.startTime(candidate) == started {
                 kill(candidate, SIGKILL)
-                Log.write("provider", "Antigravity engine sidecar outlived its group; killed")
+                Log.write("provider", "Provider subprocess outlived its group; killed")
             }
         }
     }

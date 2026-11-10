@@ -2,7 +2,12 @@ using Gauge.Services;
 
 namespace Gauge.Providers.Internal;
 
-internal sealed class AntigravityCliReader(ICliLocator locator) : IAntigravityReader
+internal interface IAntigravityCliReader : IAntigravityReader
+{
+    bool IsInstalled { get; }
+}
+
+internal sealed class AntigravityCliReader(ICliLocator locator) : IAntigravityCliReader
 {
     private static readonly Version MinimumVersion = new(1, 1, 11);
     private static readonly Dictionary<string, string> Environment = new()

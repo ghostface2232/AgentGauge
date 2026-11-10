@@ -17,6 +17,8 @@ public protocol UsageProvider: Sendable {
     func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome
 }
 
+struct UsageRefreshSkipped: Error {}
+
 /// The per-tool part of an HTTP usage provider: its request and parsing.
 public protocol UsageEndpoint: Sendable {
     func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date) async throws -> UsagePayload

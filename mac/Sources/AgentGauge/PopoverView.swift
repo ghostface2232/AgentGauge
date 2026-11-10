@@ -406,7 +406,7 @@ struct ToolCard: View {
                     .foregroundStyle(.secondary)
             }
             let supplemental = supplementalUsage
-            if !windows.isEmpty || supplemental.isEmpty { content }
+            if !windows.isEmpty || supplemental.isEmpty || state.lastRefreshFailed { content }
             if !supplemental.isEmpty {
                 Text(verbatim: supplemental)
                     .font(.caption)
@@ -427,6 +427,9 @@ struct ToolCard: View {
             let count = scopes[scope, default: []].reduce(0) { $0 + ($1.count ?? 0) }
             let label = L10n.format("Usage_ResetBalance", count.formatted(.number.locale(L10n.locale)))
             return scope.map { "\($0) · \(label)" } ?? label
+        }
+        if let source = state.snapshot?.sourceLabel {
+            lines.append(L10n.format("Usage_Source", source))
         }
         if let credits = state.snapshot?.aiCreditsUsed {
             let amount = credits.formatted(.number.precision(.fractionLength(0...2)).locale(L10n.locale))
@@ -462,7 +465,7 @@ struct ToolCard: View {
             }
             Spacer(minLength: 6)
             // Both can show at once: stale, but a retry is running.
-            if state.lastRefreshFailed && !windows.isEmpty {
+            if state.lastRefreshFailed && (!windows.isEmpty || !supplementalUsage.isEmpty) {
                 Image(systemName: "exclamationmark.arrow.circlepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -537,7 +540,7 @@ struct ToolCard: View {
         case .keychainDenied:
             message(L10n.get("Auth_KeychainDenied"), action: L10n.get("Action_TryAgain"), perform: onRetry)
         case .unknown, .signedIn:
-            if state.isRefreshing || (state.auth == .unknown && !state.lastRefreshFailed) {
+            if state.isRefreshing || (state.auth == .unknown && !state.lastRefreshFailed && !state.lastRefreshSkipped) {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(L10n.get("Loading"))

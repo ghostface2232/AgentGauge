@@ -30,7 +30,7 @@ public struct AntigravityProvider: UsageProvider {
     private let readers: [any AntigravityReader]
     private let isInstalled: @Sendable () -> Bool
     private let now: @Sendable () -> Date
-    private let cli: AntigravityCLIReader?
+    private let cli: (any AntigravityCLIReading)?
 
     /// The production wiring. The install is located per fetch, so installing or removing the
     /// app while AgentGauge runs is picked up at the next refresh.
@@ -50,11 +50,12 @@ public struct AntigravityProvider: UsageProvider {
         cli = AntigravityCLIReader(locator: CLILocator())
     }
 
-    init(readers: [any AntigravityReader], isInstalled: @escaping @Sendable () -> Bool, now: @escaping @Sendable () -> Date = { Date() }) {
+    init(readers: [any AntigravityReader], isInstalled: @escaping @Sendable () -> Bool,
+         now: @escaping @Sendable () -> Date = { Date() }, cli: (any AntigravityCLIReading)? = nil) {
         self.readers = readers
         self.isInstalled = isInstalled
         self.now = now
-        cli = nil
+        self.cli = cli
     }
 
     public func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome {
@@ -69,9 +70,10 @@ public struct AntigravityProvider: UsageProvider {
         }
 
         if let cli, let executable = await cli.locator.locate("agy") {
-            if interaction == .user, let data = await cli.usage(executable),
+            guard interaction == .user else { throw UsageRefreshSkipped() }
+            if let data = await cli.usage(executable),
                let windows = try? AntigravityQuotaParser.windows(from: data), !windows.isEmpty {
-                return outcome(windows, plan: nil)
+                return outcome(windows, plan: nil, cli: true)
             }
             try Task.checkCancellation()
             throw AntigravityUnavailableError(reason: "no CLI usage windows")
@@ -85,14 +87,22 @@ public struct AntigravityProvider: UsageProvider {
         throw AntigravityUnavailableError(reason: "no engine returned usage")
     }
 
-    private func outcome(_ windows: [UsageWindow], plan: String?) -> ProviderOutcome {
-        ProviderOutcome(
-            snapshot: UsageSnapshot(tool: tool, plan: plan, windows: windows, capturedAt: now()),
-            signedIn: true, isLive: true)
+    private func outcome(_ windows: [UsageWindow], plan: String?, cli: Bool = false) -> ProviderOutcome {
+        var snapshot = UsageSnapshot(tool: tool, plan: plan, windows: windows, capturedAt: now())
+        if cli {
+            snapshot.historyIdentity = "antigravity-cli"
+            snapshot.sourceLabel = "agy"
+        }
+        return ProviderOutcome(snapshot: snapshot, signedIn: true, isLive: true)
     }
 }
 
-private struct AntigravityCLIReader: Sendable {
+protocol AntigravityCLIReading: Sendable {
+    var locator: any CLILocating { get }
+    func usage(_ executable: URL) async -> Data?
+}
+
+private struct AntigravityCLIReader: AntigravityCLIReading {
     let locator: any CLILocating
     private let runner = SystemProcessRunner()
 
@@ -114,10 +124,10 @@ private struct AntigravityCLIReader: Sendable {
         environment["BROWSER"] = "/usr/bin/false"
         environment["PATH"] = directory.path + ":" + (environment["PATH"] ?? "")
         guard let version = await runner.usageProbe(executable, arguments: ["--version"],
-                                                    environment: environment, timeout: 3),
+                                                    environment: environment, timeout: 3, workingDirectory: directory),
               Self.supportsUsage(version) else { return nil }
         return await runner.usageProbe(executable, arguments: ["-p", "/usage", "--output-format", "json"],
-                                       environment: environment, timeout: 15)
+                                       environment: environment, timeout: 15, workingDirectory: directory)
     }
 
     static func supportsUsage(_ output: Data) -> Bool {

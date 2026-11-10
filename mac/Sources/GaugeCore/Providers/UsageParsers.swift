@@ -120,8 +120,19 @@ public enum CodexUsageParser {
         guard root.contains("rate_limit") || root.contains("additional_rate_limits") else {
             throw UsageFetchError.invalidResponse
         }
+        if let limits = root.storage["rate_limit"], !(limits is NSNull), JSONObject(limits) == nil {
+            throw UsageFetchError.invalidResponse
+        }
+        if let additional = root.storage["additional_rate_limits"], !(additional is NSNull), !(additional is [Any]) {
+            throw UsageFetchError.invalidResponse
+        }
         var windows: [UsageWindow] = []
         if let rateLimit = root.object("rate_limit") {
+            for key in ["primary_window", "secondary_window"] {
+                if let value = rateLimit.storage[key], !(value is NSNull), JSONObject(value) == nil {
+                    throw UsageFetchError.invalidResponse
+                }
+            }
             if let window = window(rateLimit, "primary_window", fallback: .fiveHour) { windows.append(window) }
             if let window = window(rateLimit, "secondary_window", fallback: .weekly) { windows.append(window) }
         }
@@ -141,7 +152,9 @@ public enum CodexUsageParser {
         guard let result = reply.object("result") else { return nil }
         if let accountID, let reportedID = result.string("accountId"), reportedID != accountID { return nil }
         let byID = result.object("rateLimitsByLimitId")
-        guard let account = result.object("rateLimits") ?? byID?.object("codex") else { return nil }
+        let legacy = result.object("rateLimits")
+        let legacyID = ProviderText.normalize(legacy?.string("limitId"))
+        let account = byID?.object("codex") ?? (legacyID == nil || legacyID == "codex" ? legacy : nil)
 
         var windows: [UsageWindow] = []
         var seen = Set<String>()
@@ -154,15 +167,19 @@ public enum CodexUsageParser {
                 }
             }
         }
-        addWindows(account)
+        func addScopedWindows(_ id: String, limits: JSONObject) {
+            let slug = ProviderText.slug(id)
+            guard !slug.isEmpty else { return }
+            let label = displayName(ProviderText.normalize(limits.string("limitName")) ?? id)
+            addWindows(limits, prefix: "codex-additional-\(slug)", label: label)
+        }
+        if let account { addWindows(account) }
         if let byID {
             for id in byID.storage.keys.sorted() where id != "codex" {
-                let slug = ProviderText.slug(id)
-                guard !slug.isEmpty, let limits = byID.object(id) else { continue }
-                let label = displayName(ProviderText.normalize(limits.string("limitName")) ?? id)
-                addWindows(limits, prefix: "codex-additional-\(slug)", label: label)
+                if let limits = byID.object(id) { addScopedWindows(id, limits: limits) }
             }
         }
+        if let legacy, let legacyID, legacyID != "codex" { addScopedWindows(legacyID, limits: legacy) }
         guard !windows.isEmpty else { return nil }
         let credits = result.object("rateLimitResetCredits")
         let count = credits?.int64("availableCount").flatMap { $0 >= 0 ? Int(exactly: $0) : nil }
@@ -172,7 +189,7 @@ public enum CodexUsageParser {
             let expiry = Date(timeIntervalSince1970: TimeInterval(epoch))
             return expiries.insert(expiry).inserted ? ResetCreditDeadline(expiresAt: expiry) : nil
         }
-        return UsagePayload(plan: ProviderText.planLabel(account.string("planType"), known: knownPlans),
+        return UsagePayload(plan: ProviderText.planLabel(account?.string("planType") ?? legacy?.string("planType"), known: knownPlans),
                             windows: windows, resetCredits: count, resetCreditDeadlines: deadlines)
     }
 

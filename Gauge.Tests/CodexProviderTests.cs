@@ -1,4 +1,6 @@
 using System.Net;
+using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using Gauge.Models;
 using Gauge.Providers;
@@ -29,7 +31,7 @@ public sealed class CodexProviderTests
                 echo {"method":"account/rateLimits/updated"}
                 echo {"id":2,"result":{"accountId":"test-account","rateLimits":{"planType":"plus","primary":{"usedPercent":17,"windowDurationMins":10080}}}}
                 """);
-            var provider = new CodexProvider(new HttpClient(new StubHandler("{}")), Available("t", "test-account"),
+            var provider = new CodexProvider(new HttpClient(new StubHandler("""{"rate_limit":{"primary_window":[]}}""")), Available("t", "test-account"),
                 appServerLocator: new AppServerLocator(executable));
             await Assert.ThrowsAsync<UsageResponseShapeException>(() => provider.GetSnapshotAsync(default));
 
@@ -45,9 +47,60 @@ public sealed class CodexProviderTests
         }
     }
 
+    [Theory]
+    [InlineData("""{"rate_limit":"unexpected"}""")]
+    [InlineData("""{"rate_limit":{"secondary_window":[]}}""")]
+    [InlineData("""{"rate_limit":null,"additional_rate_limits":{}}""")]
+    public async Task RejectsRecognizedFieldsWithUnexpectedTypes(string json)
+        => await Assert.ThrowsAsync<UsageResponseShapeException>(() => Snapshot(json, Available("t")));
+
+    [Fact]
+    public void NamedOnlyAppServerQuotaIsNotDuplicatedAsAccountWide()
+    {
+        const string reply = """
+        {"id":2,"result":{
+          "rateLimits":{"limitId":"gpt_reserve","planType":"pro","primary":{"usedPercent":45,"windowDurationMins":300}},
+          "rateLimitsByLimitId":{"gpt_reserve":{"limitName":"GPT Reserve","primary":{"usedPercent":45,"windowDurationMins":300}}}
+        }}
+        """;
+        var payload = CodexProvider.ParseAppServer(reply);
+        Assert.NotNull(payload);
+        Assert.Equal("Pro 200", payload.Value.Plan);
+        var window = Assert.Single(payload.Value.Windows);
+        Assert.Equal("codex-additional-gpt-reserve-18000", window.Key);
+        Assert.Equal("Luna Reserve", window.GroupLabel);
+    }
+
     private sealed class AppServerLocator(string executable) : ICliLocator
     {
         public string? Find(string commandName) => commandName == "codex" ? executable : null;
+    }
+
+    [Fact]
+    public async Task UsageProbeCleansUpChildrenAfterSuccessfulRootExit()
+    {
+        var executable = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+        var startedAt = DateTime.Now;
+        var output = await CliUsageProbe.RunAsync(executable, """
+            -NoProfile -NonInteractive -Command "$info = New-Object System.Diagnostics.ProcessStartInfo; $info.FileName = Join-Path $PSHOME 'powershell.exe'; $info.Arguments = '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 30'; $info.UseShellExecute = $false; $info.CreateNoWindow = $true; $child = [Diagnostics.Process]::Start($info); [Console]::WriteLine($child.Id)"
+            """, TimeSpan.FromSeconds(10), default);
+        Assert.NotNull(output);
+        var pid = int.Parse(output.Trim(), CultureInfo.InvariantCulture);
+        Process child;
+        try { child = Process.GetProcessById(pid); }
+        catch (ArgumentException) { return; }
+        using (child)
+        {
+            if (child.HasExited || child.StartTime < startedAt || child.ProcessName != "powershell") return;
+            try
+            {
+                await child.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            finally
+            {
+                if (!child.HasExited) child.Kill();
+            }
+        }
     }
 
     [Fact]

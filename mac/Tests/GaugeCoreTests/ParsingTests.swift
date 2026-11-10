@@ -80,6 +80,30 @@ final class ClaudeParserTests: XCTestCase {
 }
 
 final class CodexParserTests: XCTestCase {
+    func testWrongTypesForKnownFieldsFailWhileNullRemainsEmpty() throws {
+        for json in [#"{"rate_limit":"unexpected"}"#, #"{"rate_limit":{"primary_window":[]}}"#,
+                     #"{"rate_limit":null,"additional_rate_limits":{}}"#] {
+            XCTAssertThrowsError(try CodexUsageParser.payload(from: Data(json.utf8))) {
+                XCTAssertEqual($0 as? UsageFetchError, .invalidResponse)
+            }
+        }
+        let empty = #"{"rate_limit":{"primary_window":null},"additional_rate_limits":null}"#
+        XCTAssertTrue(try CodexUsageParser.payload(from: Data(empty.utf8)).windows.isEmpty)
+    }
+
+    func testNamedOnlyAppServerQuotaIsNotDuplicatedAsAccountWide() throws {
+        let reply = """
+        {"id":2,"result":{
+          "rateLimits":{"limitId":"gpt_reserve","planType":"pro","primary":{"usedPercent":45,"windowDurationMins":300}},
+          "rateLimitsByLimitId":{"gpt_reserve":{"limitName":"GPT Reserve","primary":{"usedPercent":45,"windowDurationMins":300}}}
+        }}
+        """
+        let payload = try XCTUnwrap(CodexUsageParser.appServerPayload(from: Data(reply.utf8)))
+        XCTAssertEqual(payload.plan, "Pro 200")
+        XCTAssertEqual(payload.windows.map(\.id), ["codex-additional-gpt-reserve-18000"])
+        XCTAssertEqual(payload.windows.first?.groupLabel, "Luna Reserve")
+    }
+
     func testCreditDetailsOnlyIncludeAvailableDatedCredits() throws {
         let data = Data("""
         {"credits":[

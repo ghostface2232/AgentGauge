@@ -30,23 +30,6 @@ public struct SystemProcessRunner: ProcessRunning {
 
     public func run(_ executable: URL, arguments: [String], environment: [String: String],
                     timeout: TimeInterval, captureOutput: Bool) async -> ProcessResult {
-        await runProcess(executable, arguments: arguments, environment: environment, timeout: timeout,
-                         captureOutput: captureOutput)
-    }
-
-    func usageProbe(_ executable: URL, arguments: [String], environment: [String: String],
-                    timeout: TimeInterval, request: String? = nil, responseID: Int? = nil) async -> Data? {
-        guard !Task.isCancelled else { return nil }
-        let result = await runProcess(executable, arguments: arguments, environment: environment, timeout: timeout,
-                                      captureOutput: true, byteLimit: 1024 * 1024,
-                                      request: request, responseID: responseID)
-        guard !Task.isCancelled, !result.timedOut, result.exitCode == 0 else { return nil }
-        return result.output
-    }
-
-    private func runProcess(_ executable: URL, arguments: [String], environment: [String: String],
-                            timeout: TimeInterval, captureOutput: Bool, byteLimit: Int? = nil,
-                            request: String? = nil, responseID: Int? = nil) async -> ProcessResult {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = executable
@@ -55,10 +38,7 @@ public struct SystemProcessRunner: ProcessRunning {
             // The user's home rather than the inherited folder, so a CLI never picks up project
             // files (or a planted binary) from wherever AgentGauge was started.
             process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-            let input = request.map { _ in Pipe() }
-            let writer = input?.fileHandleForWriting
-            if let writer { _ = fcntl(writer.fileDescriptor, F_SETNOSIGPIPE, 1) }
-            process.standardInput = input ?? FileHandle.nullDevice
+            process.standardInput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             let pipe: Pipe? = captureOutput ? Pipe() : nil
             process.standardOutput = pipe ?? FileHandle.nullDevice
@@ -67,11 +47,7 @@ public struct SystemProcessRunner: ProcessRunning {
             // document grows with every MCP OAuth entry) would otherwise block the writer and
             // only end at the timeout. Started before the launch, so a process that exits at
             // once cannot be judged before its output has anywhere to go.
-            let drain = pipe.map {
-                OutputDrain($0.fileHandleForReading, byteLimit: byteLimit, responseID: responseID) {
-                    try? writer?.close()
-                }
-            }
+            let drain = pipe.map { OutputDrain($0.fileHandleForReading) }
 
             let deliver: @Sendable (Int32?, Data?) -> Void = { exitCode, output in
                 state.finishOnce {
@@ -94,9 +70,6 @@ public struct SystemProcessRunner: ProcessRunning {
                 state.finishOnce { continuation.resume(returning: .launchFailed) }
                 return
             }
-            if let request, let writer {
-                try? writer.write(contentsOf: Data(request.utf8))
-            }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
                 guard process.isRunning else { return }
                 state.markTimedOut()
@@ -116,6 +89,47 @@ public struct SystemProcessRunner: ProcessRunning {
         }
     }
 
+    func usageProbe(_ executable: URL, arguments: [String], environment: [String: String],
+                    timeout: TimeInterval, request: String? = nil, responseID: Int? = nil,
+                    workingDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) async -> Data? {
+        guard !Task.isCancelled else { return nil }
+        let pipe = Pipe()
+        let stdout = pipe.fileHandleForWriting
+        guard let child = try? SpawnedEngine.spawn(executable: executable.path, arguments: arguments,
+            marker: ("AGENTGAUGE_USAGE_PROBE", UUID().uuidString), environment: environment,
+            workingDirectory: workingDirectory.path, stdout: stdout.fileDescriptor, pipeInput: request != nil) else { return nil }
+        try? stdout.close()
+        let drain = OutputDrain(pipe.fileHandleForReading, byteLimit: 1024 * 1024, responseID: responseID)
+
+        if let request, let input = child.stdinWriter {
+            _ = fcntl(input, F_SETNOSIGPIPE, 1)
+            try? FileHandle(fileDescriptor: input, closeOnDealloc: false).write(contentsOf: Data(request.utf8))
+        }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
+        while !Task.isCancelled, clock.now < deadline {
+            if child.exitStatus() != nil || drain.hasEnded { break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        if responseID == nil {
+            // EOF can precede the root's exit status by a scheduling tick.
+            while !Task.isCancelled, child.exitStatus() == nil, clock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
+        let succeeded = !Task.isCancelled && clock.now < deadline
+            && (responseID != nil || child.exitStatus() == 0)
+        // Termination also closes stdout inherited by descendants. Drain buffered bytes
+        // afterwards, while the unreaped leader still protects its process group during cleanup.
+        await child.terminate()
+        let output = await withCheckedContinuation { continuation in
+            drain.whenEnded { continuation.resume(returning: $0) }
+            drain.stop()
+        }
+        return succeeded && !Task.isCancelled && !output.isEmpty ? output : nil
+    }
+
     /// Collects a child's stdout through a dispatch source rather than a blocking read, because
     /// the read side must be able to give up on a pipe that never reaches EOF. Closing a
     /// FileHandle under a thread blocked in `readDataToEndOfFile` is undefined, and that call
@@ -130,18 +144,17 @@ public struct SystemProcessRunner: ProcessRunning {
         private let source: DispatchSourceRead
         private let byteLimit: Int?
         private let responseID: Int?
-        private let onResponse: @Sendable () -> Void
         // Confined to `queue`.
         private var collected = Data()
         private var ended = false
+        private var matchedResponse = false
         private var lineStart = 0
         private var waiters: [@Sendable (Data) -> Void] = []
 
-        init(_ handle: FileHandle, byteLimit: Int?, responseID: Int?, onResponse: @escaping @Sendable () -> Void) {
+        init(_ handle: FileHandle, byteLimit: Int? = nil, responseID: Int? = nil) {
             descriptor = handle.fileDescriptor
             self.byteLimit = byteLimit
             self.responseID = responseID
-            self.onResponse = onResponse
             // A spurious wake-up must come back as EAGAIN instead of parking the serial queue.
             // The flag belongs to the read end's own file description; the child's stdout is
             // the write end and stays blocking.
@@ -151,6 +164,8 @@ public struct SystemProcessRunner: ProcessRunning {
             source.setCancelHandler { try? handle.close() }
             source.resume()
         }
+
+        var hasEnded: Bool { queue.sync { ended } }
 
         /// Calls back with everything read once the pipe reaches EOF or `stop` gives up on it.
         func whenEnded(_ waiter: @escaping @Sendable (Data) -> Void) {
@@ -179,7 +194,6 @@ public struct SystemProcessRunner: ProcessRunning {
                 if count > 0 {
                     if let byteLimit, collected.count + count > byteLimit {
                         collected.removeAll()
-                        onResponse()
                         return end()
                     }
                     collected.append(contentsOf: buffer[..<count])
@@ -200,7 +214,7 @@ public struct SystemProcessRunner: ProcessRunning {
                 lineStart = newline + 1
                 if let object = try? JSONObject.parse(line), object.int64("id") == Int64(id) {
                     collected = line
-                    onResponse()
+                    matchedResponse = true
                     return true
                 }
             }
@@ -210,6 +224,7 @@ public struct SystemProcessRunner: ProcessRunning {
         private func end() {
             guard !ended else { return }
             ended = true
+            if responseID != nil && !matchedResponse { collected.removeAll() }
             source.cancel()
             let current = waiters
             waiters = []

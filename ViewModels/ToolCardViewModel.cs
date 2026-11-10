@@ -287,6 +287,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
                 var label = Loc.Format("Usage_ResetBalance", group.Sum(d => (long)d.Count!.Value));
                 return group.Key is { } scope ? $"{scope} · {label}" : label;
             }).ToList() ?? [];
+        if (cached.Snapshot?.SourceLabel is { } source)
+            supplemental.Add(Loc.Format("Usage_Source", source));
         if (cached.Snapshot?.AiCreditsUsed is { } credits)
             supplemental.Add(Loc.Format("Usage_AiCreditsUsed", credits));
         SupplementalUsage = string.Join("\n", supplemental);

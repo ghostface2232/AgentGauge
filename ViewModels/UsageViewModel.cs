@@ -481,13 +481,19 @@ public sealed partial class UsageViewModel : ObservableObject
         foreach (var tool in tools)
         {
             var name = _registry?.DisplayName(tool.ToolName) ?? tool.ToolName;
-            if (tool.Snapshot is { HasUsage: true } snapshot)
+            if (tool.Snapshot is { Windows.Count: > 0 } snapshot)
             {
                 var (shortWindow, longWindow) = StatusRingSelection.Select(snapshot.Windows);
                 var shown = new[] { shortWindow, longWindow }.OfType<UsageWindow>().ToList();
                 if (shown.Count == 0) shown.Add(snapshot.Windows.MaxBy(w => w.UsedRatio)!);
                 lines.Add($"{name}  {string.Join(" · ", shown.Select(w => $"{w.Label} {w.UsedRatio * 100:0}%"))}");
                 compact.Add($"{name} {snapshot.Windows.Max(w => w.UsedRatio) * 100:0}%");
+            }
+            else if (tool.Snapshot?.AiCreditsUsed is { } credits)
+            {
+                var summary = $"{name}  {Loc.Format("Usage_AiCreditsUsed", credits)}";
+                lines.Add(summary);
+                compact.Add(summary);
             }
             else
             {

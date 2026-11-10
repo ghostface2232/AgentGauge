@@ -21,6 +21,8 @@ public sealed record UsageSnapshot
     /// </summary>
     public string? Plan { get; init; }
 
+    public string? SourceLabel { get; init; }
+
     /// <summary>
     /// The windows this tool exposes. A tool may have a 5-hour window, a weekly
     /// window, scoped model limits, any subset of those, or none — the list reflects

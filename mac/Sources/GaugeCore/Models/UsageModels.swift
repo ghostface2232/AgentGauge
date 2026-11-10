@@ -203,6 +203,7 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     var historyKey: String { accountKey.historyKey(historyIdentity) }
     /// Plan label (e.g. "Max 5x", "Plus"); can be present without any window data.
     public var plan: String?
+    public internal(set) var sourceLabel: String?
     public var windows: [UsageWindow]
     /// Manual rate-limit resets the account holds (Codex). Nil means the tool exposes no
     /// such allowance; 0 means it does and the balance is spent — the two stay distinct.
@@ -213,7 +214,7 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     public var capturedAt: Date
 
     private enum CodingKeys: String, CodingKey {
-        case tool, profileID, historyIdentity, plan, windows, resetCredits, resetCreditDeadlines, aiCreditsUsed, capturedAt
+        case tool, profileID, historyIdentity, plan, sourceLabel, windows, resetCredits, resetCreditDeadlines, aiCreditsUsed, capturedAt
     }
 
     public init(tool: ToolKind, plan: String?, windows: [UsageWindow], resetCredits: Int? = nil,

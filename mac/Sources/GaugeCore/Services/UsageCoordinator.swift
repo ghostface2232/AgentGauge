@@ -16,6 +16,7 @@ public struct ToolState: Sendable, Equatable, Identifiable {
     /// The last good snapshot; kept through failures and shown with its capture time.
     public var snapshot: UsageSnapshot?
     public var lastRefreshFailed = false
+    public internal(set) var lastRefreshSkipped = false
     public var auth: AuthState = .unknown
     public var isRefreshing = false
     /// When the current read started, in `SystemMonotonicClock` seconds, so the UI can cap how
@@ -312,6 +313,7 @@ public actor UsageCoordinator {
         switch result {
         case .success(let outcome):
             state.lastRefreshFailed = false
+            state.lastRefreshSkipped = false
             state.isRehydrated = false
             state.snapshot = outcome.snapshot
             state.snapshot?.profileID = key.profileID
@@ -327,11 +329,17 @@ public actor UsageCoordinator {
             states[key] = state
             if outcome.isLive || !outcome.signedIn { persistCache() }
         case .failure(let error):
+            if error is UsageRefreshSkipped {
+                state.lastRefreshSkipped = true
+                states[key] = state
+                return
+            }
             if HTTPUsageProvider.isCancellation(error) {
                 states[key] = state
                 return
             }
             state.lastRefreshFailed = true
+            state.lastRefreshSkipped = false
             switch error as? UsageFetchError {
             case .authenticationRequired:
                 state.auth = .rejected

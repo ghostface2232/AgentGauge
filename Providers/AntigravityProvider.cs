@@ -34,7 +34,7 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
     private readonly IReadOnlyList<IAntigravityReader> _sources;
     private readonly Func<bool> _isInstalled;
     private readonly IDisposable[] _owned;
-    private readonly AntigravityCliReader? _cli;
+    private readonly IAntigravityCliReader? _cli;
 
     public AntigravityProvider()
     {
@@ -54,11 +54,13 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
         _cli = new AntigravityCliReader(new CliLocator());
     }
 
-    internal AntigravityProvider(IReadOnlyList<IAntigravityReader> sources, Func<bool> isInstalled)
+    internal AntigravityProvider(IReadOnlyList<IAntigravityReader> sources, Func<bool> isInstalled,
+        IAntigravityCliReader? cli = null)
     {
         _sources = sources;
         _isInstalled = isInstalled;
         _owned = Array.Empty<IDisposable>();
+        _cli = cli;
     }
 
     public ToolKind Tool => ToolKind.Antigravity;
@@ -70,24 +72,20 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
 
     public async Task<UsageSnapshot> GetSnapshotAsync(FetchInteraction interaction, CancellationToken cancellationToken)
     {
-        // Keep CLI launches on explicit refreshes, since a signed-out CLI can ask to sign in.
-        var cli = interaction == FetchInteraction.UserInitiated && _cli?.IsInstalled == true ? _cli : null;
-        // Not installed: a clean "no data" state, not a failure.
         var hasEngine = _isInstalled();
-        if (!hasEngine && cli is null)
-        {
-            if (_cli?.IsInstalled == true)
-                throw new AntigravityUnavailableException("Refresh Antigravity manually to query the installed CLI.");
-            return EmptySnapshot();
-        }
-
         foreach (var source in hasEngine ? _sources : Array.Empty<IAntigravityReader>())
         {
             if (await source.ReadAsync(cancellationToken) is { } reading && ToSnapshot(reading) is { } snapshot)
                 return snapshot;
         }
-        if (cli is not null && await cli.ReadAsync(cancellationToken) is { } report && ToSnapshot(report) is { } fallback)
-            return fallback;
+        if (_cli is { IsInstalled: true } cli)
+        {
+            // A signed-out CLI can ask to sign in, so only launch on an explicit refresh.
+            if (interaction == FetchInteraction.Background) throw new UsageRefreshSkippedException();
+            if (await cli.ReadAsync(cancellationToken) is { } report && ToSnapshot(report) is { } fallback)
+                return fallback with { HistoryIdentity = "antigravity-cli", SourceLabel = "agy" };
+        }
+        else if (!hasEngine) return EmptySnapshot();
         throw new AntigravityUnavailableException("Antigravity returned no usage windows.");
     }
 

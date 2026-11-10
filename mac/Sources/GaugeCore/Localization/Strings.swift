@@ -63,6 +63,7 @@ enum Strings {
         "Action_Refresh": ["새로 고침", "Refresh", "更新"],
         "DailyUsage_Label": ["일별 보기", "Daily view", "日別表示"],
         "Usage_AiCreditsUsed": ["AI 크레딧 {0} 사용", "{0} AI credits used", "AIクレジット {0} 使用"],
+        "Usage_Source": ["{0}에서 조회", "Read from {0}", "{0} から取得"],
         "Usage_ResetBalance": ["초기화 {0}회 가능", "{0} available resets", "リセット可能回数 {0}"],
         "DailyUsage_Help": ["기록된 날짜별로 주간 사용량을 나눠 표시", "Split weekly usage by recorded day", "記録がある日ごとに週間使用量を表示"],
         "DailyUsage_Day": ["{0} · 주간 한도의 약 {1}%", "{0} · about {1}% of weekly limit", "{0} · 週間上限の約{1}%"],

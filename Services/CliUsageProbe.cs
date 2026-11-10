@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using Gauge.Providers.Internal;
 
 namespace Gauge.Services;
 
@@ -19,11 +21,6 @@ internal static class CliUsageProbe
             FileName = executable,
             Arguments = arguments,
             WorkingDirectory = CliProcessRunner.NeutralWorkingDirectory,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
         };
         if (Path.GetExtension(executable) is { } extension
             && (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
@@ -40,31 +37,50 @@ internal static class CliUsageProbe
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);
         var token = deadline.Token;
-        using var child = new Process { StartInfo = info };
         try
         {
             token.ThrowIfCancellationRequested();
-            if (!child.Start()) return null;
-            var drain = child.StandardError.BaseStream.CopyToAsync(Stream.Null, token);
+            using var job = new JobObject();
+            using var input = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
+            using var outputPipe = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+            using var errorPipe = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
+            var environmentBlock = string.Join('\0', info.Environment.OrderBy(entry => entry.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(entry => $"{entry.Key}={entry.Value}")) + '\0';
+            using var suspended = SuspendedProcess.CreateRedirected(info.FileName, info.Arguments, info.WorkingDirectory,
+                environmentBlock, input.ClientSafePipeHandle.DangerousGetHandle(),
+                outputPipe.ClientSafePipeHandle.DangerousGetHandle(), errorPipe.ClientSafePipeHandle.DangerousGetHandle());
+            input.DisposeLocalCopyOfClientHandle();
+            outputPipe.DisposeLocalCopyOfClientHandle();
+            errorPipe.DisposeLocalCopyOfClientHandle();
+            job.Assign(suspended.Handle);
+            using var child = Process.GetProcessById(suspended.ProcessId);
+            using var stopOnCancellation = token.Register(job.Dispose);
+            token.ThrowIfCancellationRequested();
+            suspended.Resume();
+            // Descendants can hold stdout open after the CLI exits. Close the job as soon as
+            // the root has exited so those handles cannot turn a good response into a timeout.
+            var exited = child.WaitForExitAsync().ContinueWith(_ => job.Dispose(), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            var drain = errorPipe.CopyToAsync(Stream.Null, token);
             try
             {
                 if (rpcInput is not null)
                 {
                     // Keep stdin open until the asynchronous JSON-RPC response arrives.
-                    await child.StandardInput.WriteAsync(rpcInput.AsMemory(), token);
-                    await child.StandardInput.FlushAsync(token);
+                    await input.WriteAsync(Encoding.UTF8.GetBytes(rpcInput), token);
+                    await input.FlushAsync(token);
                 }
-                else child.StandardInput.Close();
+                else input.Close();
 
-                var output = await ReadOutputAsync(child.StandardOutput.BaseStream, responseId, token);
+                var output = await ReadOutputAsync(outputPipe, responseId, token);
+                token.ThrowIfCancellationRequested();
                 if (responseId is not null || output is null) return output;
-                await child.WaitForExitAsync(token);
+                await exited.WaitAsync(token);
                 return child.ExitCode == 0 ? output : null;
             }
             finally
             {
-                TryStop(child);
-                deadline.Cancel();
+                job.Dispose();
                 try { await drain; }
                 catch (OperationCanceledException) { }
                 catch (IOException) { }
@@ -113,9 +129,4 @@ internal static class CliUsageProbe
         catch (JsonException) { return false; }
     }
 
-    private static void TryStop(Process process)
-    {
-        try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { }
-    }
 }

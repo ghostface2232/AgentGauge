@@ -127,8 +127,9 @@ public sealed class CodexProvider : UsageProviderBase
         if (accountId is not null && result.GetStringOrNull("accountId") is { } reportedId && reportedId != accountId)
             return null;
         var byId = result.GetObjectOrNull("rateLimitsByLimitId");
-        var account = result.GetObjectOrNull("rateLimits") ?? byId?.GetObjectOrNull("codex");
-        if (account is not { } rateLimit) return null;
+        var legacy = result.GetObjectOrNull("rateLimits");
+        var legacyId = ProviderText.Normalize(legacy?.GetStringOrNull("limitId"));
+        var account = byId?.GetObjectOrNull("codex") ?? (legacyId is null or "codex" ? legacy : null);
 
         var windows = new List<UsageWindow>();
         var seen = new HashSet<string>();
@@ -139,16 +140,20 @@ public sealed class CodexProvider : UsageProviderBase
                     windows.Add(window);
         }
 
-        AddWindows(rateLimit);
+        void AddScopedWindows(string id, JsonElement entry)
+        {
+            var slug = ProviderText.Slug(id);
+            if (slug.Length > 0)
+                AddWindows(entry, $"codex-additional-{slug}",
+                    AdditionalLimitDisplayName(ProviderText.Normalize(entry.GetStringOrNull("limitName")) ?? id));
+        }
+
+        if (account is { } rateLimit) AddWindows(rateLimit);
         if (byId is { } additional)
             foreach (var entry in additional.EnumerateObject())
-            {
-                if (entry.Name == "codex") continue;
-                var slug = ProviderText.Slug(entry.Name);
-                if (slug.Length > 0)
-                    AddWindows(entry.Value, $"codex-additional-{slug}",
-                        AdditionalLimitDisplayName(ProviderText.Normalize(entry.Value.GetStringOrNull("limitName")) ?? entry.Name));
-            }
+                if (entry.Name != "codex") AddScopedWindows(entry.Name, entry.Value);
+        if (legacy is { } legacyRateLimit && legacyId is not (null or "codex"))
+            AddScopedWindows(legacyId, legacyRateLimit);
 
         if (windows.Count == 0) return null;
         var creditInfo = result.GetObjectOrNull("rateLimitResetCredits");
@@ -161,7 +166,7 @@ public sealed class CodexProvider : UsageProviderBase
                     && UnixTime(entry.GetInt64OrNull("expiresAt")) is { } expiry)
                     deadlines.Add(new(expiry));
 
-        return (ProviderText.PlanLabel(rateLimit.GetStringOrNull("planType"), KnownPlans),
+        return (ProviderText.PlanLabel(account?.GetStringOrNull("planType") ?? legacy?.GetStringOrNull("planType"), KnownPlans),
             windows, credits, deadlines.Count > 0 ? deadlines.ToArray() : null);
     }
 
@@ -178,12 +183,18 @@ public sealed class CodexProvider : UsageProviderBase
         using var document = await JsonDocument.ParseAsync(stream, default, cancellationToken);
         var root = document.RootElement;
         UsageResponseShapeException.ThrowUnlessAnyProperty(root, ToolName, "rate_limit", "additional_rate_limits");
+        if (HasUnexpectedType(root, "rate_limit", JsonValueKind.Object)
+            || HasUnexpectedType(root, "additional_rate_limits", JsonValueKind.Array))
+            throw new UsageResponseShapeException(ToolName);
 
         var plan = ProviderText.PlanLabel(root.GetStringOrNull("plan_type"), KnownPlans);
 
         var windows = new List<UsageWindow>();
         if (root.GetObjectOrNull("rate_limit") is { } rateLimit)
         {
+            if (HasUnexpectedType(rateLimit, "primary_window", JsonValueKind.Object)
+                || HasUnexpectedType(rateLimit, "secondary_window", JsonValueKind.Object))
+                throw new UsageResponseShapeException(ToolName);
             if (ParseWindow(rateLimit, "primary_window", UsageWindowType.FiveHour) is { } primary)
             {
                 windows.Add(primary);
@@ -209,6 +220,9 @@ public sealed class CodexProvider : UsageProviderBase
         var deadlines = await ReadCreditDeadlinesAsync(credential, credits, cancellationToken);
         return Snapshot(plan, windows, credits) with { ResetCreditDeadlines = deadlines };
     }
+
+    private static bool HasUnexpectedType(JsonElement element, string key, JsonValueKind expected) =>
+        element.TryGetProperty(key, out var value) && value.ValueKind != JsonValueKind.Null && value.ValueKind != expected;
 
     private static HttpRequestMessage CreateRequest(string url, ToolCredential credential)
     {

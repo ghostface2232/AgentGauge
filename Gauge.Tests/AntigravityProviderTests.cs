@@ -1,6 +1,7 @@
 using Gauge.Models;
 using Gauge.Providers;
 using Gauge.Providers.Internal;
+using Gauge.Services;
 
 namespace Gauge.Tests;
 
@@ -11,6 +12,34 @@ namespace Gauge.Tests;
 /// </summary>
 public sealed class AntigravityProviderTests
 {
+    [Fact]
+    public async Task SkippedBackgroundCliReadPreservesTheLastSnapshotAndItsSource()
+    {
+        var engine = new FakeReader(new AntigravityReading(OneWindow, "Pro"));
+        var cli = new FakeReader(new AntigravityReading(OneWindow, null));
+        var engineInstalled = true;
+        var provider = new AntigravityProvider([engine], () => engineInstalled, cli);
+        var engineSnapshot = await provider.GetSnapshotAsync(default);
+        engineInstalled = false;
+
+        var time = new TestTime();
+        using var coordinator = new UsageCoordinator(new UsageService([provider]), time: time);
+        UsageState? state = null;
+        coordinator.Updated += (_, value) => state = value;
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+
+        var previous = Assert.Single(state!.Tools);
+        Assert.NotNull(previous.Snapshot);
+        Assert.Equal("agy", previous.Snapshot.SourceLabel);
+        Assert.NotEqual(engineSnapshot.HistoryKey, previous.Snapshot.HistoryKey);
+        time.Advance();
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+
+        Assert.Equal(previous, Assert.Single(state!.Tools));
+        Assert.False(previous.LastRefreshFailed);
+        Assert.Equal(1, cli.Calls);
+    }
+
     private const string FourWindows = """
     { "response": { "groups": [
         { "buckets": [
@@ -144,17 +173,27 @@ public sealed class AntigravityProviderTests
         Assert.Equal(expected, AntigravityUserStatus.ParsePlan(json));
     }
 
-    private sealed class FakeReader : IAntigravityReader
+    private sealed class TestTime : TimeProvider
+    {
+        private long _timestamp = TimeSpan.TicksPerHour;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _timestamp;
+        public void Advance() => _timestamp += TimeSpan.TicksPerHour;
+    }
+
+    private sealed class FakeReader : IAntigravityCliReader
     {
         private readonly AntigravityReading? _reading;
 
         public FakeReader(AntigravityReading? reading) => _reading = reading;
 
-        public bool WasCalled { get; private set; }
+        public bool IsInstalled => true;
+        public int Calls { get; private set; }
+        public bool WasCalled => Calls != 0;
 
         public Task<AntigravityReading?> ReadAsync(CancellationToken cancellationToken)
         {
-            WasCalled = true;
+            Calls++;
             return Task.FromResult(_reading);
         }
     }
