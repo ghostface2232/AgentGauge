@@ -5,6 +5,8 @@ public struct UsagePayload: Sendable, Equatable {
     public var windows: [UsageWindow]
     public var resetCredits: Int?
     public var resetCreditDeadlines: [ResetCreditDeadline]?
+    var historyIdentity: String?
+    var legacyCopilotTokenIdentity: String?
 
     public init(plan: String?, windows: [UsageWindow], resetCredits: Int? = nil,
                 resetCreditDeadlines: [ResetCreditDeadline]? = nil) {

@@ -182,14 +182,9 @@ public sealed partial class PopoverWindow : Window
             (from, to) =>
             {
                 if (SettingsBorder.DataContext is not SettingsViewModel vm) return;
-                // The slots come from the layout snapshot the drag captured; check them
-                // against the collection being moved before Move can throw on a stale one.
+                // Check the captured slots against the current collection before resolving services.
                 if (!ReorderPlan.CanCommit(from, to, vm.Authentication.Count)) return;
-                // Finalize the visible order immediately; persist + sync the other screen on the
-                // next tick so the drop stays snappy (the order is already correct on screen).
-                if (from != to) vm.Authentication.Move(from, to);
-                SettingsBorder.DispatcherQueue.TryEnqueue(
-                    () => vm.ReorderTools(vm.Authentication.Select(c => c.Tool).ToList()));
+                vm.MoveTool(from, to);
             });
 
         Activated += OnActivated;
@@ -774,11 +769,7 @@ public sealed partial class PopoverWindow : Window
                 // This surface counts the panel's realized children, which can briefly disagree
                 // with the collection driving them, so re-check against the one being moved.
                 if (!ReorderPlan.CanCommit(from, to, vm.Cards.Count)) return;
-                // Finalize the visible order immediately; persist + sync the other screen on the
-                // next tick so the drop stays snappy.
-                if (from != to) vm.Cards.Move(from, to);
-                RootHost.DispatcherQueue.TryEnqueue(
-                    () => vm.ReorderTools(vm.Cards.Select(c => c.ToolName).ToList()));
+                vm.MoveTool(from, to);
             });
     }
 
@@ -1319,16 +1310,15 @@ public sealed partial class PopoverWindow : Window
         {
             // The settle animation runs for ShiftMs, so the list can still change between the
             // drop and here. Commit only for the gesture that is still current and only while
-            // the list matches the snapshot the indices came from — Move() with a stale index
-            // would either throw or reorder the wrong pair of cards.
+            // the list matches the snapshot the indices came from. Stale slots can address
+            // a different service after a card appears or disappears.
             if (gesture != _gesture)
             {
                 // Superseded — by an abandon, or by a new drag begun during the settle. Leave
                 // the transforms alone: they now belong to whatever replaced this gesture.
                 return;
             }
-            // Retire this gesture id so a second completion for the same drop cannot reorder
-            // again; Move is not idempotent, so committing twice corrupts the order.
+            // The original slots refer to a different pair of services after the first commit.
             _gesture++;
             var live = _count();
             ClearTransforms();

@@ -57,6 +57,29 @@ public sealed class CodexProviderBackoffTests
     }
 
     [Fact]
+    public async Task CreditRetryAfterSurvivesBalanceChangesWithoutBlockingUsage()
+    {
+        static Response Usage(int balance) => new($$"""
+            { "rate_limit": { "primary_window": { "used_percent": 42 } },
+              "rate_limit_reset_credits": { "available_count": {{balance}} } }
+            """, HttpStatusCode.OK);
+        var credits = new Response("""{ "credits": [{ "status": "available", "expires_at": "2027-03-09T07:59:00Z" }] }""", HttpStatusCode.OK);
+        var handler = new SequenceHandler(Usage(1), TooMany(retryAfterSeconds: 3600), Usage(2), Usage(2), credits);
+        var (provider, time) = Provider(handler);
+
+        Assert.Null((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines);
+        time.Advance(TimeSpan.FromSeconds(3599));
+        var duringCooldown = await provider.GetSnapshotAsync(FetchInteraction.UserInitiated, default);
+        Assert.Single(duringCooldown.Windows);
+        Assert.Equal(2, duringCooldown.ResetCredits);
+        Assert.Equal(3, handler.Calls);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Single((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines!);
+        Assert.Equal(5, handler.Calls);
+    }
+
+    [Fact]
     public async Task UserInitiatedRefreshBypassesTheCooldown()
     {
         var handler = new SequenceHandler(Ok(), TooMany(), Ok());

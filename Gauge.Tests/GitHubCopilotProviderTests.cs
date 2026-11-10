@@ -25,6 +25,23 @@ public sealed class GitHubCopilotProviderTests
     """;
 
     [Fact]
+    public async Task HistoryIdentityFollowsLoginInsteadOfToken()
+    {
+        var first = await new GitHubCopilotProvider(new HttpClient(new StubHandler(LiveFreeJson)), TokenSource("first"))
+            .GetSnapshotAsync(default);
+        var rotated = await new GitHubCopilotProvider(
+            new HttpClient(new StubHandler(LiveFreeJson.Replace("octocat", "Octocat"))), TokenSource("rotated"))
+            .GetSnapshotAsync(default);
+        var switched = await new GitHubCopilotProvider(
+            new HttpClient(new StubHandler(LiveFreeJson.Replace("octocat", "other"))), TokenSource("other"))
+            .GetSnapshotAsync(default);
+
+        Assert.Equal(UsageIdentity.Hash(null, "first"), first.LegacyCopilotTokenIdentity);
+        Assert.Equal(first.HistoryKey, rotated.HistoryKey);
+        Assert.NotEqual(first.HistoryKey, switched.HistoryKey);
+    }
+
+    [Fact]
     public async Task ParsesMeteredQuotasIntoBillingCycleWindows()
     {
         var snapshot = await new GitHubCopilotProvider(new HttpClient(new StubHandler(LiveFreeJson)), TokenSource())

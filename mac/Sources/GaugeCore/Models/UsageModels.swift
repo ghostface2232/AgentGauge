@@ -196,6 +196,8 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     public var accountKey: UsageAccountKey { UsageAccountKey(tool: tool, profileID: profileID) }
     /// Opaque partition for trends and alert baselines when a profile changes login.
     public internal(set) var historyIdentity: String?
+    // Live-only migration hint. A rehydrated snapshot cannot claim a history partition.
+    var legacyCopilotTokenIdentity: String?
     var historyKey: String { accountKey.historyKey(historyIdentity) }
     /// Plan label (e.g. "Max 5x", "Plus"); can be present without any window data.
     public var plan: String?
@@ -205,6 +207,10 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     public var resetCredits: Int?
     public var resetCreditDeadlines: [ResetCreditDeadline]?
     public var capturedAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case tool, profileID, historyIdentity, plan, windows, resetCredits, resetCreditDeadlines, capturedAt
+    }
 
     public init(tool: ToolKind, plan: String?, windows: [UsageWindow], resetCredits: Int? = nil,
                 resetCreditDeadlines: [ResetCreditDeadline]? = nil, capturedAt: Date, profileID: UUID? = nil) {

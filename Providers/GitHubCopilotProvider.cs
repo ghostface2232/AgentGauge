@@ -35,11 +35,15 @@ public sealed class GitHubCopilotProvider : UsageProviderBase
     };
 
     private readonly HttpClient _http;
+    private readonly string? _configuredIdentity;
+    private (string TokenIdentity, string LoginIdentity)? _knownLogin;
 
-    public GitHubCopilotProvider(HttpClient http, ICredentialSource credentials, TimeProvider? time = null)
+    public GitHubCopilotProvider(HttpClient http, ICredentialSource credentials, TimeProvider? time = null,
+        string? accountLogin = null)
         : base(credentials, UsageFetchPolicy.None, refresher: null, time)
     {
         _http = http;
+        _configuredIdentity = UsageIdentity.ForGitHubLogin(accountLogin);
     }
 
     public override ToolKind Tool => ToolKind.GitHubCopilot;
@@ -69,7 +73,16 @@ public sealed class GitHubCopilotProvider : UsageProviderBase
 
         var plan = MapPlan(root.GetStringOrNull("copilot_plan"), root.GetStringOrNull("access_type_sku"));
         var windows = ParseWindows(root);
-        return Snapshot(plan, windows);
+        var tokenIdentity = UsageIdentity.Hash(null, credential.AccessToken);
+        var identity = UsageIdentity.ForGitHubLogin(root.GetStringOrNull("login")) ?? _configuredIdentity;
+        if (identity is null && _knownLogin is { } known && known.TokenIdentity == tokenIdentity)
+            identity = known.LoginIdentity;
+        _knownLogin = identity is null ? null : (tokenIdentity, identity);
+        return Snapshot(plan, windows) with
+        {
+            HistoryIdentity = identity ?? tokenIdentity,
+            LegacyCopilotTokenIdentity = identity is null ? null : tokenIdentity,
+        };
     }
 
     /// <summary>

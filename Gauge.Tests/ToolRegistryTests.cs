@@ -111,6 +111,21 @@ public sealed class ToolRegistryTests
     }
 
     [Fact]
+    public void DraggingOneAccountMovesTheWholeVisibleServiceGroup()
+    {
+        var store = new InMemoryStore();
+        store.Save([ToolKind.ClaudeCode, ToolKind.Antigravity, ToolKind.Codex]);
+        var registry = new ToolRegistry(store);
+        ToolKind?[] visible = [ToolKind.ClaudeCode, ToolKind.ClaudeCode, ToolKind.Codex];
+
+        Assert.False(registry.MoveVisibleTool(visible, 0, 1));
+        Assert.True(registry.MoveVisibleTool(visible, 1, 2));
+        Assert.Equal(new[] { ToolKind.Codex, ToolKind.Antigravity, ToolKind.ClaudeCode }, registry.Enabled);
+        Assert.True(registry.MoveVisibleTool([ToolKind.Codex, ToolKind.ClaudeCode, ToolKind.ClaudeCode], 2, 0));
+        Assert.Equal(new[] { ToolKind.ClaudeCode, ToolKind.Antigravity, ToolKind.Codex }, registry.Enabled);
+    }
+
+    [Fact]
     public void ReorderEnabledIsNoOpWhenOrderUnchanged()
     {
         var registry = new ToolRegistry(new InMemoryStore());

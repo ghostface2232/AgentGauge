@@ -10,6 +10,8 @@ public sealed record UsageSnapshot
     /// <summary>Storage identity. The default account uses the tool's display name for compatibility.</summary>
     public required string ToolName { get; init; }
     internal string? HistoryIdentity { get; init; }
+    // Only live Copilot reads with a known login can adopt their old token partition.
+    internal string? LegacyCopilotTokenIdentity { get; init; }
     internal string HistoryKey => HistoryIdentity is null ? ToolName : $"{ToolName}#{HistoryIdentity}";
 
     /// <summary>

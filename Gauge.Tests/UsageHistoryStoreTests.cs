@@ -30,6 +30,34 @@ public sealed class UsageHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void CopilotAdoptsLegacyAndMatchingTokenRowsOnlyOnce()
+    {
+        var legacy = Snapshot(ToolCatalog.GitHubCopilot.DisplayName, .1, _time.Now.AddMinutes(-10));
+        var token = Snapshot(legacy.ToolName, .2, _time.Now.AddMinutes(-5)) with { HistoryIdentity = "old-token" };
+        var current = Snapshot(legacy.ToolName, .3, _time.Now) with
+        {
+            HistoryIdentity = "first-login", LegacyCopilotTokenIdentity = "old-token",
+        };
+        var switched = current with { HistoryIdentity = "second-login", LegacyCopilotTokenIdentity = "other-token" };
+        var window = UsageWindowType.FiveHour.ToString();
+        var lookback = TimeSpan.FromHours(1);
+        using (var store = new UsageHistoryStore(_dir, _time))
+        {
+            store.Record(legacy);
+            store.Record(token);
+            store.Warm();
+            store.Record(current);
+            Assert.Equal(new[] { .1, .2, .3 }, store.GetRecent(current.HistoryKey, window, lookback).Select(s => s.UsedRatio));
+            store.Record(switched);
+        }
+        using var reopened = new UsageHistoryStore(_dir, _time);
+        Assert.Equal(new[] { .1, .2, .3 }, reopened.GetRecent(current.HistoryKey, window, lookback).Select(s => s.UsedRatio));
+        Assert.Equal(.3, Assert.Single(reopened.GetRecent(switched.HistoryKey, window, lookback)).UsedRatio);
+        Assert.Empty(reopened.GetRecent(legacy.HistoryKey, window, lookback));
+        Assert.Empty(reopened.GetRecent(token.HistoryKey, window, lookback));
+    }
+
+    [Fact]
     public void RecordThenGetRecentReturnsSamplesOldestFirst()
     {
         using var store = new UsageHistoryStore(_dir, _time);

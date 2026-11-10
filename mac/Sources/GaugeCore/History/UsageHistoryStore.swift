@@ -54,6 +54,7 @@ public final class UsageHistoryStore: @unchecked Sendable {
     private var tail: [Key: [UsageSample]] = [:]
     private var profiles: [Key: WeekdayAccumulator] = [:]
     private var hydratedKeys: Set<Key> = []
+    private var adoptedCopilotKeys: Set<String> = []
     private var allHydrated = false
     private var lastPrunedAt: Date?
     private var isClosed = false
@@ -87,6 +88,7 @@ public final class UsageHistoryStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard !isClosed else { return }
+        adoptCopilotHistory(snapshot)
 
         // Stored at millisecond precision; the memory copy is rounded the same way so a
         // reading compares equal before and after a relaunch.
@@ -150,6 +152,43 @@ public final class UsageHistoryStore: @unchecked Sendable {
             tail[entry.key] = list
         }
         pruneIfDue()
+    }
+
+    private func adoptCopilotHistory(_ snapshot: UsageSnapshot) {
+        guard let tokenIdentity = snapshot.legacyCopilotTokenIdentity,
+              let loginIdentity = snapshot.historyIdentity, loginIdentity != tokenIdentity else { return }
+        let tokenKey = snapshot.accountKey.historyKey(tokenIdentity)
+        guard !adoptedCopilotKeys.contains(tokenKey) else { return }
+        let legacyKey = snapshot.profileID == nil ? snapshot.tool.rawValue : nil
+        let target = snapshot.historyKey
+        withDatabase { database in
+            var moved: Int32 = 0
+            var duplicates: Int32 = 0
+            try database.transaction {
+                let update = try database.prepare("UPDATE OR IGNORE samples SET tool = ?1 WHERE tool IN (?2, ?3)")
+                defer { update.finalize() }
+                update.bind(1, target)
+                update.bind(2, tokenKey)
+                update.bind(3, legacyKey)
+                try update.run()
+                moved = database.changedRows
+                let delete = try database.prepare("DELETE FROM samples WHERE tool IN (?1, ?2)")
+                defer { delete.finalize() }
+                delete.bind(1, tokenKey)
+                delete.bind(2, legacyKey)
+                try delete.run()
+                duplicates = database.changedRows
+            }
+            adoptedCopilotKeys.insert(tokenKey)
+            guard moved > 0 || duplicates > 0 else { return }
+
+            // Re-fold only the affected windows, including any warmed profiles.
+            let affected = Set([target, tokenKey, legacyKey].compactMap { $0 })
+            tail = tail.filter { !affected.contains($0.key.tool) }
+            profiles = profiles.filter { !affected.contains($0.key.tool) }
+            hydratedKeys = hydratedKeys.filter { !affected.contains($0.tool) }
+            allHydrated = false
+        }
     }
 
     /// Recorded samples for one window over the trailing `lookback` (at most the six-hour

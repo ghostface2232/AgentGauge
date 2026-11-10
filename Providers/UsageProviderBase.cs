@@ -219,9 +219,7 @@ public abstract class UsageProviderBase : IUsageProvider
         try
         {
             var snapshot = await FetchSnapshotAsync(credential, cancellationToken);
-            var identity = credential.HistoryIdentity
-                ?? (Tool == ToolKind.GitHubCopilot ? UsageIdentity.Hash(null, credential.AccessToken) : null);
-            return RecordSuccess(snapshot with { HistoryIdentity = identity });
+            return RecordSuccess(snapshot with { HistoryIdentity = snapshot.HistoryIdentity ?? credential.HistoryIdentity });
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
@@ -302,7 +300,7 @@ public abstract class UsageProviderBase : IUsageProvider
         throw new UsageEndpointException(response.StatusCode, RetryAfterOf(response));
     }
 
-    private TimeSpan? RetryAfterOf(HttpResponseMessage response)
+    protected TimeSpan? RetryAfterOf(HttpResponseMessage response)
     {
         var retryAfter = response.Headers.RetryAfter;
         if (retryAfter is null)

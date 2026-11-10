@@ -69,14 +69,10 @@ public sealed class SettingsViewModel
     }
 
     /// <summary>
-    /// Persists a new card order after a drag on the settings screen. The registry raises
-    /// <see cref="ToolRegistry.Changed"/>, which both re-syncs these cards (a no-op since the
-    /// dragged collection already matches) and propagates the order to the main screen.
+    /// Moves the dragged service on both screens through the shared registry order.
     /// </summary>
-    public void ReorderTools(IReadOnlyList<ToolKind> newOrder)
-    {
-        if (!_registry.ReorderEnabled(newOrder)) RebuildCards();
-    }
+    public void MoveTool(int from, int to) =>
+        _registry.MoveVisibleTool(Authentication.Select(card => (ToolKind?)card.Tool), from, to);
 
     public Task RefreshAsync() => Task.WhenAll(Authentication.Select(card => card.RefreshAsync()));
 
