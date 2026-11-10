@@ -98,7 +98,10 @@ public actor CodexEndpoint: UsageEndpoint {
         request.timeoutInterval = 4
         do {
             let (data, response) = try await transport.send(request)
-            guard (200..<300).contains(response.statusCode) else { return nil }
+            guard (200..<300).contains(response.statusCode) else {
+                Log.write("provider", "Codex reset deadlines unavailable: HTTP \(response.statusCode)")
+                return nil
+            }
             let deadlines = try CodexUsageParser.resetCreditDeadlines(from: data)
             creditCache = (identity, balance, now, deadlines)
             return deadlines

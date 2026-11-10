@@ -160,7 +160,11 @@ public sealed class CodexProvider : UsageProviderBase
         {
             using var request = CreateRequest(ResetCreditsUrl, credential);
             using var response = await _http.SendAsync(request, timeout.Token);
-            if (!response.IsSuccessStatusCode) return null;
+            if (!response.IsSuccessStatusCode)
+            {
+                DiagnosticsLog.Write("provider", $"Codex reset deadlines unavailable: HTTP {(int)response.StatusCode}");
+                return null;
+            }
 
             await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token);
