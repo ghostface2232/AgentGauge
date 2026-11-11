@@ -31,7 +31,12 @@ public sealed class CodexProviderTests
                 echo {"method":"account/rateLimits/updated"}
                 echo {"id":2,"result":{"accountId":"test-account","rateLimits":{"planType":"plus","primary":{"usedPercent":17,"windowDurationMins":10080}}}}
                 """);
-            var provider = new CodexProvider(new HttpClient(new StubHandler("""{"rate_limit":{"primary_window":[]}}""")), Available("t", "test-account"),
+            const string partial = """
+                {"rate_limit":{"primary_window":{"limit_window_seconds":604800}},
+                 "additional_rate_limits":[{"limit_name":"GPT Reserve",
+                   "rate_limit":{"primary_window":{"used_percent":30,"limit_window_seconds":18000}}}]}
+                """;
+            var provider = new CodexProvider(new HttpClient(new StubHandler(partial)), Available("t", "test-account"),
                 appServerLocator: new AppServerLocator(executable));
             await Assert.ThrowsAsync<UsageResponseShapeException>(() => provider.GetSnapshotAsync(default));
 
@@ -69,6 +74,18 @@ public sealed class CodexProviderTests
         var window = Assert.Single(payload.Value.Windows);
         Assert.Equal("codex-additional-gpt-reserve-18000", window.Key);
         Assert.Equal("Luna Reserve", window.GroupLabel);
+    }
+
+    [Fact]
+    public void AppServerRejectsUnreadableAccountWindowEvenWithNamedLimit()
+    {
+        const string reply = """
+        {"id":2,"result":{"rateLimitsByLimitId":{
+          "codex":{"primary":{"windowDurationMins":10080}},
+          "gpt_reserve":{"primary":{"usedPercent":45,"windowDurationMins":300}}
+        }}}
+        """;
+        Assert.Null(CodexProvider.ParseAppServer(reply));
     }
 
     private sealed class AppServerLocator(string executable) : ICliLocator
@@ -311,7 +328,8 @@ public sealed class CodexProviderTests
     [InlineData("""{ "rate_limit": { "primary_window": { "reset_at": 1 } } }""")] // used_percent absent
     [InlineData("""{ "rate_limit": { "primary_window": { "used_percent": "x" } } }""")] // wrong type
     [InlineData("""{ "rate_limit": { "primary_window": { "used_percent": 5, "limit_window_seconds": 2592000 } } }""")] // unknown duration
-    public async Task AWindowThatCannotBeReadFailsInsteadOfEmptyingTheCard(string json)
+    [InlineData("""{"rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":18000},"secondary_window":{"used_percent":25,"limit_window_seconds":3600}}}""")]
+    public async Task AReportedAccountWindowThatCannotBeReadFailsTheRefresh(string json)
         => await Assert.ThrowsAsync<UsageResponseShapeException>(() => Snapshot(json, Available("t")));
 
     [Fact]

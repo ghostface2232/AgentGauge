@@ -193,6 +193,37 @@ final class CoordinatorDeadlineTests: XCTestCase {
         XCTAssertEqual(state.snapshot?.windows.count, 1)
         XCTAssertEqual(cache.load().count, 1)
     }
+
+    func testUnreadableCodexAccountWindowKeepsTheSnapshotAndTheDiskCache() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = UsageCacheStore(directory: directory)
+        let transport = FakeTransport()
+        transport.enqueue(.status(200, #"{"rate_limit":{"primary_window":{"used_percent":42,"limit_window_seconds":604800}}}"#))
+        transport.enqueue(.status(200, #"""
+        {"rate_limit":{"primary_window":{"limit_window_seconds":604800}},
+         "additional_rate_limits":[{"limit_name":"GPT Reserve",
+           "rate_limit":{"primary_window":{"used_percent":30,"limit_window_seconds":18000}}}]}
+        """#))
+        let provider = HTTPUsageProvider(tool: .codex, credentials: FakeCredentials(.available(ToolCredential(accessToken: "a"))),
+                                         endpoint: CodexEndpoint(), policy: .codex, transport: transport)
+        let coordinator = UsageCoordinator(providers: [provider], cache: cache)
+        let recorder = StatesRecorder()
+        await coordinator.setEnabledTools([.codex])
+        await coordinator.setListener { recorder.append($0) }
+
+        await coordinator.refresh(.launch)
+        let previous = try XCTUnwrap(recorder.all.last?.first?.snapshot)
+        XCTAssertEqual(previous.windows.map(\.id), ["weekly"])
+        let cached = cache.load()
+        XCTAssertEqual(cached.count, 1)
+
+        await coordinator.refresh(.manual)
+        let state = try XCTUnwrap(recorder.all.last?.first)
+        XCTAssertTrue(state.lastRefreshFailed)
+        XCTAssertEqual(state.snapshot, previous)
+        XCTAssertEqual(cache.load(), cached)
+    }
 }
 
 final class CoordinatorRehydrationTests: XCTestCase {
