@@ -35,10 +35,10 @@ public struct AntigravityProvider: UsageProvider {
     /// The production wiring. The install is located per fetch, so installing or removing the
     /// app while AgentGauge runs is picked up at the next refresh.
     public init() {
-        self.init(searchRoots: AntigravityInstall.defaultSearchRoots())
+        self.init(searchRoots: AntigravityInstall.defaultSearchRoots(), cli: AntigravityCLIReader(locator: CLILocator()))
     }
 
-    init(searchRoots: [URL]) {
+    init(searchRoots: [URL], cli: (any AntigravityCLIReading)?) {
         let client = AntigravityLoopbackClient()
         let locate: @Sendable () -> AntigravityInstall? = { AntigravityInstall.locate(in: searchRoots) }
         readers = [
@@ -47,7 +47,7 @@ public struct AntigravityProvider: UsageProvider {
         ]
         isInstalled = { locate()?.hasEngine == true }
         now = { Date() }
-        cli = AntigravityCLIReader(locator: CLILocator())
+        self.cli = cli
     }
 
     init(readers: [any AntigravityReader], isInstalled: @escaping @Sendable () -> Bool,
@@ -69,7 +69,8 @@ public struct AntigravityProvider: UsageProvider {
             }
         }
 
-        if let cli, let executable = await cli.locator.locate("agy") {
+        // An installed engine that could not read usage is a failure even if the CLI exists.
+        if (!engineInstalled || interaction == .user), let cli, let executable = await cli.locator.locate("agy") {
             guard interaction == .user else { throw UsageRefreshSkipped() }
             if let data = await cli.usage(executable),
                let windows = try? AntigravityQuotaParser.windows(from: data), !windows.isEmpty {

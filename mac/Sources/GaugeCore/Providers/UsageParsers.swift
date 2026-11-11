@@ -128,19 +128,10 @@ public enum CodexUsageParser {
         }
         var windows: [UsageWindow] = []
         if let rateLimit = root.object("rate_limit") {
-            for key in ["primary_window", "secondary_window"] {
-                if let value = rateLimit.storage[key], !(value is NSNull), JSONObject(value) == nil {
-                    throw UsageFetchError.invalidResponse
-                }
-            }
-            if let window = window(rateLimit, "primary_window", fallback: .fiveHour) { windows.append(window) }
-            if let window = window(rateLimit, "secondary_window", fallback: .weekly) { windows.append(window) }
+            guard let parsed = accountWindows(rateLimit) else { throw UsageFetchError.invalidResponse }
+            windows = parsed
         }
         windows += additionalRateLimits(root)
-        if windows.isEmpty, let reported = root.object("rate_limit"),
-           reported.object("primary_window") != nil || reported.object("secondary_window") != nil {
-            throw UsageFetchError.invalidResponse
-        }
         return UsagePayload(
             plan: ProviderText.planLabel(root.string("plan_type"), known: knownPlans),
             windows: windows,
@@ -158,7 +149,15 @@ public enum CodexUsageParser {
 
         var windows: [UsageWindow] = []
         var seen = Set<String>()
-        func addWindows(_ limits: JSONObject, prefix: String? = nil, label: String? = nil) {
+        if let account {
+            guard let parsed = accountWindows(account, appServer: true) else { return nil }
+            windows = parsed.filter { seen.insert($0.id).inserted }
+        }
+        func addScopedWindows(_ id: String, limits: JSONObject) {
+            let slug = ProviderText.slug(id)
+            guard !slug.isEmpty else { return }
+            let prefix = "codex-additional-\(slug)"
+            let label = displayName(ProviderText.normalize(limits.string("limitName")) ?? id)
             let keys: [(String, UsageWindowType)] = [("primary", .fiveHour), ("secondary", .weekly)]
             for (key, fallback) in keys {
                 if let entry = window(limits, key, fallback: fallback, idPrefix: prefix,
@@ -167,13 +166,6 @@ public enum CodexUsageParser {
                 }
             }
         }
-        func addScopedWindows(_ id: String, limits: JSONObject) {
-            let slug = ProviderText.slug(id)
-            guard !slug.isEmpty else { return }
-            let label = displayName(ProviderText.normalize(limits.string("limitName")) ?? id)
-            addWindows(limits, prefix: "codex-additional-\(slug)", label: label)
-        }
-        if let account { addWindows(account) }
         if let byID {
             for id in byID.storage.keys.sorted() where id != "codex" {
                 if let limits = byID.object(id) { addScopedWindows(id, limits: limits) }
@@ -210,6 +202,21 @@ public enum CodexUsageParser {
     private static func resetCredits(_ root: JSONObject) -> Int? {
         guard let count = root.object("rate_limit_reset_credits")?.int64("available_count"), count >= 0 else { return nil }
         return Int(min(count, Int64(Int.max)))
+    }
+
+    /// A malformed reported account window invalidates the read, even alongside usable windows.
+    private static func accountWindows(_ rateLimit: JSONObject, appServer: Bool = false) -> [UsageWindow]? {
+        let keys: [(String, UsageWindowType)] = [
+            (appServer ? "primary" : "primary_window", .fiveHour),
+            (appServer ? "secondary" : "secondary_window", .weekly),
+        ]
+        var windows: [UsageWindow] = []
+        for (key, fallback) in keys {
+            guard let reported = rateLimit.storage[key], !(reported is NSNull) else { continue }
+            guard let parsed = window(rateLimit, key, fallback: fallback, appServer: appServer) else { return nil }
+            windows.append(parsed)
+        }
+        return windows
     }
 
     /// A window is classified by `limit_window_seconds`, never by its primary/secondary

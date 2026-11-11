@@ -131,24 +131,22 @@ public sealed class CodexProvider : UsageProviderBase
         var legacyId = ProviderText.Normalize(legacy?.GetStringOrNull("limitId"));
         var account = byId?.GetObjectOrNull("codex") ?? (legacyId is null or "codex" ? legacy : null);
 
-        var windows = new List<UsageWindow>();
+        var windows = account is { } rateLimit ? ParseAccountWindows(rateLimit, appServer: true) : new List<UsageWindow>();
+        if (windows is null) return null;
         var seen = new HashSet<string>();
-        void AddWindows(JsonElement entry, string? prefix = null, string? label = null)
+        windows.RemoveAll(window => !seen.Add(window.Key));
+
+        void AddScopedWindows(string id, JsonElement entry)
         {
+            var slug = ProviderText.Slug(id);
+            if (slug.Length == 0) return;
+            var prefix = $"codex-additional-{slug}";
+            var label = AdditionalLimitDisplayName(ProviderText.Normalize(entry.GetStringOrNull("limitName")) ?? id);
             foreach (var (key, type) in new[] { ("primary", UsageWindowType.FiveHour), ("secondary", UsageWindowType.Weekly) })
                 if (ParseWindow(entry, key, type, prefix, label, appServer: true) is { } window && seen.Add(window.Key))
                     windows.Add(window);
         }
 
-        void AddScopedWindows(string id, JsonElement entry)
-        {
-            var slug = ProviderText.Slug(id);
-            if (slug.Length > 0)
-                AddWindows(entry, $"codex-additional-{slug}",
-                    AdditionalLimitDisplayName(ProviderText.Normalize(entry.GetStringOrNull("limitName")) ?? id));
-        }
-
-        if (account is { } rateLimit) AddWindows(rateLimit);
         if (byId is { } additional)
             foreach (var entry in additional.EnumerateObject())
                 if (entry.Name != "codex") AddScopedWindows(entry.Name, entry.Value);
@@ -189,32 +187,10 @@ public sealed class CodexProvider : UsageProviderBase
 
         var plan = ProviderText.PlanLabel(root.GetStringOrNull("plan_type"), KnownPlans);
 
-        var windows = new List<UsageWindow>();
-        if (root.GetObjectOrNull("rate_limit") is { } rateLimit)
-        {
-            if (HasUnexpectedType(rateLimit, "primary_window", JsonValueKind.Object)
-                || HasUnexpectedType(rateLimit, "secondary_window", JsonValueKind.Object))
-                throw new UsageResponseShapeException(ToolName);
-            if (ParseWindow(rateLimit, "primary_window", UsageWindowType.FiveHour) is { } primary)
-            {
-                windows.Add(primary);
-            }
-            if (ParseWindow(rateLimit, "secondary_window", UsageWindowType.Weekly) is { } secondary)
-            {
-                windows.Add(secondary);
-            }
-        }
+        var windows = root.GetObjectOrNull("rate_limit") is { } rateLimit
+            ? ParseAccountWindows(rateLimit) ?? throw new UsageResponseShapeException(ToolName)
+            : new List<UsageWindow>();
         windows.AddRange(ParseAdditionalRateLimits(root));
-
-        // A window was reported but none could be read (a new duration, a renamed field). An
-        // empty success would wipe the card's last good values, so it counts as a failed read.
-        if (windows.Count == 0
-            && root.GetObjectOrNull("rate_limit") is { } reported
-            && (reported.GetObjectOrNull("primary_window") is not null
-                || reported.GetObjectOrNull("secondary_window") is not null))
-        {
-            throw new UsageResponseShapeException(ToolName);
-        }
 
         var credits = ParseResetCredits(root);
         var deadlines = await ReadCreditDeadlinesAsync(credential, credits, cancellationToken);
@@ -310,6 +286,26 @@ public sealed class CodexProvider : UsageProviderBase
             is { } count && count >= 0
             ? (int)Math.Min(count, int.MaxValue)
             : null;
+
+    // A malformed reported account window invalidates the read, even alongside usable windows.
+    private static List<UsageWindow>? ParseAccountWindows(JsonElement rateLimit, bool appServer = false)
+    {
+        var keys = new[]
+        {
+            (appServer ? "primary" : "primary_window", UsageWindowType.FiveHour),
+            (appServer ? "secondary" : "secondary_window", UsageWindowType.Weekly),
+        };
+        var windows = new List<UsageWindow>();
+        foreach (var (key, fallbackType) in keys)
+        {
+            if (!rateLimit.TryGetProperty(key, out var reported) || reported.ValueKind == JsonValueKind.Null)
+                continue;
+            if (ParseWindow(rateLimit, key, fallbackType, appServer: appServer) is not { } window)
+                return null;
+            windows.Add(window);
+        }
+        return windows;
+    }
 
     /// <summary>
     /// Parses one rate-limit window: <c>{ "used_percent": 0–100, "reset_at": epochSeconds }</c>.

@@ -158,10 +158,23 @@ final class CodexParserTests: XCTestCase {
     }
 
     func testUnreadableReportedWindowFailsTheRead() throws {
-        let json = #"{"rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":3600}}}"#
+        let json = #"""
+        {"rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":18000},
+                       "secondary_window":{"used_percent":25,"limit_window_seconds":3600}}}
+        """#
         XCTAssertThrowsError(try CodexUsageParser.payload(from: Data(json.utf8))) {
             XCTAssertEqual($0 as? UsageFetchError, .invalidResponse)
         }
+    }
+
+    func testAppServerRejectsUnreadableAccountWindowEvenWithNamedLimit() throws {
+        let reply = #"""
+        {"id":2,"result":{"rateLimitsByLimitId":{
+          "codex":{"primary":{"windowDurationMins":10080}},
+          "gpt_reserve":{"primary":{"usedPercent":45,"windowDurationMins":300}}
+        }}}
+        """#
+        XCTAssertNil(try CodexUsageParser.appServerPayload(from: Data(reply.utf8)))
     }
 
     func testAppServerNormalizesWeeklyAndScopedLimits() throws {

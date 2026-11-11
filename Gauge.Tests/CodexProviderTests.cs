@@ -31,7 +31,12 @@ public sealed class CodexProviderTests
                 echo {"method":"account/rateLimits/updated"}
                 echo {"id":2,"result":{"accountId":"test-account","rateLimits":{"planType":"plus","primary":{"usedPercent":17,"windowDurationMins":10080}}}}
                 """);
-            var provider = new CodexProvider(new HttpClient(new StubHandler("""{"rate_limit":{"primary_window":[]}}""")), Available("t", "test-account"),
+            const string partial = """
+                {"rate_limit":{"primary_window":{"limit_window_seconds":604800}},
+                 "additional_rate_limits":[{"limit_name":"GPT Reserve",
+                   "rate_limit":{"primary_window":{"used_percent":30,"limit_window_seconds":18000}}}]}
+                """;
+            var provider = new CodexProvider(new HttpClient(new StubHandler(partial)), Available("t", "test-account"),
                 appServerLocator: new AppServerLocator(executable));
             await Assert.ThrowsAsync<UsageResponseShapeException>(() => provider.GetSnapshotAsync(default));
 
@@ -69,6 +74,18 @@ public sealed class CodexProviderTests
         var window = Assert.Single(payload.Value.Windows);
         Assert.Equal("codex-additional-gpt-reserve-18000", window.Key);
         Assert.Equal("Luna Reserve", window.GroupLabel);
+    }
+
+    [Fact]
+    public void AppServerRejectsUnreadableAccountWindowEvenWithNamedLimit()
+    {
+        const string reply = """
+        {"id":2,"result":{"rateLimitsByLimitId":{
+          "codex":{"primary":{"windowDurationMins":10080}},
+          "gpt_reserve":{"primary":{"usedPercent":45,"windowDurationMins":300}}
+        }}}
+        """;
+        Assert.Null(CodexProvider.ParseAppServer(reply));
     }
 
     private sealed class AppServerLocator(string executable) : ICliLocator
@@ -206,9 +223,17 @@ public sealed class CodexProviderTests
     [InlineData("0")]
     [InlineData("\"18000\"")]
     [InlineData("null")]
-    public async Task ExplicitUnsupportedOrMalformedDurationIsSkipped(string duration)
+    public async Task UnreadableAccountWindowKeepsTheLastCompleteSnapshot(string duration)
     {
-        var json = $$"""
+        const string valid = """
+        {
+          "rate_limit": {
+            "primary_window": { "used_percent": 15, "limit_window_seconds": 18000 },
+            "secondary_window": { "used_percent": 35, "limit_window_seconds": 604800 }
+          }
+        }
+        """;
+        var partial = $$"""
         {
           "rate_limit": {
             "primary_window": {
@@ -223,10 +248,26 @@ public sealed class CodexProviderTests
         }
         """;
 
-        var snapshot = await Snapshot(json, Available("t"));
+        var handler = new StubHandler(valid);
+        using var http = new HttpClient(handler);
+        var provider = new CodexProvider(http, Available("t"));
+        using var coordinator = new UsageCoordinator(new UsageService([provider]));
+        UsageState? state = null;
+        coordinator.Updated += (_, value) => state = value;
 
-        var weekly = Assert.Single(snapshot.Windows);
-        Assert.Equal(UsageWindowType.Weekly, weekly.Type);
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+        var previous = Assert.Single(state!.Tools);
+        Assert.NotNull(previous.Snapshot);
+        Assert.Equal(2, previous.Snapshot.Windows.Count);
+        Assert.False(previous.LastRefreshFailed);
+
+        handler.UsageJson = partial;
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+
+        var current = Assert.Single(state!.Tools);
+        Assert.True(current.LastRefreshFailed);
+        Assert.Same(previous.Snapshot, current.Snapshot);
+        Assert.Equal(previous.LastUpdatedAt, current.LastUpdatedAt);
     }
 
     [Fact]
@@ -311,7 +352,8 @@ public sealed class CodexProviderTests
     [InlineData("""{ "rate_limit": { "primary_window": { "reset_at": 1 } } }""")] // used_percent absent
     [InlineData("""{ "rate_limit": { "primary_window": { "used_percent": "x" } } }""")] // wrong type
     [InlineData("""{ "rate_limit": { "primary_window": { "used_percent": 5, "limit_window_seconds": 2592000 } } }""")] // unknown duration
-    public async Task AWindowThatCannotBeReadFailsInsteadOfEmptyingTheCard(string json)
+    [InlineData("""{"rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":18000},"secondary_window":{"used_percent":25,"limit_window_seconds":3600}}}""")]
+    public async Task AReportedAccountWindowThatCannotBeReadFailsTheRefresh(string json)
         => await Assert.ThrowsAsync<UsageResponseShapeException>(() => Snapshot(json, Available("t")));
 
     [Fact]
@@ -494,6 +536,7 @@ public sealed class CodexProviderTests
     private sealed class StubHandler(
         string json, HttpStatusCode statusCode = HttpStatusCode.OK, string? resetDetails = null) : HttpMessageHandler
     {
+        public string UsageJson { get; set; } = json;
         public int ResetReads { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -502,7 +545,7 @@ public sealed class CodexProviderTests
             if (isCreditRequest) ResetReads++;
             return Task.FromResult(new HttpResponseMessage(statusCode)
             {
-                Content = new StringContent(isCreditRequest ? resetDetails ?? "{}" : json, Encoding.UTF8, "application/json"),
+                Content = new StringContent(isCreditRequest ? resetDetails ?? "{}" : UsageJson, Encoding.UTF8, "application/json"),
             });
         }
     }

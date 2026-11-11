@@ -40,6 +40,37 @@ public sealed class AntigravityProviderTests
         Assert.Equal(1, cli.Calls);
     }
 
+    [Fact]
+    public async Task BackgroundEngineFailureWithCliInstalledMarksCachedUsageStale()
+    {
+        var engine = new FakeReader(new AntigravityReading(OneWindow, "Pro"));
+        var cli = new FakeReader(new AntigravityReading(OneWindow, null));
+        using var provider = new AntigravityProvider([engine], () => true, cli);
+        var time = new TestTime();
+        using var coordinator = new UsageCoordinator(new UsageService([provider]), time: time);
+        UsageState? state = null;
+        coordinator.Updated += (_, value) => state = value;
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+
+        var previous = Assert.Single(state!.Tools).Snapshot;
+        Assert.NotNull(previous);
+        Assert.Null(previous.SourceLabel);
+
+        engine.Result = null;
+        time.Advance();
+        await coordinator.RefreshAsync(RefreshReason.Periodic);
+        var stale = Assert.Single(state!.Tools);
+        Assert.True(stale.LastRefreshFailed);
+        Assert.Equal(previous, stale.Snapshot);
+        Assert.Equal(0, cli.Calls);
+
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+        var recovered = Assert.Single(state!.Tools);
+        Assert.False(recovered.LastRefreshFailed);
+        Assert.Equal("agy", recovered.Snapshot?.SourceLabel);
+        Assert.Equal(1, cli.Calls);
+    }
+
     private const string FourWindows = """
     { "response": { "groups": [
         { "buckets": [
@@ -183,18 +214,17 @@ public sealed class AntigravityProviderTests
 
     private sealed class FakeReader : IAntigravityCliReader
     {
-        private readonly AntigravityReading? _reading;
-
-        public FakeReader(AntigravityReading? reading) => _reading = reading;
+        public FakeReader(AntigravityReading? reading) => Result = reading;
 
         public bool IsInstalled => true;
+        public AntigravityReading? Result { get; set; }
         public int Calls { get; private set; }
         public bool WasCalled => Calls != 0;
 
         public Task<AntigravityReading?> ReadAsync(CancellationToken cancellationToken)
         {
             Calls++;
-            return Task.FromResult(_reading);
+            return Task.FromResult(Result);
         }
     }
 }

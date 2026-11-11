@@ -78,7 +78,8 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
             if (await source.ReadAsync(cancellationToken) is { } reading && ToSnapshot(reading) is { } snapshot)
                 return snapshot;
         }
-        if (_cli is { IsInstalled: true } cli)
+        // An installed engine that could not read usage is a failure even if the CLI exists.
+        if ((!hasEngine || interaction == FetchInteraction.UserInitiated) && _cli is { IsInstalled: true } cli)
         {
             // A signed-out CLI can ask to sign in, so only launch on an explicit refresh.
             if (interaction == FetchInteraction.Background) throw new UsageRefreshSkippedException();

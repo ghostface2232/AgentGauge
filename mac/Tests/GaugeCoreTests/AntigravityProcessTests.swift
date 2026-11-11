@@ -241,6 +241,9 @@ final class AntigravityEngineTests: XCTestCase {
     func testLiveDelegateRead() async throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["ANTIGRAVITY_LIVE"] == "1", "set ANTIGRAVITY_LIVE=1")
         let install = try XCTUnwrap(AntigravityInstall.locate(), "Antigravity is not installed")
+        let engine = install.engineExecutable.path
+        // The running IDE can already own an engine at this path.
+        let existing = Set(DarwinProcessTable.allPIDs().filter { DarwinProcessTable.executablePath($0) == engine })
         let host = AntigravityEngineHost(install: install, client: AntigravityLoopbackClient())
         let started = Date()
         let reading = try await host.reading()
@@ -252,8 +255,9 @@ final class AntigravityEngineTests: XCTestCase {
             print("LIVE  \(window.groupLabel ?? "-") / \(window.type.rawValue) id=\(window.id) used=\(String(format: "%.4f", window.usedRatio)) reset=\(window.resetTime.map { "\($0)" } ?? "nil")")
         }
         XCTAssertFalse(windows.isEmpty)
-        let engine = install.engineExecutable.path
-        let survivors = DarwinProcessTable.allPIDs().filter { DarwinProcessTable.executablePath($0) == engine }
+        let survivors = DarwinProcessTable.allPIDs().filter {
+            !existing.contains($0) && DarwinProcessTable.executablePath($0) == engine
+        }
         XCTAssertTrue(survivors.isEmpty, "language_server survived: \(survivors)")
     }
 }

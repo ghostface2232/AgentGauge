@@ -20,16 +20,20 @@ private let oneWindow = Data("""
 
 private final class FakeReader: AntigravityReader, @unchecked Sendable {
     private let lock = NSLock()
-    private let result: AntigravityReading?
+    private var result: AntigravityReading?
     private var calls = 0
 
     init(_ result: AntigravityReading?) { self.result = result }
 
     var wasCalled: Bool { lock.withLock { calls > 0 } }
 
+    func setResult(_ result: AntigravityReading?) { lock.withLock { self.result = result } }
+
     func reading() async throws -> AntigravityReading? {
-        lock.withLock { calls += 1 }
-        return result
+        lock.withLock {
+            calls += 1
+            return result
+        }
     }
 }
 
@@ -60,6 +64,32 @@ final class AntigravityProviderTests: XCTestCase {
         await coordinator.refresh(.scheduled)
         XCTAssertEqual(recorder.all.last?.first?.snapshot, snapshot)
         XCTAssertEqual(recorder.all.last?.first?.lastRefreshFailed, false)
+    }
+
+    func testBackgroundEngineFailureWithCLIInstalledMarksCachedUsageStale() async throws {
+        let engine = FakeReader(AntigravityReading(quotaJSON: oneWindow, plan: "Pro"))
+        let provider = AntigravityProvider(readers: [engine], isInstalled: { true }, cli: FakeCLI(report: oneWindow))
+        let clock = ManualClock()
+        let recorder = StatesRecorder()
+        let coordinator = UsageCoordinator(providers: [provider], cache: nil, clock: clock)
+        await coordinator.setEnabledTools([.antigravity])
+        await coordinator.setListener { recorder.append($0) }
+        await coordinator.refresh(.launch)
+        let previous = try XCTUnwrap(recorder.all.last?.first?.snapshot)
+        XCTAssertNil(previous.sourceLabel)
+
+        engine.setResult(nil)
+        clock.advance(3600)
+        await coordinator.refresh(.scheduled)
+        let state = try XCTUnwrap(recorder.all.last?.first)
+        XCTAssertTrue(state.lastRefreshFailed)
+        XCTAssertFalse(state.lastRefreshSkipped)
+        XCTAssertEqual(state.snapshot, previous)
+
+        await coordinator.refresh(.manual)
+        let recovered = try XCTUnwrap(recorder.all.last?.first)
+        XCTAssertFalse(recovered.lastRefreshFailed)
+        XCTAssertEqual(recovered.snapshot?.sourceLabel, "agy")
     }
 
     private struct FakeCLI: AntigravityCLIReading, CLILocating {
@@ -163,7 +193,7 @@ final class AntigravityProviderTests: XCTestCase {
 
     func testNotInstalledWhenNoBundleUnderTheSearchRoots() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "AntigravityNone-\(UUID().uuidString)")
-        let outcome = try await AntigravityProvider(searchRoots: [root]).fetch(.background)
+        let outcome = try await AntigravityProvider(searchRoots: [root], cli: nil).fetch(.background)
         XCTAssertFalse(outcome.signedIn)
         XCTAssertTrue(outcome.snapshot.windows.isEmpty)
     }
