@@ -52,6 +52,7 @@ enum Strings {
         "Loading": ["사용량을 불러오는 중…", "Loading usage…", "使用量を読み込み中…"],
         "NoData": ["데이터 없음", "No data", "データなし"],
         "Card_RefreshFailed": ["갱신 실패", "Update failed", "更新失敗"],
+        "ResetCredits": ["초기화권 {0}개", "{0} resets", "リセット {0}回"],
         "ResetCredit_Label": ["{0} 남은 초기화권", "Reset expires in {0}", "リセット期限まで{0}"],
         "ResetCredit_TwoDays": ["2일", "2 days", "2日"],
         "ResetCredit_Hours": ["{0}시간", "{0}h", "{0}時間"],

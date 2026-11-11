@@ -320,4 +320,15 @@ final class PresentationTests: XCTestCase {
             XCTAssertEqual(DisplayBasis.used.percent(for: ratio) + DisplayBasis.remaining.percent(for: ratio), 100)
         }
     }
+
+    func testHeldResetCountUsesTheAccountBalanceElseTheValidGrantCounts() {
+        let now = Date()
+        let grants = [ResetCreditDeadline(expiresAt: now + 86_400 * 30, count: 1),
+                      ResetCreditDeadline(expiresAt: now + 86_400 * 90, scope: "Fable", count: 1),
+                      ResetCreditDeadline(expiresAt: now - 86_400, count: 5)]
+        XCTAssertEqual(ResetCreditDeadline.availableCount(balance: nil, deadlines: grants, now: now), 2)
+        XCTAssertEqual(ResetCreditDeadline.availableCount(balance: 3, deadlines: grants, now: now), 3)
+        XCTAssertEqual(ResetCreditDeadline.availableCount(balance: 0, deadlines: grants, now: now), 0)
+        XCTAssertEqual(ResetCreditDeadline.availableCount(balance: nil, deadlines: nil, now: now), 0)
+    }
 }

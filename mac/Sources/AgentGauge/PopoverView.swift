@@ -391,6 +391,10 @@ struct ToolCard: View {
     private var apiCost: (text: String, detail: String, accessibility: String)? {
         state.account == nil ? model.apiCostText(for: state.tool) : nil
     }
+    private var heldResets: Int {
+        ResetCreditDeadline.availableCount(balance: state.snapshot?.resetCredits,
+                                           deadlines: state.snapshot?.resetCreditDeadlines, now: model.now)
+    }
     private var creditWarning: ResetCreditDeadline? {
         ResetCreditDeadline.upcoming(state.snapshot?.resetCreditDeadlines, now: model.now)
     }
@@ -404,7 +408,7 @@ struct ToolCard: View {
                     .foregroundStyle(.secondary)
             }
             let supplemental = supplementalUsage
-            if !windows.isEmpty || supplemental.isEmpty || state.lastRefreshFailed { content }
+            if !windows.isEmpty || (supplemental.isEmpty && heldResets == 0) || state.lastRefreshFailed { content }
             if !supplemental.isEmpty {
                 Text(verbatim: supplemental)
                     .font(.caption)
@@ -416,16 +420,23 @@ struct ToolCard: View {
         .cardBackground()
     }
 
-    private var supplementalUsage: String {
+    /// Per-scope breakdown for the chip's tooltip ("Fable · 1 available resets").
+    private var resetBalanceDetail: String {
         let deadlines = state.snapshot?.resetCreditDeadlines?.filter {
             $0.expiresAt > model.now && ($0.count ?? 0) > 0
         } ?? []
         let scopes = Dictionary(grouping: deadlines, by: \.scope)
-        var lines = scopes.keys.sorted { ($0 ?? "") < ($1 ?? "") }.map { scope in
+        let lines = scopes.keys.sorted { ($0 ?? "") < ($1 ?? "") }.map { scope in
             let count = scopes[scope, default: []].reduce(0) { $0 + ($1.count ?? 0) }
             let label = L10n.format("Usage_ResetBalance", count.formatted(.number.locale(L10n.locale)))
             return scope.map { "\($0) · \(label)" } ?? label
         }
+        return lines.isEmpty ? L10n.format("Usage_ResetBalance", heldResets.formatted(.number.locale(L10n.locale)))
+            : lines.joined(separator: "\n")
+    }
+
+    private var supplementalUsage: String {
+        var lines: [String] = []
         if let source = state.snapshot?.sourceLabel {
             lines.append(L10n.format("Usage_Source", source))
         }
@@ -437,7 +448,8 @@ struct ToolCard: View {
     }
 
     private var header: some View {
-        let chipLabels = !(apiCost != nil && status != nil)
+        // Three or more header annotations no longer fit with their labels, so the chips go icon-only.
+        let chipLabels = !(apiCost != nil && status != nil && heldResets > 0)
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             ToolLogoView(tool: state.tool)
                 .foregroundStyle(.primary)
@@ -463,7 +475,7 @@ struct ToolCard: View {
             }
             Spacer(minLength: 6)
             // Both can show at once: stale, but a retry is running.
-            if state.lastRefreshFailed && (!windows.isEmpty || !supplementalUsage.isEmpty) {
+            if state.lastRefreshFailed && (!windows.isEmpty || !supplementalUsage.isEmpty || heldResets > 0) {
                 Image(systemName: "exclamationmark.arrow.circlepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -480,13 +492,20 @@ struct ToolCard: View {
                 StatusChip(status: status)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             }
+            // One chip: the blue balance, which the expiry warning recolours in place once it applies.
             if let creditWarning {
                 let remaining = ResetCreditText.remaining(creditWarning, now: model.now)
-                HeaderChip(systemImage: "clock",
+                HeaderChip(systemImage: "arrow.counterclockwise",
                            label: chipLabels ? L10n.format("ResetCredit_Label", remaining) : remaining,
-                           detail: ResetCreditText.description(creditWarning),
+                           detail: "\(ResetCreditText.description(creditWarning))\n\(resetBalanceDetail)",
                            tint: creditWarning.expiresAt.timeIntervalSince(model.now) <= 86_400 ? .red : .orange,
                            showsLabel: true)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+            } else if heldResets > 0 {
+                HeaderChip(systemImage: "arrow.counterclockwise",
+                           label: L10n.format("ResetCredits", heldResets.formatted(.number.locale(L10n.locale))),
+                           detail: resetBalanceDetail,
+                           tint: .accentColor, showsLabel: chipLabels)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             }
         }
@@ -583,7 +602,8 @@ struct HeaderChip: View {
             }
         }
         .padding(.horizontal, showsLabel ? 7 : 5)
-        .padding(.vertical, 3)
+        // Fixed so an icon-only chip matches a labelled one, whose text line is taller than its icon.
+        .frame(height: Metrics.headerChipHeight)
         .foregroundStyle(tint)
         .background(tint.opacity(0.14), in: Capsule())
         .fixedSize()

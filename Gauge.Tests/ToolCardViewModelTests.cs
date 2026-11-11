@@ -239,6 +239,18 @@ public sealed class ToolCardViewModelTests
         Assert.True(card.ShowHeaderChipLabels);
     }
 
+    [Fact]
+    public void HeldResetCountUsesTheAccountBalanceElseTheValidGrantCounts()
+    {
+        var now = DateTimeOffset.UtcNow;
+        ResetCreditDeadline[] grants = [new(now.AddDays(30), null, 1), new(now.AddDays(90), "Fable", 1), new(now.AddDays(-1), null, 5)];
+
+        Assert.Equal(2, ResetCreditDeadline.AvailableCount(null, grants, now));
+        Assert.Equal(3, ResetCreditDeadline.AvailableCount(3, grants, now));
+        Assert.Equal(0, ResetCreditDeadline.AvailableCount(0, grants, now));
+        Assert.Equal(0, ResetCreditDeadline.AvailableCount(null, null, now));
+    }
+
     private static UsageWindow Window(string? id, string? group, UsageWindowType type) => new()
     {
         Id = id,
