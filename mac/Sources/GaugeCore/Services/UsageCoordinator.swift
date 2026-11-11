@@ -51,20 +51,13 @@ public enum RefreshReason: Sendable {
         default: .background
         }
     }
-
-    /// The requests that can pile up: repeated clicks, or a wake-then-unlock pair. Explicit
-    /// clicks are in here too, because they pierce a rate-limit cooldown; without the debounce
-    /// each click would be another real attempt against a throttling endpoint. A tool change
-    /// is not, so its card appears or disappears right away.
-    var isDebounced: Bool { self == .popoverOpened || self == .manual || self == .systemResumed }
 }
 
 /// Schedules and isolates provider reads. A one-minute tick refreshes only providers whose
-/// own cadence is due, stretched by `AdaptiveRefreshPolicy` while nobody looks; opening the
-/// popover or the refresh button forces a read of every shown provider, debounced to one per
-/// 10 seconds (the popover open also held back by each tool's cost floor,
-/// `ToolKind.forcedRefreshFloor`); a failure keeps the last good snapshot and never blocks
-/// another provider, and a read that hangs is given up on at `fetchDeadline`.
+/// own cadence is due, stretched by `AdaptiveRefreshPolicy` while nobody looks. The popover
+/// respects each tool's cost floor. A manual refresh has its own debounce per account and
+/// queues one follow-up for each account still reading in the background. A failure keeps
+/// the last good snapshot, and a read that hangs is given up on at `fetchDeadline`.
 public actor UsageCoordinator {
     public typealias Listener = @Sendable ([ToolState]) -> Void
 
@@ -83,10 +76,11 @@ public actor UsageCoordinator {
     private var enabled: [ToolKind] = []
     private var states: [UsageAccountKey: ToolState] = [:]
     private var lastAttempt: [UsageAccountKey: TimeInterval] = [:]
+    private var lastManualAttempt: [UsageAccountKey: TimeInterval] = [:]
     /// Tools whose read has not actually ended, which can outlast its deadline.
-    private var inFlight = Set<UsageAccountKey>()
-    /// A sign-in may finish while this account is still returning its earlier reading.
-    private var pendingAccountRefreshes = Set<UsageAccountKey>()
+    private var inFlight: [UsageAccountKey: RefreshReason] = [:]
+    /// One follow-up per account, requested by the refresh button or after a sign-in.
+    private var pendingAccountRefreshes: [UsageAccountKey: RefreshReason] = [:]
     private var signingIn = Set<UsageAccountKey>()
     /// The `refresh` calls still waiting on a tool's read: resumed at its end or its deadline.
     private var readWaiters: [UsageAccountKey: CheckedContinuation<Void, Never>] = [:]
@@ -132,6 +126,7 @@ public actor UsageCoordinator {
     /// polled or emitted.
     public func setEnabledTools(_ tools: [ToolKind]) {
         enabled = tools.filter { providers[UsageAccountKey(tool: $0)] != nil }
+        pendingAccountRefreshes = pendingAccountRefreshes.filter { enabled.contains($0.key.tool) }
         emit()
     }
 
@@ -144,7 +139,8 @@ public actor UsageCoordinator {
             let fallback = UsageAccountKey(tool: .githubCopilot)
             states.removeValue(forKey: fallback)
             lastAttempt.removeValue(forKey: fallback)
-            pendingAccountRefreshes.remove(fallback)
+            lastManualAttempt.removeValue(forKey: fallback)
+            pendingAccountRefreshes.removeValue(forKey: fallback)
             persistCache()
         }
         emit()
@@ -156,7 +152,8 @@ public actor UsageCoordinator {
         providers.removeValue(forKey: key)
         states.removeValue(forKey: key)
         lastAttempt.removeValue(forKey: key)
-        pendingAccountRefreshes.remove(key)
+        lastManualAttempt.removeValue(forKey: key)
+        pendingAccountRefreshes.removeValue(forKey: key)
         readWaiters.removeValue(forKey: key)?.resume()
         persistCache()
         emit()
@@ -200,21 +197,33 @@ public actor UsageCoordinator {
     }
 
     public func refresh(_ reason: RefreshReason, account: UsageAccountKey? = nil) async {
-        if reason == .toolsChanged, let account, enabledAccounts.contains(account), inFlight.contains(account) {
-            pendingAccountRefreshes.insert(account)
+        if reason == .toolsChanged, let account, enabledAccounts.contains(account), inFlight[account] != nil {
+            if pendingAccountRefreshes[account] == nil {
+                pendingAccountRefreshes[account] = reason
+            }
             return
         }
         let now = clock.now()
         // Even a debounced open counts as interaction: someone is looking.
         if reason == .popoverOpened { lastPanelOpened = now }
-        if reason.isDebounced, let last = lastFetchStarted, now - last < Self.debounce {
+        if reason == .popoverOpened || reason == .systemResumed,
+           let last = lastFetchStarted, now - last < Self.debounce {
             emit()
             return
         }
 
         let decision = reason == .scheduled ? adaptiveDecision(now: now) : nil
         let due = enabledAccounts.filter { key in
-            guard (account == nil || key == account), !inFlight.contains(key), !signingIn.contains(key) else { return false }
+            guard (account == nil || key == account), !signingIn.contains(key) else { return false }
+            if reason == .manual {
+                if let last = lastManualAttempt[key], now - last < Self.debounce { return false }
+                if let running = inFlight[key] {
+                    if running != .manual { pendingAccountRefreshes[key] = reason }
+                    return false
+                }
+                return true
+            }
+            guard inFlight[key] == nil else { return false }
             guard let last = lastAttempt[key] else { return true }
             switch reason {
             case .scheduled:
@@ -230,12 +239,8 @@ public actor UsageCoordinator {
             return
         }
 
-        lastFetchStarted = now
         for key in due {
-            inFlight.insert(key)
-            lastAttempt[key] = now
-            states[key, default: emptyState(key)].isRefreshing = true
-            states[key, default: emptyState(key)].refreshStartedAt = now
+            markReadStarted(key, reason: reason, now: now)
         }
         emit()
 
@@ -248,12 +253,21 @@ public actor UsageCoordinator {
         }
     }
 
+    private func markReadStarted(_ key: UsageAccountKey, reason: RefreshReason, now: TimeInterval) {
+        lastFetchStarted = now
+        lastAttempt[key] = now
+        if reason == .manual { lastManualAttempt[key] = now }
+        inFlight[key] = reason
+        states[key, default: emptyState(key)].isRefreshing = true
+        states[key, default: emptyState(key)].refreshStartedAt = now
+    }
+
     /// One provider read, waited on until it ends or `fetchDeadline` passes. The read runs in
     /// its own unstructured task because a task group cannot leave a child behind: a read that
     /// ignores cancellation would hold the group, and with it the scheduler and every other tool.
     private func read(_ key: UsageAccountKey, from provider: any UsageProvider, interaction: FetchInteraction) async {
         guard tracks(key) else {
-            inFlight.remove(key)
+            inFlight.removeValue(forKey: key)
             return
         }
         await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
@@ -295,15 +309,19 @@ public actor UsageCoordinator {
     /// Also takes a read that ended past its deadline. Its result is still real: a success
     /// replaces the failure shown meanwhile, and the expected cancellation changes nothing.
     private func readEnded(_ key: UsageAccountKey, _ result: Result<ProviderOutcome, any Error>) {
-        inFlight.remove(key)
-        if tracks(key) {
+        inFlight.removeValue(forKey: key)
+        let tracked = tracks(key)
+        if tracked {
             apply(result, to: key)
-            emit()
         }
-        readWaiters.removeValue(forKey: key)?.resume()
-        if pendingAccountRefreshes.remove(key) != nil {
-            Task { await refresh(.toolsChanged, account: key) }
+        let waiter = readWaiters.removeValue(forKey: key)
+        if let reason = pendingAccountRefreshes.removeValue(forKey: key),
+           enabledAccounts.contains(key), !signingIn.contains(key), let provider = providers[key] {
+            markReadStarted(key, reason: reason, now: clock.now())
+            Task { await read(key, from: provider, interaction: reason.interaction) }
         }
+        if tracked { emit() }
+        waiter?.resume()
     }
 
     private func apply(_ result: Result<ProviderOutcome, any Error>, to key: UsageAccountKey) {

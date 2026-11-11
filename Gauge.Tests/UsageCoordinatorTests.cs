@@ -161,6 +161,25 @@ public sealed class UsageCoordinatorTests
     }
 
     [Fact]
+    public async Task ManualRefreshWaitsForAnActivePopoverRefreshAndCoalescesRepeatedClicks()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provider = new StubProvider("Codex") { Block = unblock };
+        using var coordinator = new UsageCoordinator(new UsageService([provider]), time: new MutableTime());
+        coordinator.RefreshStarted += (_, _) => started.TrySetResult();
+
+        var automatic = coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var manual = coordinator.RefreshAsync(RefreshReason.Manual);
+        var repeatedClick = coordinator.RefreshAsync(RefreshReason.Manual);
+        unblock.SetResult();
+        await Task.WhenAll(automatic, manual, repeatedClick).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, provider.CallCount);
+    }
+
+    [Fact]
     public async Task RefreshStartedAndCompletedBracketTheFetch()
     {
         var claude = new StubProvider("Claude");
@@ -191,14 +210,19 @@ public sealed class UsageCoordinatorTests
     }
 
     [Fact]
-    public async Task AuthenticationRefreshBypassesManualDebounce()
+    public async Task ManualDebounceLimitsRepeatedClicksButDoesNotBlockAuthentication()
     {
         var provider = new StubProvider("Codex");
-        using var coordinator = new UsageCoordinator(new UsageService(new[] { provider }));
+        var time = new MutableTime();
+        using var coordinator = new UsageCoordinator(new UsageService([provider]), time: time);
         await coordinator.RefreshAsync(RefreshReason.Manual);
         await coordinator.RefreshAsync(RefreshReason.Manual);
+        Assert.Equal(1, provider.CallCount);
         await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
         Assert.Equal(2, provider.CallCount);
+        time.Advance(TimeSpan.FromSeconds(10));
+        await coordinator.RefreshAsync(RefreshReason.Manual);
+        Assert.Equal(3, provider.CallCount);
     }
 
     [Fact]
@@ -420,8 +444,7 @@ public sealed class UsageCoordinatorTests
         // A completed sign-in and adding a tool both mean "now, really".
         await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged);
         await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
-        // So does the refresh button, once past the shared 10-second debounce.
-        time.Advance(TimeSpan.FromSeconds(11));
+        // The refresh button can follow another kind of refresh immediately.
         await coordinator.RefreshAsync(RefreshReason.Manual);
 
         Assert.Equal(4, antigravity.CallCount);
@@ -696,7 +719,6 @@ public sealed class UsageCoordinatorTests
         time.Advance(TimeSpan.FromMinutes(3));
         await coordinator.RefreshAsync(RefreshReason.Periodic);
         Assert.Equal(3, provider.CallCount);
-        time.Advance(TimeSpan.FromSeconds(11));
         await coordinator.RefreshAsync(RefreshReason.Manual);
         Assert.Equal(4, provider.CallCount);
     }

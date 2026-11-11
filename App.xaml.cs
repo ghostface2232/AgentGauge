@@ -460,8 +460,6 @@ public partial class App : Application
 
     private async void OnManualRefreshRequested(object? sender, EventArgs e)
     {
-        // Routed through the same debounced path so the data source isn't hammered;
-        // within 10s of a refresh it just re-shows the cached value.
         if (_coordinator is not null)
         {
             await _coordinator.RefreshAsync(RefreshReason.Manual);

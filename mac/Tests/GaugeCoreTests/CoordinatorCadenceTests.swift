@@ -91,6 +91,28 @@ final class CoordinatorDeadlineTests: XCTestCase {
         }
     }
 
+    func testManualRefreshQueuesOneFollowUpForAnActiveBackgroundRead() async {
+        let clock = ManualClock()
+        let provider = HangingProvider(.codex)
+        defer { provider.release() }
+        let coordinator = UsageCoordinator(providers: [provider], cache: nil, clock: clock)
+        await coordinator.setEnabledTools([.codex])
+
+        let automatic = Task { await coordinator.refresh(.popoverOpened) }
+        await waitUntil { provider.fetches == 1 }
+        await coordinator.refresh(.manual)
+        clock.advance(11)
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(provider.fetches, 1, "manual reads cannot run beside the background read")
+
+        provider.release()
+        await automatic.value
+        await waitUntil { provider.fetches == 2 }
+        XCTAssertEqual(provider.fetches, 2, "the queued manual refresh runs once")
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(provider.fetches, 2, "debounce starts when the queued read starts")
+    }
+
     func testHungProviderHoldsBackNeitherOtherToolsNorTheScheduler() async {
         let clock = ManualClock()
         let hung = HangingProvider(.claude)
@@ -116,14 +138,11 @@ final class CoordinatorDeadlineTests: XCTestCase {
         XCTAssertEqual(hung.fetches, 1, "no second fetch may start beside one that has not ended")
 
         hung.release()
-        await waitUntil { claudeState()?.lastRefreshFailed == false }
+        await waitUntil { hung.fetches == 2 && claudeState()?.isRefreshing == false }
         XCTAssertEqual(claudeState()?.lastRefreshFailed, false, "a late success still lands")
         XCTAssertNotNil(claudeState()?.snapshot)
         XCTAssertTrue(hung.sawCancellation, "the deadline cancels the read")
-
-        clock.advance(11)
-        await coordinator.refresh(.manual)
-        XCTAssertEqual(hung.fetches, 2, "the tool is free again once its read has really ended")
+        XCTAssertEqual(hung.fetches, 2, "the manual refresh waits until the timed-out read really ends")
     }
 
     func testCancellableReadIsFreedAfterItsDeadline() async {
@@ -277,10 +296,10 @@ final class CoordinatorDebounceTests: XCTestCase {
         XCTAssertEqual(codex.fetches, 2)
     }
 
-    func testAnyRefreshThatFetchesArmsTheDebounce() async {
+    func testAnyRefreshThatFetchesArmsThePopoverAndResumeDebounce() async {
         let arming: [RefreshReason] = [.launch, .scheduled, .toolsChanged, .popoverOpened, .systemResumed, .manual]
         for reason in arming {
-            for debounced in [RefreshReason.popoverOpened, .manual, .systemResumed] {
+            for debounced in [RefreshReason.popoverOpened, .systemResumed] {
                 let clock = ManualClock()
                 let codex = CountingProvider(.codex)
                 let coordinator = UsageCoordinator(providers: [codex], cache: nil, clock: clock)
@@ -349,11 +368,8 @@ final class CoordinatorCadenceTests: XCTestCase {
         XCTAssertEqual(codex.fetches, 2, "one-GET providers stay current on every open")
 
         await coordinator.refresh(.manual)
-        XCTAssertEqual(antigravity.fetches, 1, "the open's read of Codex armed the 10 s debounce")
-
-        clock.advance(11)
-        await coordinator.refresh(.manual)
         XCTAssertEqual(antigravity.fetches, 2, "an explicit refresh bypasses the floor")
+        XCTAssertEqual(codex.fetches, 3, "a recent background read does not debounce a manual refresh")
 
         clock.advance(121)
         await coordinator.refresh(.popoverOpened)
