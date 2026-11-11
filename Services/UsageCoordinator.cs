@@ -14,7 +14,7 @@ public enum RefreshReason
     // immediately (not debounced) so cards appear/disappear right away.
     ToolsChanged,
     // Wake-from-sleep / session-unlock. Refreshes every provider like Manual (and
-    // shares its 10s debounce so a resume-then-unlock pair collapses), but it is NOT a
+    // shares the popover's 10s debounce so a resume-then-unlock pair collapses), but it is NOT a
     // user's explicit ask for this data, so it must not pierce a rate-limit cooldown —
     // a lock/unlock-heavy day would otherwise keep poking a throttling endpoint.
     SystemResumed,
@@ -26,11 +26,9 @@ public enum RefreshReason
 /// - A one-minute scheduler tick refreshes only providers whose own cadence is due:
 ///   Codex every 3 minutes, Claude every 5, Antigravity every 10, and Copilot
 ///   every 15. Due providers still run in parallel and remain failure-isolated.
-/// - Opening the popover or requesting a manual refresh calls <see cref="RefreshAsync"/>,
-///   debounced: if a
-///   refresh ran within the last 10s we skip the data source and just re-emit the
-///   cached state. The periodic refresh counts toward the debounce too, so we never
-///   over-poll the providers.
+/// - Opening the popover or resuming the system skips the data source within 10s of
+///   any refresh. The refresh button has its own 10s debounce and waits for an
+///   active cycle so a background fetch cannot swallow an explicit request.
 /// - Beyond that debounce, opening the popover also respects a per-provider cost floor
 ///   (<see cref="ForcedIntervalFor"/>), which exists for providers whose read is
 ///   expensive in a way a 10-second gap does not cover. Explicit user actions (the
@@ -70,6 +68,8 @@ public sealed class UsageCoordinator : IDisposable
     private readonly Dictionary<string, long> _lastProviderAttemptTimestamps = new();
 
     private long _lastRefreshStartedTimestamp = NeverRefreshed;
+    private long _lastManualRefreshStartedTimestamp = NeverRefreshed;
+    private int _manualRefreshPending;
     private Task? _loopTask;
     // Volatile: read by refresh entry points that may resume off the UI thread (and by
     // tests exercising them cross-thread); the early-return must see Dispose's write
@@ -180,8 +180,8 @@ public sealed class UsageCoordinator : IDisposable
     }
 
     /// <summary>
-    /// Requests an immediate refresh, e.g. when the popover opens. Debounced: if a
-    /// refresh ran within the last 10s, the cached state is re-emitted instead.
+    /// Requests a refresh. Manual requests wait for the active cycle and are
+    /// debounced against other manual requests only.
     /// </summary>
     public async Task RefreshAsync(RefreshReason reason, string? accountKey = null)
     {
@@ -196,14 +196,22 @@ public sealed class UsageCoordinator : IDisposable
         if (reason == RefreshReason.PopoverOpened)
             Interlocked.Exchange(ref _lastPopoverOpenedTimestamp, _time.GetTimestamp());
 
-        var isDebouncedRequest = reason
-            is RefreshReason.PopoverOpened or RefreshReason.Manual or RefreshReason.SystemResumed;
-        var lastStarted = Interlocked.Read(ref _lastRefreshStartedTimestamp);
-        if (isDebouncedRequest && lastStarted != NeverRefreshed
-            && _time.GetElapsedTime(lastStarted) < ForcedRefreshDebounce)
+        if (reason == RefreshReason.Manual)
         {
-            // Within the debounce window: show the cached value, don't re-fetch.
-            EmitState();
+            // Keep at most one explicit request waiting or running, even if the
+            // current fetch takes longer than the debounce.
+            if (Interlocked.Exchange(ref _manualRefreshPending, 1) != 0)
+            {
+                return;
+            }
+            try
+            {
+                await RefreshGuardedAsync(reason, waitForExisting: true, accountKey);
+            }
+            finally
+            {
+                Volatile.Write(ref _manualRefreshPending, 0);
+            }
             return;
         }
 
@@ -272,8 +280,8 @@ public sealed class UsageCoordinator : IDisposable
         bool waitForExisting,
         string? accountKey)
     {
-        // Serialize cycles: if a refresh is already running, don't start another;
-        // re-emit the current state so callers still get a fresh notification.
+        // Explicit requests wait their turn. Background requests can use the
+        // current state while a refresh is in progress.
         var entered = waitForExisting
             ? await WaitForGateAsync(cancellationToken)
             : await _refreshGate.WaitAsync(0, cancellationToken);
@@ -286,13 +294,26 @@ public sealed class UsageCoordinator : IDisposable
         List<string>? fetchingTools = null;
         try
         {
+            var attemptTimestamp = _time.GetTimestamp();
+            var lastStarted = reason switch
+            {
+                RefreshReason.Manual => _lastManualRefreshStartedTimestamp,
+                RefreshReason.PopoverOpened or RefreshReason.SystemResumed => _lastRefreshStartedTimestamp,
+                _ => NeverRefreshed,
+            };
+            if (lastStarted != NeverRefreshed
+                && _time.GetElapsedTime(lastStarted, attemptTimestamp) < ForcedRefreshDebounce)
+            {
+                EmitState();
+                return;
+            }
+
             var enabledProviders = _usageService.GetEnabledProviders();
             if (accountKey is not null)
                 enabledProviders = enabledProviders.Where(provider => provider.ToolName == accountKey).ToList();
             var registeredAtStart = _usageService.GetRegisteredToolNames();
             foreach (var key in _lastProviderAttemptTimestamps.Keys.Where(key => !registeredAtStart.Contains(key)).ToList())
                 _lastProviderAttemptTimestamps.Remove(key);
-            var attemptTimestamp = _time.GetTimestamp();
             var adaptive = reason == RefreshReason.Periodic ? GetAdaptiveDecision(attemptTimestamp) : default;
             var providersToRefresh = reason switch
             {
@@ -332,7 +353,11 @@ public sealed class UsageCoordinator : IDisposable
                 return;
             }
 
-            Interlocked.Exchange(ref _lastRefreshStartedTimestamp, attemptTimestamp);
+            _lastRefreshStartedTimestamp = attemptTimestamp;
+            if (reason == RefreshReason.Manual)
+            {
+                _lastManualRefreshStartedTimestamp = attemptTimestamp;
+            }
             foreach (var provider in providersToRefresh)
             {
                 _lastProviderAttemptTimestamps[provider.ToolName] = attemptTimestamp;
@@ -425,9 +450,7 @@ public sealed class UsageCoordinator : IDisposable
     /// read launches a language server, waits for it to answer, and tears the process tree
     /// down again. Without a floor every tray click spawns one, which the 10-second debounce
     /// does not prevent. Ten minutes of drift is the periodic cadence anyway, so a two-minute
-    /// floor costs no meaningful freshness; the refresh button bypasses the floor (though it
-    /// still shares the 10-second debounce, so a click right after a popover-open can land
-    /// inside it).
+    /// floor costs no meaningful freshness; the refresh button bypasses the floor.
     /// </summary>
     internal static TimeSpan ForcedIntervalFor(ToolKind tool) => tool switch
     {
