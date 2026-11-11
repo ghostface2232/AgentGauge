@@ -223,9 +223,17 @@ public sealed class CodexProviderTests
     [InlineData("0")]
     [InlineData("\"18000\"")]
     [InlineData("null")]
-    public async Task ExplicitUnsupportedOrMalformedDurationIsSkipped(string duration)
+    public async Task UnreadableAccountWindowKeepsTheLastCompleteSnapshot(string duration)
     {
-        var json = $$"""
+        const string valid = """
+        {
+          "rate_limit": {
+            "primary_window": { "used_percent": 15, "limit_window_seconds": 18000 },
+            "secondary_window": { "used_percent": 35, "limit_window_seconds": 604800 }
+          }
+        }
+        """;
+        var partial = $$"""
         {
           "rate_limit": {
             "primary_window": {
@@ -240,10 +248,26 @@ public sealed class CodexProviderTests
         }
         """;
 
-        var snapshot = await Snapshot(json, Available("t"));
+        var handler = new StubHandler(valid);
+        using var http = new HttpClient(handler);
+        var provider = new CodexProvider(http, Available("t"));
+        using var coordinator = new UsageCoordinator(new UsageService([provider]));
+        UsageState? state = null;
+        coordinator.Updated += (_, value) => state = value;
 
-        var weekly = Assert.Single(snapshot.Windows);
-        Assert.Equal(UsageWindowType.Weekly, weekly.Type);
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+        var previous = Assert.Single(state!.Tools);
+        Assert.NotNull(previous.Snapshot);
+        Assert.Equal(2, previous.Snapshot.Windows.Count);
+        Assert.False(previous.LastRefreshFailed);
+
+        handler.UsageJson = partial;
+        await coordinator.RefreshAsync(RefreshReason.ToolsChanged);
+
+        var current = Assert.Single(state!.Tools);
+        Assert.True(current.LastRefreshFailed);
+        Assert.Same(previous.Snapshot, current.Snapshot);
+        Assert.Equal(previous.LastUpdatedAt, current.LastUpdatedAt);
     }
 
     [Fact]
@@ -512,6 +536,7 @@ public sealed class CodexProviderTests
     private sealed class StubHandler(
         string json, HttpStatusCode statusCode = HttpStatusCode.OK, string? resetDetails = null) : HttpMessageHandler
     {
+        public string UsageJson { get; set; } = json;
         public int ResetReads { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -520,7 +545,7 @@ public sealed class CodexProviderTests
             if (isCreditRequest) ResetReads++;
             return Task.FromResult(new HttpResponseMessage(statusCode)
             {
-                Content = new StringContent(isCreditRequest ? resetDetails ?? "{}" : json, Encoding.UTF8, "application/json"),
+                Content = new StringContent(isCreditRequest ? resetDetails ?? "{}" : UsageJson, Encoding.UTF8, "application/json"),
             });
         }
     }
