@@ -714,7 +714,7 @@ struct UsageRow: View {
                      basis: basis, dailySegments: details.dailySegments, hoveredDay: $hoveredDay, focusedDay: $focusedDay)
             // The counts share the caption row when there is no pace to show, and move to the
             // ETA row otherwise, so a quota with counts never adds a near-empty line.
-            let day = hoveredDay ?? focusedDay
+            let day = focusedDay ?? hoveredDay
             let dailyCaption = details.dailySegments.first { $0.id == day }?.description
             let caption = dailyCaption ?? hoverText ?? details.reset
             let trailing = details.pace ?? details.counts
@@ -780,16 +780,22 @@ struct UsageBar: View {
                         UsageDailyBreakdown.unattributedUsedRatio(
                             clamped, datedRatio: dailySegments.reduce(0) { $0 + $1.fraction }) : 0
                     let unattributedGap = min(segmentGap / 2, unattributedWidth / 4)
+                    let selectedDay = focusedDay.wrappedValue
+                    let hasSelection = dailySegments.contains { $0.id == selectedDay }
+                    let unselectedOpacity = hasSelection ? 0.42 : 1.0
                     HStack(spacing: 0) {
                         if basis == .remaining {
-                            Capsule().fill(level.tint).frame(width: proxy.size.width * clamped)
+                            Capsule().fill(level.tint.opacity(unselectedOpacity))
+                                .frame(width: proxy.size.width * clamped)
                         }
                         ForEach(Array(dailySegments.enumerated()), id: \.element.id) { index, segment in
                             let width = proxy.size.width * segment.fraction
                             let halfGap = min(segmentGap, width / 4) / 2
                             let leading = index == 0 ? 0 : halfGap
                             let trailing = index == dailySegments.count - 1 ? min(halfGap, unattributedGap) : halfGap
-                            let opacity = index.isMultiple(of: 2) ? 1.0 : 0.72
+                            let opacity = hasSelection
+                                ? (segment.id == selectedDay ? 1.0 : unselectedOpacity)
+                                : (index.isMultiple(of: 2) ? 1.0 : 0.72)
                             RoundedRectangle(cornerRadius: 2.5)
                                 .fill(level.tint.opacity(basis == .remaining ? opacity * 0.5 : opacity))
                                 .frame(width: width - leading - trailing)
@@ -801,13 +807,14 @@ struct UsageBar: View {
                                     if inside { hoveredDay = segment.id }
                                     else if hoveredDay == segment.id { hoveredDay = nil }
                                 }
+                                .onTapGesture { focusedDay.wrappedValue = segment.id }
                                 .focusable()
                                 .focused(focusedDay, equals: segment.id)
                         }
                         if unattributedWidth > 0 {
                             // The undated share keeps the total fill accurate without a day tooltip.
                             RoundedRectangle(cornerRadius: 2.5)
-                                .fill(level.tint.opacity(0.5))
+                                .fill(level.tint.opacity(0.5 * unselectedOpacity))
                                 .frame(width: unattributedWidth - unattributedGap)
                                 .padding(.leading, unattributedGap)
                                 .allowsHitTesting(false)
@@ -817,6 +824,7 @@ struct UsageBar: View {
             }
         }
         .frame(height: 6)
+        .focusEffectDisabled()
         .animation(.smooth(duration: 0.4), value: fraction)
         .accessibilityHidden(true)
     }
