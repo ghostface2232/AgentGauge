@@ -55,7 +55,8 @@ public enum RefreshReason: Sendable {
 
 /// Schedules and isolates provider reads. A one-minute tick refreshes only providers whose
 /// own cadence is due, stretched by `AdaptiveRefreshPolicy` while nobody looks. The popover
-/// respects each tool's cost floor. A manual refresh has its own debounce per account and
+/// respects each tool's cost floor. Opening or resuming skips an account only while its read
+/// is active or within 10s of its last finish. A manual refresh has its own debounce and
 /// queues one follow-up for each account still reading in the background. A failure keeps
 /// the last good snapshot, and a read that hangs is given up on at `fetchDeadline`.
 public actor UsageCoordinator {
@@ -76,6 +77,7 @@ public actor UsageCoordinator {
     private var enabled: [ToolKind] = []
     private var states: [UsageAccountKey: ToolState] = [:]
     private var lastAttempt: [UsageAccountKey: TimeInterval] = [:]
+    private var lastFinish: [UsageAccountKey: TimeInterval] = [:]
     private var lastManualAttempt: [UsageAccountKey: TimeInterval] = [:]
     /// Tools whose read has not actually ended, which can outlast its deadline.
     private var inFlight: [UsageAccountKey: RefreshReason] = [:]
@@ -84,9 +86,6 @@ public actor UsageCoordinator {
     private var signingIn = Set<UsageAccountKey>()
     /// The `refresh` calls still waiting on a tool's read: resumed at its end or its deadline.
     private var readWaiters: [UsageAccountKey: CheckedContinuation<Void, Never>] = [:]
-    /// When a refresh last started fetching anything, whatever asked for it. A refresh that
-    /// fetched nothing does not count, so it cannot hold back one that would.
-    private var lastFetchStarted: TimeInterval?
     private var lastPanelOpened: TimeInterval?
     private var signals = AdaptiveRefreshSignals()
     private var lastDecision: AdaptiveRefreshDecision?
@@ -139,6 +138,7 @@ public actor UsageCoordinator {
             let fallback = UsageAccountKey(tool: .githubCopilot)
             states.removeValue(forKey: fallback)
             lastAttempt.removeValue(forKey: fallback)
+            lastFinish.removeValue(forKey: fallback)
             lastManualAttempt.removeValue(forKey: fallback)
             pendingAccountRefreshes.removeValue(forKey: fallback)
             persistCache()
@@ -152,6 +152,7 @@ public actor UsageCoordinator {
         providers.removeValue(forKey: key)
         states.removeValue(forKey: key)
         lastAttempt.removeValue(forKey: key)
+        lastFinish.removeValue(forKey: key)
         lastManualAttempt.removeValue(forKey: key)
         pendingAccountRefreshes.removeValue(forKey: key)
         readWaiters.removeValue(forKey: key)?.resume()
@@ -206,12 +207,6 @@ public actor UsageCoordinator {
         let now = clock.now()
         // Even a debounced open counts as interaction: someone is looking.
         if reason == .popoverOpened { lastPanelOpened = now }
-        if reason == .popoverOpened || reason == .systemResumed,
-           let last = lastFetchStarted, now - last < Self.debounce {
-            emit()
-            return
-        }
-
         let decision = reason == .scheduled ? adaptiveDecision(now: now) : nil
         let due = enabledAccounts.filter { key in
             guard (account == nil || key == account), !signingIn.contains(key) else { return false }
@@ -224,6 +219,8 @@ public actor UsageCoordinator {
                 return true
             }
             guard inFlight[key] == nil else { return false }
+            if reason == .popoverOpened || reason == .systemResumed,
+               let finished = lastFinish[key], now - finished < Self.debounce { return false }
             guard let last = lastAttempt[key] else { return true }
             switch reason {
             case .scheduled:
@@ -254,7 +251,6 @@ public actor UsageCoordinator {
     }
 
     private func markReadStarted(_ key: UsageAccountKey, reason: RefreshReason, now: TimeInterval) {
-        lastFetchStarted = now
         lastAttempt[key] = now
         if reason == .manual { lastManualAttempt[key] = now }
         inFlight[key] = reason
@@ -273,9 +269,10 @@ public actor UsageCoordinator {
         await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
             readWaiters[key] = waiter
             let deadline = fetchDeadline
+            let context = UsageReadContext()
             let work = Task.detached { () async -> Result<ProviderOutcome, any Error> in
                 do {
-                    return .success(try await provider.fetch(interaction))
+                    return .success(try await provider.read(interaction, context: context))
                 } catch {
                     return .failure(error)
                 }
@@ -284,12 +281,12 @@ public actor UsageCoordinator {
                 try? await Task.sleep(for: deadline)
                 guard !Task.isCancelled else { return }
                 work.cancel()
-                await self.deadlinePassed(key)
+                await self.deadlinePassed(key, metadata: context.metadata)
             }
             Task.detached {
                 let result = await work.value
                 timer.cancel()
-                await self.readEnded(key, result)
+                await self.readEnded(key, result, metadata: context.metadata)
             }
         }
     }
@@ -297,10 +294,10 @@ public actor UsageCoordinator {
     /// The read counts as failed from here on, but the tool stays in flight until it really
     /// ends: nothing else may start beside it, because providers rely on never running two
     /// fetches of one tool at once and a hung read must not pile up more of itself.
-    private func deadlinePassed(_ key: UsageAccountKey) {
+    private func deadlinePassed(_ key: UsageAccountKey, metadata: UsageReadMetadata?) {
         guard let waiter = readWaiters.removeValue(forKey: key) else { return }
         if tracks(key) {
-            apply(.failure(UsageFetchError.timedOut), to: key)
+            apply(.failure(UsageFetchError.timedOut), to: key, metadata: metadata)
             emit()
         }
         waiter.resume()
@@ -308,11 +305,13 @@ public actor UsageCoordinator {
 
     /// Also takes a read that ended past its deadline. Its result is still real: a success
     /// replaces the failure shown meanwhile, and the expected cancellation changes nothing.
-    private func readEnded(_ key: UsageAccountKey, _ result: Result<ProviderOutcome, any Error>) {
+    private func readEnded(_ key: UsageAccountKey, _ result: Result<ProviderOutcome, any Error>,
+                           metadata: UsageReadMetadata?) {
         inFlight.removeValue(forKey: key)
         let tracked = tracks(key)
         if tracked {
-            apply(result, to: key)
+            lastFinish[key] = clock.now()
+            apply(result, to: key, metadata: metadata)
         }
         let waiter = readWaiters.removeValue(forKey: key)
         if let reason = pendingAccountRefreshes.removeValue(forKey: key),
@@ -324,12 +323,14 @@ public actor UsageCoordinator {
         waiter?.resume()
     }
 
-    private func apply(_ result: Result<ProviderOutcome, any Error>, to key: UsageAccountKey) {
+    private func apply(_ result: Result<ProviderOutcome, any Error>, to key: UsageAccountKey,
+                       metadata: UsageReadMetadata?) {
         var state = states[key] ?? emptyState(key)
         state.isRefreshing = false
         state.refreshStartedAt = nil
         switch result {
         case .success(let outcome):
+            let planChanged = state.snapshot?.plan != outcome.snapshot.plan
             state.lastRefreshFailed = false
             state.lastRefreshSkipped = false
             state.isRehydrated = false
@@ -337,7 +338,7 @@ public actor UsageCoordinator {
             state.snapshot?.profileID = key.profileID
             if !outcome.signedIn {
                 state.auth = .signedOut
-            } else if outcome.isLive && outcome.snapshot.hasUsage {
+            } else if outcome.isLive {
                 // Only a genuine live read proves the server accepted the token, so only it
                 // clears a sticky rejection; a cache serve after a 401 must not.
                 state.auth = .signedIn
@@ -345,7 +346,7 @@ public actor UsageCoordinator {
                 state.auth = .signedIn
             }
             states[key] = state
-            if outcome.isLive || !outcome.signedIn { persistCache() }
+            if outcome.isLive || !outcome.signedIn || planChanged { persistCache() }
         case .failure(let error):
             if error is UsageRefreshSkipped {
                 state.lastRefreshSkipped = true
@@ -358,6 +359,25 @@ public actor UsageCoordinator {
             }
             state.lastRefreshFailed = true
             state.lastRefreshSkipped = false
+            let previous = state.snapshot
+            if let current = metadata?.accountIdentity, let prior = previous?.accountIdentity, current != prior {
+                state.snapshot = nil
+                state.isRehydrated = false
+                state.auth = .unknown
+            }
+            if let plan = metadata?.verifiedPlan {
+                if state.snapshot == nil || state.auth == .signedOut {
+                    var snapshot = UsageSnapshot(tool: key.tool, plan: plan, windows: [],
+                                                 capturedAt: wallClock(), profileID: key.profileID)
+                    snapshot.accountIdentity = metadata?.accountIdentity
+                    state.snapshot = snapshot
+                    state.isRehydrated = false
+                    state.auth = .unknown
+                } else {
+                    state.snapshot?.plan = plan
+                }
+                if state.auth == .unknown { state.auth = .signedIn }
+            }
             switch error as? UsageFetchError {
             case .authenticationRequired:
                 state.auth = .rejected
@@ -369,6 +389,7 @@ public actor UsageCoordinator {
                 Log.write("coordinator", "\(key.tool.displayName) refresh failed: \(Self.describe(error))")
             }
             states[key] = state
+            if state.snapshot != previous { persistCache() }
         }
     }
 
@@ -383,9 +404,10 @@ public actor UsageCoordinator {
     }
 
     private func persistCache() {
-        // Only snapshots with windows are worth rehydrating; a signed-out tool drops out.
         let snapshots = states.values.compactMap { state -> UsageSnapshot? in
-            guard state.auth != .signedOut, let snapshot = state.snapshot, snapshot.hasUsage else { return nil }
+            guard state.auth != .signedOut, let snapshot = state.snapshot,
+                  snapshot.hasUsage || snapshot.plan != nil || snapshot.resetCredits != nil
+                    || snapshot.resetCreditDeadlines?.isEmpty == false else { return nil }
             return snapshot
         }
         cache?.save(snapshots)

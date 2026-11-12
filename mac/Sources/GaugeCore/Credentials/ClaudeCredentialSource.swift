@@ -246,6 +246,9 @@ public actor ClaudeCredentialSource: CredentialSource {
         guard case .available(var credential) = result else { return result }
         let profile = (try? Data(contentsOf: profileURL)).map(CredentialParsing.claudeProfile)
         credential.plan = profile?.plan ?? credential.plan
+        if let subject = profile?.subject, !subject.hasSuffix("\0") {
+            credential.accountIdentity = UsageIdentity.hash(subject: subject, token: credential.accessToken)
+        }
         if scopeHistory {
             credential.historyIdentity = UsageIdentity.hash(subject: profile?.subject, token: credential.accessToken)
         }

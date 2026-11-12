@@ -27,13 +27,14 @@ public sealed partial class UsageViewModel : ObservableObject
 
     public string TrayStatusSummary => string.Join(" · ", _serviceStatuses
         .Where(s => (_registry is null || _registry.IsActive(s.Tool)) && ProviderStatusText.IsVisible(s))
-        .Select(s => $"{ToolCatalog.For(s.Tool).DisplayName}: {ProviderStatusText.Label(s)}"));
+        .Select(s => (Status: s, Descriptor: ToolCatalog.For(s.Tool)))
+        .Select(item => $"{item.Descriptor.StatusProviderName ?? item.Descriptor.DisplayName} {ProviderStatusText.Label(item.Status)}"));
 
     public void ApplyServiceStatuses(IReadOnlyList<ProviderStatus> statuses)
     {
+        if (_serviceStatuses.SequenceEqual(statuses)) return;
         _serviceStatuses = statuses;
-        foreach (var card in Cards)
-            card.ApplyServiceStatus(statuses.FirstOrDefault(s => StatusTargetMatcher.Descriptor(card.ToolName)?.Kind == s.Tool));
+        Apply(_lastState);
     }
     /// <summary>Returns true when every registered tool's credential state is known-Missing
     /// (nobody signed in). Optional so tests and older call sites can omit it; without it
@@ -279,6 +280,7 @@ public sealed partial class UsageViewModel : ObservableObject
     public StatusRingState? StatusRing { get; private set; }
 
     private IReadOnlyList<CachedUsage> _lastRecorded = [];
+    private UsageState _lastState = UsageState.Empty;
 
     /// <summary>
     /// Sets the status bar / tray icon target and recalculates <see cref="StatusUsageRatio"/>.
@@ -332,15 +334,16 @@ public sealed partial class UsageViewModel : ObservableObject
 
     public void Apply(UsageState state)
     {
+        _lastState = state;
         // The usage surface shows every tool Gauge has a record for — i.e. one that has
         // succeeded at least once (HasData), even if its snapshot is now stale or has no
-        // windows (those render as a "no data" card). Tools that have never succeeded (no
-        // snapshot: not signed in, no OAuth, no history) are left off, so the default
-        // Claude/Codex cards aren't forced onto users who don't use one of them.
+        // windows (those render as a "no data" card). Tools that have never succeeded
+        // appear only when a public incident gives their card something to show.
         // Order by the shared registry display order so the cards match the settings screen
         // (and reflect a drag-to-reorder done on either surface). OrderBy is stable, so tools
         // without a registry slot keep the coordinator's relative order at the end.
-        var recorded = state.Tools.Where(t => t.HasData && IsVisible(t.ToolName))
+        var visible = state.Tools.Where(t => IsVisible(t.ToolName)).ToList();
+        var recorded = visible.Where(t => t.HasData)
             .OrderBy(t => OrderOf(t.ToolName)).ThenBy(t => t.ToolName.Contains(ToolAccount.KeySeparator)).ToList();
         _lastRecorded = recorded;
 
@@ -353,16 +356,14 @@ public sealed partial class UsageViewModel : ObservableObject
         StatusUsageRatio = HighestUsageRatio;
         StatusRing = BuildStatusRing(recorded, StatusTarget);
 
-        LastUpdatedAt = recorded.Select(t => t.LastUpdatedAt).Max();
+        LastUpdatedAt = recorded.Where(t => t.Snapshot is { IsSignedOut: false } snapshot
+            && (!t.IsRehydrated || snapshot.HasUsage || snapshot.Plan is not null
+                || snapshot.ResetCredits is not null || snapshot.ResetCreditDeadlines is { Count: > 0 }))
+            .Select(t => t.LastUpdatedAt).Max();
         LastUpdatedText = LastUpdatedAt is { } updated
             ? Loc.Format("LastUpdated_At", updated.ToLocalTime().ToString("HH:mm"))
             : Loc.Get("LastUpdated_Never");
         TrayTooltipSummary = BuildTrayTooltipSummary(recorded);
-        RefreshCards(recorded);
-        OnPropertyChanged(nameof(CanShowDailyUsage));
-        ExpireRefreshIndicators();
-        ApplyServiceStatuses(_serviceStatuses);
-
         // A fresh install with nothing signed in doesn't produce "no record" tools: the
         // providers report success with an empty snapshot, which would render one dead
         // "no data" card per default tool and no hint that signing in is the fix. When no
@@ -372,7 +373,29 @@ public sealed partial class UsageViewModel : ObservableObject
         var signedOutEmpty = state.Tools.Count > 0 && !hasUsage
             && _allToolsSignedOut?.Invoke() == true;
 
-        IsEmpty = recorded.Count == 0 || signedOutEmpty;
+        var incidentTools = _serviceStatuses.Where(s => s.CheckedAt is not null
+            && s.Level is ProviderStatusLevel.Minor or ProviderStatusLevel.Major
+                or ProviderStatusLevel.Critical or ProviderStatusLevel.Maintenance)
+            .Select(s => s.Tool).ToHashSet();
+        var displayed = signedOutEmpty
+            ? recorded.Where(t => StatusTargetMatcher.Descriptor(t.ToolName) is { } descriptor
+                && incidentTools.Contains(descriptor.Kind)).ToList()
+            : recorded.ToList();
+        foreach (var tool in incidentTools)
+        {
+            if (displayed.Any(t => StatusTargetMatcher.Descriptor(t.ToolName)?.Kind == tool)) continue;
+            var key = (_registry?.AccountKeysFor(tool) ?? [ToolCatalog.For(tool).DisplayName]).FirstOrDefault(IsVisible);
+            if (key is not null)
+                displayed.Add(visible.FirstOrDefault(t => t.ToolName == key) ?? new CachedUsage { ToolName = key });
+        }
+        RefreshCards(displayed.OrderBy(t => OrderOf(t.ToolName))
+            .ThenBy(t => t.ToolName.Contains(ToolAccount.KeySeparator)).ToList());
+        foreach (var card in Cards)
+            card.ApplyServiceStatus(_serviceStatuses.FirstOrDefault(s => StatusTargetMatcher.Descriptor(card.ToolName)?.Kind == s.Tool));
+        OnPropertyChanged(nameof(CanShowDailyUsage));
+        ExpireRefreshIndicators();
+
+        IsEmpty = displayed.Count == 0;
         if (IsEmpty)
         {
             (EmptyMessage, IsSettingsCtaVisible) = _registry is not null && _registry.Enabled.Count > 0 && !_registry.Enabled.Any(_registry.IsActive)

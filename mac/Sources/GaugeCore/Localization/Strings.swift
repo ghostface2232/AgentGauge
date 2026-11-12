@@ -66,6 +66,8 @@ enum Strings {
         "Usage_AiCreditsUsed": ["AI 크레딧 {0} 사용", "{0} AI credits used", "AIクレジット {0} 使用"],
         "Usage_Source": ["{0}에서 조회", "Read from {0}", "{0} から取得"],
         "Usage_ResetBalance": ["초기화 {0}회 가능", "{0} available resets", "リセット可能回数 {0}"],
+        "Usage_ResetBalanceLastKnown": ["이전 초기화권 {0}개", "Last known: {0} resets", "前回確認時のリセット {0}回"],
+        "Plan_Unconfirmed": ["요금제 미확인", "Plan unconfirmed", "プラン未確認"],
         "DailyUsage_Help": ["기록된 날짜별로 주간 사용량을 나눠 표시", "Split weekly usage by recorded day", "記録がある日ごとに週間使用量を表示"],
         "DailyUsage_Day": ["{0} · 주간 한도의 약 {1}%", "{0} · about {1}% of weekly limit", "{0} · 週間上限の約{1}%"],
         "DailyUsage_Cost": ["하루 API 환산 약 ${0}", "Daily API equivalent ≈ ${0}", "1日のAPI換算 約${0}"],

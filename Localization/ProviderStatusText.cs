@@ -16,7 +16,15 @@ public static class ProviderStatusText
             _ => "ServiceStatus_Unknown",
         });
 
-    public static string Description(ProviderStatus status) => Loc.Format("ServiceStatus_Detail",
-        status.Summary.Length > 0 ? status.Summary : Loc.Get("ServiceStatus_Unknown"),
-        status.CheckedAt?.ToLocalTime().ToString("g", Loc.Culture) ?? "–");
+    public static string Description(ProviderStatus status)
+    {
+        var summary = status.Summary.Length > 0 ? status.Summary : Loc.Get("ServiceStatus_Unknown");
+        if (status.LastCheckFailed)
+        {
+            if (status.CheckedAt is null) return Label(status);
+            summary = $"{Label(status)}\n{Loc.Format("ServiceStatus_LastKnown", summary)}";
+        }
+        return Loc.Format("ServiceStatus_Detail", summary,
+            status.CheckedAt?.ToLocalTime().ToString("g", Loc.Culture) ?? "–");
+    }
 }

@@ -113,6 +113,25 @@ final class CoordinatorDeadlineTests: XCTestCase {
         XCTAssertEqual(provider.fetches, 2, "debounce starts when the queued read starts")
     }
 
+    func testPopoverOpenDuringATargetedReadRefreshesTheOtherAccount() async {
+        let clock = ManualClock()
+        let claude = HangingProvider(.claude)
+        defer { claude.release() }
+        let codex = CountingProvider(.codex)
+        let coordinator = UsageCoordinator(providers: [claude, codex], cache: nil, clock: clock)
+        await coordinator.setEnabledTools([.claude, .codex])
+        let targeted = Task {
+            await coordinator.refresh(.toolsChanged, account: UsageAccountKey(tool: .claude))
+        }
+        await waitUntil { claude.fetches == 1 }
+
+        await coordinator.refresh(.popoverOpened)
+        XCTAssertEqual(claude.fetches, 1)
+        XCTAssertEqual(codex.fetches, 1)
+        claude.release()
+        await targeted.value
+    }
+
     func testHungProviderHoldsBackNeitherOtherToolsNorTheScheduler() async {
         let clock = ManualClock()
         let hung = HangingProvider(.claude)
@@ -227,6 +246,94 @@ final class CoordinatorDeadlineTests: XCTestCase {
 }
 
 final class CoordinatorRehydrationTests: XCTestCase {
+    func testClaudePlanPersistsWithoutAValidUsageResponse() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = UsageCacheStore(directory: directory)
+        let transport = FakeTransport()
+        let clock = ManualClock()
+        let source = ClaudePlanSource(FakeCredentials(.available(ToolCredential(accessToken: "token"))),
+                                      transport: transport, clock: clock)
+        let provider = HTTPUsageProvider(tool: .claude, credentials: source, endpoint: ClaudeEndpoint(),
+                                         policy: .claude, transport: transport, clock: clock)
+        let coordinator = UsageCoordinator(providers: [provider], cache: cache, clock: clock)
+        await coordinator.setEnabledTools([.claude])
+        transport.enqueue(.status(200, #"{"account":{"uuid":"a"},"organization":{"uuid":"org","plan_display_name":"Pro"}}"#))
+        transport.enqueue(.status(200, #"{"five_hour":{"utilization":40}}"#))
+        await coordinator.refresh(.launch)
+        let first = try XCTUnwrap(cache.load().first)
+
+        clock.advance(86_400)
+        transport.enqueue(.status(200, #"{"account":{"uuid":"a"},"organization":{"uuid":"org","plan_display_name":"Ultra"}}"#))
+        transport.enqueue(.status(200, #"{"error":"unavailable"}"#))
+        await coordinator.refresh(.manual)
+        let updated = try XCTUnwrap(cache.load().first)
+        XCTAssertEqual(updated.plan, "Ultra")
+        XCTAssertEqual(updated.windows, first.windows)
+        XCTAssertEqual(updated.capturedAt, first.capturedAt)
+
+        let newSource = ClaudePlanSource(FakeCredentials(.available(ToolCredential(accessToken: "token"))),
+                                         transport: transport, clock: clock)
+        let newProvider = HTTPUsageProvider(tool: .claude, credentials: newSource, endpoint: ClaudeEndpoint(),
+                                            policy: .claude, transport: transport, clock: clock)
+        let restarted = UsageCoordinator(providers: [newProvider], cache: cache, clock: clock)
+        await restarted.setEnabledTools([.claude])
+        transport.enqueue(.status(200, #"{"account":{"uuid":"a"},"organization":{"uuid":"org","plan_display_name":"Max 5x"}}"#))
+        transport.enqueue(.status(429, "{}"))
+        await restarted.refresh(.launch)
+        let cold = try XCTUnwrap(cache.load().first)
+        XCTAssertEqual(cold.plan, "Max 5x")
+        XCTAssertEqual(cold.accountIdentity, UsageIdentity.hash(subject: "a\0org", token: ""))
+        XCTAssertEqual(cold.windows, first.windows)
+        XCTAssertEqual(cold.capturedAt, first.capturedAt)
+    }
+
+    func testFailedUsageAfterAccountSwitchRemovesPreviousSnapshot() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = UsageCacheStore(directory: directory)
+        let transport = FakeTransport()
+        var first = ToolCredential(accessToken: "token-a")
+        first.accountIdentity = "account-a"
+        let credentials = FakeCredentials(.available(first))
+        let provider = HTTPUsageProvider(tool: .claude, credentials: credentials, endpoint: ClaudeEndpoint(),
+                                         policy: .claude, transport: transport)
+        let coordinator = UsageCoordinator(providers: [provider], cache: cache)
+        let recorder = StatesRecorder()
+        await coordinator.setEnabledTools([.claude])
+        await coordinator.setListener { recorder.append($0) }
+        transport.enqueue(.status(200, #"{"five_hour":{"utilization":40}}"#))
+        await coordinator.refresh(.launch)
+        XCTAssertEqual(cache.load().first?.accountIdentity, "account-a")
+
+        var next = ToolCredential(accessToken: "token-b")
+        next.accountIdentity = "account-b"
+        credentials.set(.available(next))
+        transport.enqueue(.status(503, "{}"))
+        await coordinator.refresh(.manual)
+        XCTAssertNil(recorder.all.last?.first?.snapshot)
+        XCTAssertTrue(cache.load().isEmpty)
+    }
+
+    func testCopilotPlanOnlyResponseClearsPriorAuthenticationFailure() async {
+        let transport = FakeTransport()
+        let provider = HTTPUsageProvider(tool: .githubCopilot,
+                                         credentials: FakeCredentials(.available(ToolCredential(accessToken: "token"))),
+                                         endpoint: GitHubCopilotEndpoint(), policy: FetchPolicy(), transport: transport)
+        let coordinator = UsageCoordinator(providers: [provider], cache: nil)
+        let recorder = StatesRecorder()
+        await coordinator.setEnabledTools([.githubCopilot])
+        await coordinator.setListener { recorder.append($0) }
+        transport.enqueue(.status(401, "{}"))
+        await coordinator.refresh(.launch)
+        XCTAssertEqual(recorder.all.last?.first?.auth, .rejected)
+
+        transport.enqueue(.status(200, #"{"copilot_plan":"individual"}"#))
+        await coordinator.refresh(.manual)
+        XCTAssertEqual(recorder.all.last?.first?.auth, .signedIn)
+        XCTAssertEqual(recorder.all.last?.first?.snapshot?.windows.count, 0)
+    }
+
     func testNamedCopilotAccountsReplaceTheActiveFallback() async throws {
         let primary = CountingProvider(.githubCopilot)
         let secondary = CountingProvider(.githubCopilot)
@@ -381,6 +488,22 @@ final class CoordinatorDebounceTests: XCTestCase {
 }
 
 final class CoordinatorCadenceTests: XCTestCase {
+    func testForcedRefreshDebouncesOnlyTheRecentlyAttemptedAccount() async {
+        for reason in [RefreshReason.popoverOpened, .systemResumed] {
+            let clock = ManualClock()
+            let claude = CountingProvider(.claude)
+            let codex = CountingProvider(.codex)
+            let coordinator = UsageCoordinator(providers: [claude, codex], cache: nil, clock: clock)
+            await coordinator.setEnabledTools([.claude, .codex])
+
+            await coordinator.refresh(.toolsChanged, account: UsageAccountKey(tool: .claude))
+            await coordinator.refresh(reason)
+
+            XCTAssertEqual(claude.fetches, 1)
+            XCTAssertEqual(codex.fetches, 1)
+        }
+    }
+
     func testPopoverOpenRespectsAntigravityCostFloorButManualDoesNot() async {
         let clock = ManualClock()
         let antigravity = CountingProvider(.antigravity)
@@ -479,7 +602,7 @@ final class ProviderStatusTests: XCTestCase {
 
     func testFailedCheckKeepsLastObservationAsUnconfirmed() async {
         let transport = FakeTransport()
-        transport.enqueue(.status(200, #"{"status":{"indicator":"major","description":"Outage"}}"#))
+        transport.enqueue(.status(200, #"{"status":{"indicator":"none","description":"All Systems Operational"}}"#))
         let clock = ManualClock()
         let service = ProviderStatusService(transport: transport, clock: clock)
         await service.setTools([.claude])
@@ -489,8 +612,76 @@ final class ProviderStatusTests: XCTestCase {
         await service.setListener { recorder.value = $0 }
         await service.setTools([.claude])
         let status = recorder.value[.claude]
-        XCTAssertEqual(status?.level, .major)
+        XCTAssertEqual(status?.level, .operational)
         XCTAssertEqual(status?.lastCheckFailed, true)
+        XCTAssertTrue(status.map { $0.detail.hasPrefix($0.label) && $0.detail.contains($0.summary) } == true)
+    }
+
+    func testReappearingToolChecksAgainAfterItsFirstResultWasDiscarded() async {
+        let transport = SuspendedStatusTransport()
+        let service = ProviderStatusService(transport: transport, clock: ManualClock())
+        let recorder = StatusRecorder()
+        await service.setListener { recorder.value = $0 }
+        let first = Task { await service.setTools([.codex]) }
+        await transport.waitForFirstRequest()
+        await service.setTools([])
+        await transport.releaseFirstRequest()
+        await first.value
+        XCTAssertNil(recorder.value[.codex])
+
+        await service.setTools([.codex])
+        let count = await transport.requests
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(recorder.value[.codex]?.level, .major)
+    }
+
+    func testReappearingToolQueuesAStatusReadWhileItsFirstReadIsInFlight() async {
+        let transport = SuspendedStatusTransport()
+        let service = ProviderStatusService(transport: transport, clock: ManualClock())
+        let recorder = StatusRecorder()
+        await service.setListener { recorder.value = $0 }
+        let first = Task { await service.setTools([.codex]) }
+        await transport.waitForFirstRequest()
+        await service.setTools([])
+        await service.setTools([.codex])
+        await transport.releaseFirstRequest()
+        await first.value
+
+        let count = await transport.requests
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(recorder.value[.codex]?.level, .major)
+    }
+}
+
+private actor SuspendedStatusTransport: HTTPTransport {
+    private(set) var requests = 0
+    private var waitingForStart: CheckedContinuation<Void, Never>?
+    private var waitingToFinish: CheckedContinuation<Void, Never>?
+
+    func waitForFirstRequest() async {
+        if requests == 0 {
+            await withCheckedContinuation { waitingForStart = $0 }
+        }
+    }
+
+    func releaseFirstRequest() {
+        waitingToFinish?.resume()
+        waitingToFinish = nil
+    }
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        requests += 1
+        let first = requests == 1
+        if first {
+            await withCheckedContinuation { continuation in
+                waitingToFinish = continuation
+                waitingForStart?.resume()
+                waitingForStart = nil
+            }
+        }
+        let json = first ? #"{"status":{"indicator":"none"}}"# : #"{"status":{"indicator":"major"}}"#
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        return (Data(json.utf8), response)
     }
 }
 

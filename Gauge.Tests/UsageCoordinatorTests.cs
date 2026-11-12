@@ -179,6 +179,84 @@ public sealed class UsageCoordinatorTests
         Assert.Equal(2, provider.CallCount);
     }
 
+    [Theory]
+    [InlineData(RefreshReason.PopoverOpened)]
+    [InlineData(RefreshReason.SystemResumed)]
+    public async Task ForcedRefreshDebouncesOnlyTheRecentlyAttemptedAccount(RefreshReason reason)
+    {
+        var claude = new StubProvider("Claude");
+        var codex = new StubProvider("Codex");
+        var time = new MutableTime();
+        using var coordinator = new UsageCoordinator(new UsageService([claude, codex]), time: time);
+
+        await coordinator.RefreshAsync(RefreshReason.AuthenticationChanged, "Claude");
+        await coordinator.RefreshAsync(reason);
+
+        Assert.Equal(1, claude.CallCount);
+        Assert.Equal(1, codex.CallCount);
+    }
+
+    [Fact]
+    public async Task PopoverOpenDuringATargetedReadFetchesTheOtherAccountOnce()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cacheEmitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var claude = new StubProvider("Claude") { Block = unblock };
+        var codex = new StubProvider("Codex");
+        var time = new MutableTime();
+        using var coordinator = new UsageCoordinator(new UsageService([claude, codex]), time: time);
+        coordinator.RefreshStarted += (_, _) => started.TrySetResult();
+
+        var targeted = coordinator.RefreshAsync(RefreshReason.AuthenticationChanged, "Claude");
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        time.Advance(TimeSpan.FromSeconds(30));
+        coordinator.Updated += (_, _) => cacheEmitted.TrySetResult();
+        var open = coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        try
+        {
+            await cacheEmitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, codex.CallCount);
+        }
+        finally
+        {
+            unblock.TrySetResult();
+        }
+
+        await Task.WhenAll(targeted, open).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, claude.CallCount);
+        Assert.Equal(1, codex.CallCount);
+    }
+
+    [Fact]
+    public async Task PopoverDebounceUsesTheCompletionTimeOfEachRead()
+    {
+        var fast = new StubProvider("Codex");
+        var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var slow = new StubProvider("Claude") { Block = unblock };
+        var time = new MutableTime();
+        using var coordinator = new UsageCoordinator(new UsageService([fast, slow]), time: time);
+        var fastFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        coordinator.RefreshStarted += (_, _) => time.ObserveNextTimestamp(() => fastFinished.TrySetResult());
+
+        var cycle = coordinator.RefreshAsync(RefreshReason.Periodic);
+        try
+        {
+            // With the slow read held, the next clock read marks only the fast read's finish.
+            await fastFinished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            time.Advance(TimeSpan.FromSeconds(11));
+        }
+        finally
+        {
+            unblock.TrySetResult();
+            await cycle.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        await coordinator.RefreshAsync(RefreshReason.PopoverOpened);
+        Assert.Equal(2, fast.CallCount);
+        Assert.Equal(1, slow.CallCount);
+    }
+
     [Fact]
     public async Task RefreshStartedAndCompletedBracketTheFetch()
     {
@@ -781,12 +859,19 @@ public sealed class UsageCoordinatorTests
     private sealed class MutableTime : TimeProvider
     {
         private long _timestamp = TimeSpan.TicksPerHour;
+        private Action? _timestampObserver;
 
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
-        public override long GetTimestamp() => _timestamp;
+        public override long GetTimestamp()
+        {
+            var timestamp = Interlocked.Read(ref _timestamp);
+            Interlocked.Exchange(ref _timestampObserver, null)?.Invoke();
+            return timestamp;
+        }
 
-        public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
+        public void Advance(TimeSpan elapsed) => Interlocked.Add(ref _timestamp, elapsed.Ticks);
+        public void ObserveNextTimestamp(Action observer) => Interlocked.Exchange(ref _timestampObserver, observer);
     }
 
     /// <summary>Records which interaction the coordinator handed to each fetch.</summary>

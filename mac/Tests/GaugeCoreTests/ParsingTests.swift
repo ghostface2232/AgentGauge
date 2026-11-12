@@ -116,6 +116,11 @@ final class CodexParserTests: XCTestCase {
         XCTAssertEqual(deadlines.map(\.expiresAt), [Timestamp.parse("2027-03-09T07:59:00Z")!])
     }
 
+    func testMalformedCreditDetailsCannotReplaceKnownDeadlines() throws {
+        let malformed = Data(#"{"credits":[{"status":"available","expires_at":42}]}"#.utf8)
+        XCTAssertNil(try CodexUsageParser.resetCreditDeadlines(from: malformed))
+    }
+
     func testWeeklyOnlyPrimaryIsClassifiedByDuration() throws {
         let json = """
         { "plan_type": "plus",
@@ -330,5 +335,13 @@ final class PresentationTests: XCTestCase {
         XCTAssertEqual(ResetCreditDeadline.availableCount(balance: 3, deadlines: grants, now: now), 3)
         XCTAssertEqual(ResetCreditDeadline.availableCount(balance: 0, deadlines: grants, now: now), 0)
         XCTAssertEqual(ResetCreditDeadline.availableCount(balance: nil, deadlines: nil, now: now), 0)
+    }
+
+    func testAccountBalanceBecomesUnconfirmedWhenAnExpiryCrosses() {
+        let now = Date()
+        let deadlines = [ResetCreditDeadline(expiresAt: now - 60)]
+        XCTAssertTrue(ResetCreditDeadline.isBalanceUnconfirmed(balance: 1, deadlines: deadlines, capturedAt: now - 120, now: now))
+        XCTAssertFalse(ResetCreditDeadline.isBalanceUnconfirmed(balance: 1, deadlines: deadlines, capturedAt: now, now: now))
+        XCTAssertFalse(ResetCreditDeadline.isBalanceUnconfirmed(balance: nil, deadlines: deadlines, capturedAt: now - 120, now: now))
     }
 }

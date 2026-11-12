@@ -64,7 +64,7 @@ public struct AntigravityProvider: UsageProvider {
             for reader in readers {
                 if let reading = try await reader.reading(),
                    let windows = try? AntigravityQuotaParser.windows(from: reading.quotaJSON), !windows.isEmpty {
-                    return outcome(windows, plan: reading.plan)
+                    return outcome(windows, plan: reading.plan, planUnavailable: reading.planUnavailable)
                 }
             }
         }
@@ -88,8 +88,10 @@ public struct AntigravityProvider: UsageProvider {
         throw AntigravityUnavailableError(reason: "no engine returned usage")
     }
 
-    private func outcome(_ windows: [UsageWindow], plan: String?, cli: Bool = false) -> ProviderOutcome {
+    private func outcome(_ windows: [UsageWindow], plan: String?, planUnavailable: Bool = false,
+                         cli: Bool = false) -> ProviderOutcome {
         var snapshot = UsageSnapshot(tool: tool, plan: plan, windows: windows, capturedAt: now())
+        if planUnavailable { snapshot.planUnavailable = true }
         if cli {
             snapshot.historyIdentity = "antigravity-cli"
             snapshot.sourceLabel = "agy"

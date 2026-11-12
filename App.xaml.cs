@@ -435,7 +435,7 @@ public partial class App : Application
     private void UpdateTrayTooltip()
     {
         if (_viewModel is { } vm)
-            _trayIcon?.UpdateToolTip(vm.TrayTooltipSummary, vm.LastUpdatedAt ?? DateTimeOffset.Now, vm.TrayStatusSummary);
+            _trayIcon?.UpdateToolTip(vm.TrayTooltipSummary, vm.LastUpdatedAt, vm.TrayStatusSummary);
     }
 
     private async void OnToolVisibilityChanged(object? sender, ToolKind kind)

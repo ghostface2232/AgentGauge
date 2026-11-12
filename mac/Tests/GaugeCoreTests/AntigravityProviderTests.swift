@@ -252,6 +252,7 @@ final class AntigravityLoopbackClientTests: XCTestCase {
 
         XCTAssertEqual(reading?.quotaJSON, Data(quota.utf8))
         XCTAssertEqual(reading?.plan, "Pro")
+        XCTAssertEqual(reading?.planUnavailable, false)
         XCTAssertEqual(transport.calls, ["1/RetrieveUserQuotaSummary", "2/RetrieveUserQuotaSummary", "2/GetUserStatus"])
         XCTAssertEqual(transport.tokens, ["t"])
     }
@@ -264,6 +265,7 @@ final class AntigravityLoopbackClientTests: XCTestCase {
         let reading = try await AntigravityLoopbackClient(transport: transport).reading(ports: [1], csrfToken: "t")
         XCTAssertEqual(reading?.quotaJSON, Data(quota.utf8))
         XCTAssertNil(reading?.plan) // GetUserStatus failed: best effort, the read still succeeds
+        XCTAssertEqual(reading?.planUnavailable, true)
     }
 
     func testAnUnauthorizedPortIsNotRetriedUnderTheOlderName() async throws {

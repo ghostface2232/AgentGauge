@@ -28,6 +28,9 @@ public enum ClaudeUsageParser {
 
     static func payload(from data: Data, plan: String? = nil, now: Date = Date()) throws -> UsagePayload {
         let root = try JSONObject.parse(data)
+        guard ["five_hour", "seven_day", "limits"].contains(where: root.contains) else {
+            throw UsageFetchError.invalidResponse
+        }
         var windows: [UsageWindow] = []
         if let window = window(root, "five_hour", .fiveHour) { windows.append(window) }
         if let window = window(root, "seven_day", .weekly) { windows.append(window) }
@@ -186,14 +189,17 @@ public enum CodexUsageParser {
     }
 
     static func resetCreditDeadlines(from data: Data) throws -> [ResetCreditDeadline]? {
-        try JSONObject.parse(data).objects("credits").map { entries in
-            var seen = Set<Date>()
-            return entries.compactMap { entry in
-                guard entry.string("status") == "available", let expires = entry.date("expires_at"),
-                      seen.insert(expires).inserted else { return nil }
-                return ResetCreditDeadline(expiresAt: expires)
-            }
+        guard let entries = try JSONObject.parse(data).storage["credits"] as? [Any] else { return nil }
+        var seen = Set<Date>()
+        var deadlines: [ResetCreditDeadline] = []
+        for value in entries {
+            guard let entry = JSONObject(value), let status = entry.string("status"), !status.isEmpty else { return nil }
+            guard status == "available" else { continue }
+            guard let expiry = entry.storage["expires_at"], !(expiry is NSNull) else { continue }
+            guard let expires = entry.date("expires_at") else { return nil }
+            if seen.insert(expires).inserted { deadlines.append(ResetCreditDeadline(expiresAt: expires)) }
         }
+        return deadlines
     }
 
     /// `available_count` is the balance held; the sibling `applicable_available_count` is

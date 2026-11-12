@@ -57,6 +57,7 @@ extension Strings {
         "ServiceStatus_Maintenance": ["서비스 점검", "Service maintenance", "サービスメンテナンス"],
         "ServiceStatus_Unknown": ["서비스 상태 확인 불가", "Service status unavailable", "サービス状態を確認できません"],
         "ServiceStatus_Stale": ["서비스 상태 미확인", "Service status unconfirmed", "サービス状態は未確認"],
+        "ServiceStatus_LastKnown": ["마지막으로 확인된 상태 · {0}", "Last known status · {0}", "最後に確認した状態 · {0}"],
         "ServiceStatus_Detail": ["{0}\n서비스 전체 상태라 내 계정 문제와는 다를 수 있어요.\n{1} 확인", "{0}\nThis is the service-wide status and may differ from what you're seeing.\nChecked {1}", "{0}\nサービス全体の状況で、お使いのアカウントの状態とは異なる場合があります。\n{1} 確認"],
     ]
 }

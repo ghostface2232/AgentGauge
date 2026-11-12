@@ -70,7 +70,7 @@ internal sealed class AntigravityLoopbackClient : IDisposable
                 if (await QueryQuotaAsync(port, csrfToken, cancellationToken) is { } quota)
                 {
                     var plan = await TryGetPlanAsync(port, csrfToken, cancellationToken);
-                    return new AntigravityReading(quota, plan);
+                    return new AntigravityReading(quota, plan, PlanUnavailable: plan is null);
                 }
             }
             catch (Exception ex) when (IsPortFailure(ex, cancellationToken))

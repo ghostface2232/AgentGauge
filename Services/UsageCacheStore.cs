@@ -113,7 +113,10 @@ public sealed class UsageCacheStore : IUsageCachePersistence
     {
         ToolName = snapshot.ToolName,
         HistoryIdentity = snapshot.HistoryIdentity,
+        AccountIdentity = snapshot.AccountIdentity,
+        IsSignedOut = snapshot.IsSignedOut,
         Plan = snapshot.Plan,
+        PlanUnavailable = snapshot.PlanUnavailable,
         SourceLabel = snapshot.SourceLabel,
         ResetCredits = snapshot.ResetCredits,
         AiCreditsUsed = snapshot.AiCreditsUsed,
@@ -139,7 +142,10 @@ public sealed class UsageCacheStore : IUsageCachePersistence
         // A cache written before a tool rename still identifies the tool by its old name.
         ToolName = ToolCatalog.CurrentDisplayName(dto.ToolName),
         HistoryIdentity = dto.HistoryIdentity,
+        AccountIdentity = dto.AccountIdentity,
+        IsSignedOut = dto.IsSignedOut,
         Plan = dto.Plan,
+        PlanUnavailable = dto.PlanUnavailable,
         SourceLabel = dto.SourceLabel,
         ResetCredits = dto.ResetCredits,
         AiCreditsUsed = dto.AiCreditsUsed,
@@ -176,7 +182,10 @@ public sealed class UsageCacheStore : IUsageCachePersistence
     {
         public string ToolName { get; set; } = "";
         public string? HistoryIdentity { get; set; }
+        public string? AccountIdentity { get; set; }
+        public bool IsSignedOut { get; set; }
         public string? Plan { get; set; }
+        public bool PlanUnavailable { get; set; }
         public string? SourceLabel { get; set; }
 
         // Added after Version 4. Nullable and optional in both directions, so a cache

@@ -41,10 +41,15 @@ public struct ProviderStatus: Sendable, Equatable {
     }
 
     public var detail: String {
+        var text = summary.isEmpty ? L10n.get("ServiceStatus_Unknown") : summary
+        if lastCheckFailed {
+            guard checkedAt != nil else { return label }
+            text = label + "\n" + L10n.format("ServiceStatus_LastKnown", text)
+        }
         let checked = checkedAt.map {
             $0.formatted(Date.FormatStyle(date: .numeric, time: .shortened).locale(L10n.locale))
         } ?? "–"
-        return L10n.format("ServiceStatus_Detail", summary.isEmpty ? L10n.get("ServiceStatus_Unknown") : summary, checked)
+        return L10n.format("ServiceStatus_Detail", text, checked)
     }
 }
 
@@ -81,11 +86,12 @@ public actor ProviderStatusService {
     /// The shown tools. A tool that is hidden drops its status at once; one shown is polled
     /// on the next pass.
     public func setTools(_ tools: [ToolKind]) async {
-        self.tools = tools.filter { $0.statusPageURL != nil }
-        for tool in statuses.keys where !self.tools.contains(tool) {
+        let supported = tools.filter { $0.statusPageURL != nil }
+        for tool in self.tools where !supported.contains(tool) {
             statuses[tool] = nil
             attempts[tool] = nil
         }
+        self.tools = supported
         listener?(statuses)
         await poll()
     }
@@ -104,24 +110,27 @@ public actor ProviderStatusService {
         guard !polling else { return }
         polling = true
         defer { polling = false }
-        let now = clock.now()
-        let due = tools.filter { tool in attempts[tool].map { now - $0 >= Self.pollInterval } ?? true }
-        guard !due.isEmpty else { return }
-        for tool in due { attempts[tool] = now }
+        repeat {
+            let now = clock.now()
+            let due = tools.filter { tool in attempts[tool].map { now - $0 >= Self.pollInterval } ?? true }
+            guard !due.isEmpty else { return }
+            for tool in due { attempts[tool] = now }
 
-        let previous = statuses
-        let results = await withTaskGroup(of: ProviderStatus.self) { group in
-            for tool in due {
-                group.addTask { await self.fetch(tool, previous: previous[tool]) }
+            let previous = statuses
+            let results = await withTaskGroup(of: ProviderStatus.self) { group in
+                for tool in due {
+                    group.addTask { await self.fetch(tool, previous: previous[tool]) }
+                }
+                var collected: [ProviderStatus] = []
+                for await status in group { collected.append(status) }
+                return collected
             }
-            var collected: [ProviderStatus] = []
-            for await status in group { collected.append(status) }
-            return collected
-        }
-        for status in results where tools.contains(status.tool) {
-            statuses[status.tool] = status
-        }
-        listener?(statuses)
+            for status in results where attempts[status.tool] == now {
+                statuses[status.tool] = status
+            }
+            listener?(statuses)
+            // A hide invalidates the request in flight. Recheck newly shown tools now.
+        } while tools.contains(where: { attempts[$0] == nil })
     }
 
     private func fetch(_ tool: ToolKind, previous: ProviderStatus?) async -> ProviderStatus {

@@ -110,6 +110,23 @@ public sealed class ToolCardViewModelTests
     }
 
     [Fact]
+    public void ReordersExistingRowsWhenProviderGroupsChangeOrder()
+    {
+        var gemini = Window("gemini-5h", "Gemini", UsageWindowType.FiveHour);
+        var claude = Window("3p-weekly", "Claude/GPT", UsageWindowType.Weekly);
+        var card = new ToolCardViewModel(Cached("Antigravity", gemini, claude));
+        var geminiRow = card.Windows[0];
+        var claudeRow = card.Windows[1];
+
+        card.Update(Cached("Antigravity", claude, gemini));
+
+        Assert.Same(claudeRow, card.Windows[0]);
+        Assert.Same(geminiRow, card.Windows[1]);
+        Assert.False(card.Windows[0].ShowGroupDivider);
+        Assert.True(card.Windows[1].ShowGroupDivider);
+    }
+
+    [Fact]
     public void GaugeRowsCarryFamilyLabelOnEveryWindow()
     {
         // Unlike the bar layout's first-row-only GroupHeader, each gauge is self-labeled
@@ -237,6 +254,39 @@ public sealed class ToolCardViewModelTests
         card.ApplyApiCost(cost);
         card.ApplyServiceStatus(incident with { Level = ProviderStatusLevel.Operational });
         Assert.True(card.ShowHeaderChipLabels);
+    }
+
+    [Fact]
+    public void LabelsAccountBalanceAsLastKnownAfterExpiryCrosses()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var cached = Cached("Codex", [new(now.AddHours(-1))], Window(null, null, UsageWindowType.FiveHour));
+        var accountBalance = cached.Snapshot! with { ResetCredits = 1 };
+        var card = new ToolCardViewModel(cached with
+        {
+            Snapshot = accountBalance with { CapturedAt = now.AddHours(-2) },
+        });
+
+        Assert.False(card.HasResetCreditWarning);
+        Assert.Equal("이전 초기화권 1개", card.ResetBalanceText);
+        Assert.Equal(card.ResetBalanceText, card.ResetBalanceDescription);
+
+        card.Update(cached with { Snapshot = accountBalance });
+
+        Assert.Equal("초기화권 1개", card.ResetBalanceText);
+    }
+
+    [Fact]
+    public void ReplacesAnUnverifiablePlanWithAnExplicitStatus()
+    {
+        var cached = Cached("Antigravity", Window("gemini-5h", "Gemini", UsageWindowType.FiveHour));
+        var card = new ToolCardViewModel(cached with { Snapshot = cached.Snapshot! with { Plan = "Pro" } });
+        Assert.Equal("Pro", card.Plan);
+
+        card.Update(cached with { Snapshot = cached.Snapshot! with { PlanUnavailable = true } });
+
+        Assert.Equal("요금제 미확인", card.Plan);
+        Assert.Single(card.Windows);
     }
 
     [Fact]

@@ -5,7 +5,7 @@ namespace Gauge.Providers.Internal;
 /// label. The two come from separate Connect calls (RetrieveUserQuotaSummary and GetUserStatus),
 /// and the plan is optional — a missing plan never invalidates the quota.
 /// </summary>
-internal sealed record AntigravityReading(string QuotaJson, string? Plan);
+internal sealed record AntigravityReading(string QuotaJson, string? Plan, bool PlanUnavailable = false);
 
 /// <summary>
 /// A way to read usage from an Antigravity engine. There are two: attaching to a running IDE's

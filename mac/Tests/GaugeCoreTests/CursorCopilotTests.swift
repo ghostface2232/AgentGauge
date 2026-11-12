@@ -141,8 +141,10 @@ final class CursorCredentialTests: XCTestCase {
 
     func testUserIDIsTheLastSegmentOfSub() {
         let token = makeJWT(["sub": "auth0|user_abc", "exp": 1_800_000_000])
-        XCTAssertEqual(CredentialParsing.cursor(accessToken: token, now: now), .available(ToolCredential(
-            accessToken: token, accountID: "user_abc", expiresAt: Date(timeIntervalSince1970: 1_800_000_000))))
+        var expected = ToolCredential(accessToken: token, accountID: "user_abc",
+                                      expiresAt: Date(timeIntervalSince1970: 1_800_000_000))
+        expected.accountIdentity = UsageIdentity.hash(subject: "user_abc", token: token)
+        XCTAssertEqual(CredentialParsing.cursor(accessToken: token, now: now), .available(expected))
     }
 
     func testExpiredTokenIsRefreshableExpiry() {

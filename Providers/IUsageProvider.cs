@@ -2,6 +2,14 @@ using Gauge.Models;
 
 namespace Gauge.Providers;
 
+// Per-read metadata can be available even when the usage endpoint fails.
+internal sealed record UsageReadMetadata(string? AccountIdentity, string? VerifiedPlan);
+
+internal sealed class UsageReadContext
+{
+    public volatile UsageReadMetadata? Metadata;
+}
+
 /// <summary>
 /// Who asked for a fetch. Mirrors CodexBar's ProviderInteraction: a rate-limit cooldown
 /// may hold back <see cref="Background"/> fetches (the scheduler's cycles and the
@@ -43,4 +51,8 @@ public interface IUsageProvider
     /// </summary>
     Task<UsageSnapshot> GetSnapshotAsync(FetchInteraction interaction, CancellationToken cancellationToken)
         => GetSnapshotAsync(cancellationToken);
+
+    internal Task<UsageSnapshot> ReadAsync(
+        FetchInteraction interaction, UsageReadContext context, CancellationToken cancellationToken)
+        => GetSnapshotAsync(interaction, cancellationToken);
 }

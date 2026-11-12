@@ -19,4 +19,11 @@ internal sealed class AccountUsageProvider(
         var snapshot = await provider.GetSnapshotAsync(interaction, cancellationToken);
         return snapshot with { ToolName = ToolName };
     }
+
+    async Task<UsageSnapshot> IUsageProvider.ReadAsync(
+        FetchInteraction interaction, UsageReadContext context, CancellationToken cancellationToken)
+    {
+        var snapshot = await provider.ReadAsync(interaction, context, cancellationToken);
+        return snapshot with { ToolName = ToolName };
+    }
 }

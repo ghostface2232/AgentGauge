@@ -19,6 +19,8 @@ public sealed record ProviderSnapshotResult
     public Exception? Error { get; init; }
 
     internal bool Skipped { get; init; }
+    internal UsageReadMetadata? Metadata { get; init; }
+    internal long CompletedTimestamp { get; init; }
 
     public bool Succeeded => Error is null && Snapshot is not null;
 }
@@ -92,13 +94,23 @@ public sealed class UsageService
     /// The interaction tells throttled providers whether a rate-limit cooldown may hold
     /// this fetch back (background) or must be bypassed (user-initiated).
     /// </summary>
-    public async Task<IReadOnlyList<ProviderSnapshotResult>> GetSnapshotsAsync(
+    public Task<IReadOnlyList<ProviderSnapshotResult>> GetSnapshotsAsync(
         IEnumerable<IUsageProvider> providers,
         CancellationToken cancellationToken,
         FetchInteraction interaction = FetchInteraction.Background)
+        => GetSnapshotsAsync(providers, cancellationToken, interaction, TimeProvider.System);
+
+    internal async Task<IReadOnlyList<ProviderSnapshotResult>> GetSnapshotsAsync(
+        IEnumerable<IUsageProvider> providers, CancellationToken cancellationToken,
+        FetchInteraction interaction, TimeProvider time)
     {
-        var tasks = providers.Select(provider => GetIsolatedAsync(provider, interaction, cancellationToken));
-        return await Task.WhenAll(tasks);
+        return await Task.WhenAll(providers.Select(ReadAndStampAsync));
+
+        async Task<ProviderSnapshotResult> ReadAndStampAsync(IUsageProvider provider)
+        {
+            var result = await GetIsolatedAsync(provider, interaction, cancellationToken);
+            return result with { CompletedTimestamp = time.GetTimestamp() };
+        }
     }
 
     private async Task<ProviderSnapshotResult> GetIsolatedAsync(
@@ -116,13 +128,14 @@ public sealed class UsageService
         }
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var context = new UsageReadContext();
         Task<UsageSnapshot>? read = null;
         try
         {
             // Task.Run so a provider blocking before its first await (a WMI query, a process
             // start) can't hold up the others, and so the wait below can still give up on it.
             var readToken = deadline.Token;
-            read = Task.Run(() => provider.GetSnapshotAsync(interaction, readToken), readToken);
+            read = Task.Run(() => provider.ReadAsync(interaction, context, readToken), readToken);
             // A provider stuck in a blocking call ignores its token, so the wait has to be able
             // to walk away. Anything it later throws must not surface as an unobserved exception.
             _ = read.ContinueWith(
@@ -158,7 +171,10 @@ public sealed class UsageService
                 var toolName = provider is AccountUsageProvider ? ToolCatalog.For(provider.Tool).DisplayName : provider.ToolName;
                 DiagnosticsLog.Write("provider", $"{toolName} refresh failed: {ex.GetType().Name}: {ex.Message}");
             }
-            return new ProviderSnapshotResult { Tool = provider.Tool, ToolName = provider.ToolName, Error = ex };
+            return new ProviderSnapshotResult
+            {
+                Tool = provider.Tool, ToolName = provider.ToolName, Error = ex, Metadata = context.Metadata,
+            };
         }
     }
 

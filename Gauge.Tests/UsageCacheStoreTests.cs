@@ -18,6 +18,7 @@ public sealed class UsageCacheStoreTests : IDisposable
         var snapshot = new UsageSnapshot
         {
             ToolName = "Claude",
+            AccountIdentity = "account-hash",
             Plan = "Max 20x",
             CapturedAt = captured,
             Windows = new[]
@@ -38,6 +39,7 @@ public sealed class UsageCacheStoreTests : IDisposable
         var loaded = Assert.Single(new UsageCacheStore(_dir).Load());
 
         Assert.Equal("Claude", loaded.ToolName);
+        Assert.Equal("account-hash", loaded.AccountIdentity);
         Assert.Equal("Max 20x", loaded.Plan);
         Assert.Equal(captured, loaded.CapturedAt);
         Assert.Equal(2, loaded.Windows.Count);

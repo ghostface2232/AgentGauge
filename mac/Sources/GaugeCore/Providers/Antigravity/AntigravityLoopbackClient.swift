@@ -18,6 +18,7 @@ protocol AntigravityConnectTransport: Sendable {
 struct AntigravityReading: Sendable, Equatable {
     let quotaJSON: Data
     let plan: String?
+    var planUnavailable = false
 }
 
 /// Talks to a running language server over its loopback Connect API (JSON over HTTP: a POST
@@ -49,7 +50,8 @@ struct AntigravityLoopbackClient: Sendable {
         for port in ports {
             do {
                 if let quota = try await quota(port: port, csrfToken: csrfToken) {
-                    return AntigravityReading(quotaJSON: quota, plan: try await plan(port: port, csrfToken: csrfToken))
+                    let currentPlan = try await plan(port: port, csrfToken: csrfToken)
+                    return AntigravityReading(quotaJSON: quota, plan: currentPlan, planUnavailable: currentPlan == nil)
                 }
             } catch let error where !Self.isCancellation(error) {
                 // The plaintext port (failed handshake) or a port that closed: try the next one.

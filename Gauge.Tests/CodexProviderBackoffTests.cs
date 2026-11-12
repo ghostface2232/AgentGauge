@@ -57,6 +57,43 @@ public sealed class CodexProviderBackoffTests
     }
 
     [Fact]
+    public async Task CreditDetailFailureKeepsKnownDeadlinesOnlyForAnUnchangedBalance()
+    {
+        var handler = new SequenceHandler(UsageWithCredits(1), CreditDeadlines(),
+            UsageWithCredits(1), TooMany(retryAfterSeconds: 3600),
+            UsageWithCredits(1), UsageWithCredits(2), UsageWithCredits(1));
+        var (provider, time) = Provider(handler);
+        var first = await provider.GetSnapshotAsync(default);
+        var deadline = Assert.Single(first.ResetCreditDeadlines!);
+
+        time.Advance(TimeSpan.FromMinutes(10));
+        var throttled = await provider.GetSnapshotAsync(default);
+        Assert.True(throttled.CapturedAt > first.CapturedAt);
+        Assert.Equal(deadline, Assert.Single(throttled.ResetCreditDeadlines!));
+
+        time.Advance(TimeSpan.FromMinutes(11));
+        Assert.Equal(deadline, Assert.Single((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines!));
+        Assert.Null((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines);
+        Assert.Null((await provider.GetSnapshotAsync(default)).ResetCreditDeadlines);
+        Assert.Equal(7, handler.Calls);
+    }
+
+    [Fact]
+    public async Task MalformedCreditDetailsDoNotEraseKnownDeadlines()
+    {
+        var malformed = new Response("""{"credits":[{"status":"available","expires_at":42}]}""", HttpStatusCode.OK);
+        var handler = new SequenceHandler(UsageWithCredits(1), CreditDeadlines(), UsageWithCredits(1), malformed);
+        var (provider, time) = Provider(handler);
+        var before = await provider.GetSnapshotAsync(default);
+
+        time.Advance(TimeSpan.FromMinutes(10));
+        var after = await provider.GetSnapshotAsync(default);
+
+        Assert.True(after.CapturedAt > before.CapturedAt);
+        Assert.Equal(Assert.Single(before.ResetCreditDeadlines!), Assert.Single(after.ResetCreditDeadlines!));
+    }
+
+    [Fact]
     public async Task CreditRetryAfterSurvivesBalanceChangesWithoutBlockingUsage()
     {
         var handler = new SequenceHandler(UsageWithCredits(1), TooMany(retryAfterSeconds: 3600),

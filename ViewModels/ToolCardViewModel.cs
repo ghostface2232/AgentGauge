@@ -288,13 +288,16 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
         // Plan comes from the snapshot (retained across failed refreshes), so it stays
         // visible even when the current window data is unavailable.
-        var plan = cached.Snapshot?.Plan;
+        var plan = cached.Snapshot?.Plan
+            ?? (cached.Snapshot?.PlanUnavailable == true ? Loc.Get("Plan_Unconfirmed") : null);
         Plan = plan ?? string.Empty;
         HasPlan = !string.IsNullOrEmpty(plan);
 
         var now = DateTimeOffset.UtcNow;
         var deadline = ResetCreditDeadline.Upcoming(cached.Snapshot?.ResetCreditDeadlines, now);
         var held = ResetCreditDeadline.AvailableCount(cached.Snapshot?.ResetCredits, cached.Snapshot?.ResetCreditDeadlines, now);
+        var balanceUnconfirmed = cached.Snapshot is { } snapshot
+            && ResetCreditDeadline.IsBalanceUnconfirmed(snapshot.ResetCredits, snapshot.ResetCreditDeadlines, snapshot.CapturedAt, now);
         var breakdown = cached.Snapshot?.ResetCreditDeadlines?
             .Where(d => d.ExpiresAt > now && d.Count is > 0)
             .GroupBy(d => d.Scope)
@@ -303,8 +306,9 @@ public sealed partial class ToolCardViewModel : ObservableObject
                 var label = Loc.Format("Usage_ResetBalance", group.Sum(d => (long)d.Count!.Value));
                 return group.Key is { } scope ? $"{scope} · {label}" : label;
             }).ToList() ?? [];
-        var balanceDescription = breakdown.Count > 0 ? string.Join("\n", breakdown) : Loc.Format("Usage_ResetBalance", held);
-        ResetBalanceText = held > 0 ? Loc.Format("ResetCredits", held) : string.Empty;
+        var balanceDescription = balanceUnconfirmed ? Loc.Format("Usage_ResetBalanceLastKnown", held)
+            : breakdown.Count > 0 ? string.Join("\n", breakdown) : Loc.Format("Usage_ResetBalance", held);
+        ResetBalanceText = held > 0 ? Loc.Format(balanceUnconfirmed ? "Usage_ResetBalanceLastKnown" : "ResetCredits", held) : string.Empty;
         ResetBalanceDescription = held > 0 ? balanceDescription : string.Empty;
 
         var supplemental = new List<string>();
@@ -362,6 +366,10 @@ public sealed partial class ToolCardViewModel : ObservableObject
             }
             else
             {
+                var currentIndex = Windows.IndexOf(existing);
+                var targetIndex = Math.Min(index, Windows.Count - 1);
+                if (currentIndex != targetIndex)
+                    Windows.Move(currentIndex, targetIndex);
                 existing.WeekdayProfile = profile;
                 existing.Update(window);
             }

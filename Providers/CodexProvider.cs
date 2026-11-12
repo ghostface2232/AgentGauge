@@ -39,9 +39,7 @@ public sealed class CodexProvider : UsageProviderBase
     private static readonly TimeSpan ResetCreditTimeout = TimeSpan.FromSeconds(4);
     private readonly RateLimitGate _creditGate;
     private string? _creditIdentity;
-    private int? _creditBalance;
-    private long _lastCreditRead;
-    private IReadOnlyList<ResetCreditDeadline>? _creditDeadlines;
+    private (int Balance, long CheckedAt, IReadOnlyList<ResetCreditDeadline>? Deadlines)? _creditCache;
 
     private static readonly UsageFetchPolicy Policy = new()
     {
@@ -218,25 +216,25 @@ public sealed class CodexProvider : UsageProviderBase
         if (_creditIdentity != identity)
         {
             _creditIdentity = identity;
-            _creditBalance = null;
+            _creditCache = null;
             _creditGate.Reset();
         }
 
         if (credits is not > 0)
         {
-            _creditBalance = null;
-            _creditDeadlines = null;
+            _creditCache = null;
             return null;
         }
 
-        if (_creditBalance == credits && Time.GetElapsedTime(_lastCreditRead) < ResetCreditRefreshInterval)
-            return _creditDeadlines;
-        if (_creditGate.InCooldown(Time.GetTimestamp())) return null;
+        if (_creditCache?.Balance != credits) _creditCache = null;
+        var now = Time.GetTimestamp();
+        var lastKnownDeadlines = _creditCache?.Deadlines;
+        if (_creditCache is { } cached && Time.GetElapsedTime(cached.CheckedAt, now) < ResetCreditRefreshInterval)
+            return cached.Deadlines;
+        if (_creditGate.InCooldown(now)) return lastKnownDeadlines;
 
         // The supplemental endpoint is optional and runs at a lower cadence than quota polling.
-        _creditBalance = credits;
-        _lastCreditRead = Time.GetTimestamp();
-        _creditDeadlines = null;
+        _creditCache = (credits.Value, now, lastKnownDeadlines);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(ResetCreditTimeout);
         try
@@ -248,28 +246,33 @@ public sealed class CodexProvider : UsageProviderBase
                 if (RateLimitGate.IsRetryable(response.StatusCode))
                     _creditGate.RecordFailure(RetryAfterOf(response));
                 DiagnosticsLog.Write("provider", $"Codex reset deadlines unavailable: HTTP {(int)response.StatusCode}");
-                return null;
+                return lastKnownDeadlines;
             }
 
-            _creditGate.RecordSuccess();
             await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token);
-            if (!document.RootElement.TryGetArray("credits", out var entries)) return null;
+            if (!document.RootElement.TryGetArray("credits", out var entries)) return lastKnownDeadlines;
 
             var deadlines = new HashSet<ResetCreditDeadline>();
             foreach (var entry in entries.EnumerateArray())
-                if (entry.GetStringOrNull("status") == "available"
-                    && entry.GetDateTimeOffsetOrNull("expires_at") is { } expires)
-                    deadlines.Add(new(expires));
+            {
+                if (entry.GetStringOrNull("status") is not { Length: > 0 } status) return lastKnownDeadlines;
+                if (status != "available") continue;
+                if (!entry.TryGetProperty("expires_at", out var expiry) || expiry.ValueKind == JsonValueKind.Null) continue;
+                if (entry.GetDateTimeOffsetOrNull("expires_at") is not { } expires) return lastKnownDeadlines;
+                deadlines.Add(new(expires));
+            }
 
-            _creditDeadlines = deadlines.ToArray();
-            return _creditDeadlines;
+            _creditGate.RecordSuccess();
+            var currentDeadlines = deadlines.ToArray();
+            _creditCache = (credits.Value, now, currentDeadlines);
+            return currentDeadlines;
         }
-        catch (Exception ex) when (ex is HttpRequestException or JsonException
+        catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException
             || ex is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
             DiagnosticsLog.Write("provider", $"Codex reset deadlines unavailable: {ex.GetType().Name}");
-            return null;
+            return lastKnownDeadlines;
         }
     }
 

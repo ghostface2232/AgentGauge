@@ -17,6 +17,39 @@ public protocol UsageProvider: Sendable {
     func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome
 }
 
+struct UsageReadMetadata: Sendable {
+    let accountIdentity: String?
+    let verifiedPlan: String?
+}
+
+/// A deadline can end the coordinator's wait while the provider is still running.
+final class UsageReadContext: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UsageReadMetadata?
+
+    var metadata: UsageReadMetadata? { lock.withLock { value } }
+
+    func observe(_ credential: ToolCredential?) {
+        guard let credential else { return }
+        lock.withLock {
+            value = UsageReadMetadata(accountIdentity: credential.accountIdentity, verifiedPlan: credential.verifiedPlan)
+        }
+    }
+}
+
+protocol CredentialAwareUsageProvider: UsageProvider {
+    func fetch(_ interaction: FetchInteraction, context: UsageReadContext?) async throws -> ProviderOutcome
+}
+
+extension UsageProvider {
+    func read(_ interaction: FetchInteraction, context: UsageReadContext) async throws -> ProviderOutcome {
+        if let provider = self as? any CredentialAwareUsageProvider {
+            return try await provider.fetch(interaction, context: context)
+        }
+        return try await fetch(interaction)
+    }
+}
+
 struct UsageRefreshSkipped: Error {}
 
 /// The per-tool part of an HTTP usage provider: its request and parsing.
@@ -152,12 +185,14 @@ public actor CodexEndpoint: UsageEndpoint {
             return nil
         }
 
+        if creditCache?.balance != balance { creditCache = nil }
         let checkedAt = clock.now()
-        if let cached = creditCache, cached.balance == balance,
+        let lastKnownDeadlines = creditCache?.deadlines
+        if let cached = creditCache,
            checkedAt - cached.checkedAt < Self.resetCreditRefreshInterval { return cached.deadlines }
-        guard !creditGate.inCooldown(now: checkedAt) else { return nil }
+        guard !creditGate.inCooldown(now: checkedAt) else { return lastKnownDeadlines }
 
-        creditCache = (balance, checkedAt, nil)
+        creditCache = (balance, checkedAt, lastKnownDeadlines)
         var request = Self.request(Self.resetCreditsURL, credential)
         request.timeoutInterval = 4
         do {
@@ -167,16 +202,16 @@ public actor CodexEndpoint: UsageEndpoint {
                     creditGate.recordFailure(retryAfter: HTTPStatus.retryAfter(response, now: now), now: clock.now())
                 }
                 Log.write("provider", "Codex reset deadlines unavailable: HTTP \(response.statusCode)")
-                return nil
+                return lastKnownDeadlines
             }
+            guard let deadlines = try CodexUsageParser.resetCreditDeadlines(from: data) else { return lastKnownDeadlines }
             creditGate.recordSuccess()
-            let deadlines = try CodexUsageParser.resetCreditDeadlines(from: data)
             creditCache = (balance, checkedAt, deadlines)
             return deadlines
         } catch {
             try Task.checkCancellation()
             Log.write("provider", "Codex reset deadlines unavailable: \(type(of: error))")
-            return nil
+            return lastKnownDeadlines
         }
     }
 
@@ -194,7 +229,7 @@ public actor CodexEndpoint: UsageEndpoint {
 ///
 /// The coordinator never runs two fetches of one tool at once, so actor reentrancy across
 /// the awaits below cannot interleave two attempts.
-public actor HTTPUsageProvider: UsageProvider {
+public actor HTTPUsageProvider: CredentialAwareUsageProvider {
     public nonisolated let tool: ToolKind
     private let credentials: any CredentialSource
     private let endpoint: any UsageEndpoint
@@ -236,6 +271,10 @@ public actor HTTPUsageProvider: UsageProvider {
     }
 
     public func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome {
+        try await fetch(interaction, context: nil)
+    }
+
+    func fetch(_ interaction: FetchInteraction, context: UsageReadContext?) async throws -> ProviderOutcome {
         let interactive = interaction == .user
         var read = await credentials.read(interactive: interactive)
 
@@ -248,6 +287,7 @@ public actor HTTPUsageProvider: UsageProvider {
 
         var credential: ToolCredential?
         if case .available(let available) = read { credential = available }
+        context?.observe(credential)
         // A read that saw nothing is not an account switch: treating it as one would drop the
         // happy-path cap and a standing cooldown, and the next good read would hit a throttling
         // endpoint at once. A real switch still shows when the credential can next be read.
@@ -287,6 +327,7 @@ public actor HTTPUsageProvider: UsageProvider {
             if let refresher, await refresher.tryRefresh(),
                case .available(let fresh) = await credentials.read(interactive: false),
                !fresh.accessToken.isEmpty {
+                context?.observe(fresh)
                 // Adopt the rotated token's fingerprint first, or the next call would read
                 // the rotation as an account switch and discard what this retry records.
                 if cachesSnapshots { trackFingerprint(fresh) }
@@ -310,6 +351,7 @@ public actor HTTPUsageProvider: UsageProvider {
                 resetCredits: payload.resetCredits, resetCreditDeadlines: payload.resetCreditDeadlines,
                 capturedAt: wallClock())
             snapshot.historyIdentity = payload.historyIdentity ?? credential.historyIdentity
+            snapshot.accountIdentity = credential.accountIdentity
             snapshot.aiCreditsUsed = payload.aiCreditsUsed
             snapshot.legacyCopilotTokenIdentity = payload.legacyCopilotTokenIdentity
             gate?.recordSuccess()
@@ -347,7 +389,9 @@ public actor HTTPUsageProvider: UsageProvider {
             SHA256.hash(data: Data(credential.accessToken.utf8)).map { String(format: "%02x", $0) }.joined()
         }
         if (fingerprintInitialized && next != fingerprint)
-            || (lastSnapshot != nil && credential?.historyIdentity != nil && lastSnapshot?.historyIdentity != credential?.historyIdentity) {
+            || (lastSnapshot != nil && credential?.historyIdentity != nil && lastSnapshot?.historyIdentity != credential?.historyIdentity)
+            || (lastSnapshot?.accountIdentity != nil && credential?.accountIdentity != nil
+                && lastSnapshot?.accountIdentity != credential?.accountIdentity) {
             lastSnapshot = nil
             lastSuccessAt = nil
             gate?.recordSuccess()
@@ -361,7 +405,7 @@ public actor HTTPUsageProvider: UsageProvider {
     }
 }
 
-public struct AccountUsageProvider: UsageProvider {
+public struct AccountUsageProvider: CredentialAwareUsageProvider {
     public let account: ToolAccount
     private let provider: any UsageProvider
 
@@ -374,6 +418,11 @@ public struct AccountUsageProvider: UsageProvider {
 
     public func fetch(_ interaction: FetchInteraction) async throws -> ProviderOutcome {
         try await provider.fetch(interaction)
+    }
+
+    func fetch(_ interaction: FetchInteraction, context: UsageReadContext?) async throws -> ProviderOutcome {
+        guard let context else { return try await fetch(interaction) }
+        return try await provider.read(interaction, context: context)
     }
 }
 
