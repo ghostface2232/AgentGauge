@@ -102,7 +102,15 @@ public abstract class UsageProviderBase : IUsageProvider
     public Task<UsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
         => GetSnapshotAsync(FetchInteraction.Background, cancellationToken);
 
-    public async Task<UsageSnapshot> GetSnapshotAsync(FetchInteraction interaction, CancellationToken cancellationToken)
+    public Task<UsageSnapshot> GetSnapshotAsync(FetchInteraction interaction, CancellationToken cancellationToken)
+        => ReadAsync(interaction, null, cancellationToken);
+
+    Task<UsageSnapshot> IUsageProvider.ReadAsync(
+        FetchInteraction interaction, UsageReadContext context, CancellationToken cancellationToken)
+        => ReadAsync(interaction, context, cancellationToken);
+
+    private async Task<UsageSnapshot> ReadAsync(
+        FetchInteraction interaction, UsageReadContext? context, CancellationToken cancellationToken)
     {
         var credentialResult = await _credentials.ReadAsync(Tool, cancellationToken);
 
@@ -124,6 +132,7 @@ public abstract class UsageProviderBase : IUsageProvider
         }
 
         var credential = credentialResult.Credential;
+        ObserveCredential(context, credential);
         var nowTimestamp = Time.GetTimestamp();
 
         // An Invalid read carries no token, so it says nothing about whose account this is: an
@@ -185,6 +194,7 @@ public abstract class UsageProviderBase : IUsageProvider
                 if (refreshed.Status == CredentialReadStatus.Available
                     && refreshed.Credential is { } freshCredential && HasUsableCredential(freshCredential))
                 {
+                    ObserveCredential(context, freshCredential);
                     // Adopt the rotated token's fingerprint before the retry, or the NEXT
                     // call would read the rotation as an account switch and throw away the
                     // snapshot this retry is about to record (and its happy-path cache).
@@ -206,6 +216,12 @@ public abstract class UsageProviderBase : IUsageProvider
         }
     }
 
+    private static void ObserveCredential(UsageReadContext? context, ToolCredential? credential)
+    {
+        if (context is not null && credential is not null)
+            context.Metadata = new(credential.AccountIdentity, credential.VerifiedPlan);
+    }
+
     /// <summary>
     /// One fetch attempt with the policy's degradation applied: a retryable status arms
     /// the cooldown and serves the cache, any other failure serves the cache when the
@@ -220,7 +236,12 @@ public abstract class UsageProviderBase : IUsageProvider
         try
         {
             var snapshot = await FetchSnapshotAsync(credential, interaction, cancellationToken);
-            return RecordSuccess(snapshot with { HistoryIdentity = snapshot.HistoryIdentity ?? credential.HistoryIdentity });
+            return RecordSuccess(snapshot with
+            {
+                HistoryIdentity = snapshot.HistoryIdentity ?? credential.HistoryIdentity,
+                AccountIdentity = credential.AccountIdentity,
+                IsLive = true,
+            });
         }
         catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
         {
@@ -290,7 +311,11 @@ public abstract class UsageProviderBase : IUsageProvider
     };
 
     protected UsageSnapshot Empty(ToolCredential? credential)
-        => Snapshot(PlanFromCredential(credential), Array.Empty<UsageWindow>());
+        => Snapshot(PlanFromCredential(credential), Array.Empty<UsageWindow>()) with
+        {
+            IsLive = false,
+            IsSignedOut = true,
+        };
 
     /// <summary>
     /// Success gate for usage responses. Unlike <c>EnsureSuccessStatusCode</c> the thrown
@@ -336,7 +361,7 @@ public abstract class UsageProviderBase : IUsageProvider
     }
 
     private UsageSnapshot WithRefreshedPlan(UsageSnapshot cached, ToolCredential? credential)
-        => cached with { Plan = PlanFromCredential(credential) ?? cached.Plan };
+        => cached with { Plan = PlanFromCredential(credential) ?? cached.Plan, IsLive = false };
 
     /// <summary>
     /// A CLI re-login/account switch must not serve the prior account's cache or
@@ -348,7 +373,9 @@ public abstract class UsageProviderBase : IUsageProvider
             ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(accessToken)))
             : null;
         if ((_credentialFingerprintInitialized && !StringComparer.Ordinal.Equals(_credentialFingerprint, fingerprint))
-            || (_lastSnapshot is not null && credential?.HistoryIdentity is { } identity && _lastSnapshot.HistoryIdentity != identity))
+            || (_lastSnapshot is not null && credential?.HistoryIdentity is { } identity && _lastSnapshot.HistoryIdentity != identity)
+            || (_lastSnapshot?.AccountIdentity is { } previousAccount && credential?.AccountIdentity is { } account
+                && previousAccount != account))
         {
             _lastSnapshot = null;
             _lastSuccessTimestamp = null;

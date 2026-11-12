@@ -95,6 +95,36 @@ final class HTTPUsageProviderTests: XCTestCase {
         XCTAssertEqual(transport.requestCount, 4)
     }
 
+    func testCodexCreditDetailFailureKeepsKnownDeadlinesOnlyForAnUnchangedBalance() async throws {
+        let transport = FakeTransport()
+        let clock = ManualClock()
+        let endpoint = CodexEndpoint(clock: clock)
+        let credential = ToolCredential(accessToken: "token")
+        let now = Date()
+        transport.enqueue(usageWithCredits(1))
+        transport.enqueue(creditDeadlines)
+        let first = try await endpoint.fetch(credential, transport: transport, now: now)
+        let deadline = try XCTUnwrap(first.resetCreditDeadlines?.first)
+
+        clock.advance(600)
+        transport.enqueue(usageWithCredits(1))
+        transport.enqueue(.status(429, "", headers: ["Retry-After": "3600"]))
+        let throttled = try await endpoint.fetch(credential, transport: transport, now: now + 600)
+        XCTAssertEqual(throttled.resetCreditDeadlines, [deadline])
+
+        clock.advance(660)
+        for balance in [1, 2, 1] {
+            transport.enqueue(usageWithCredits(balance))
+        }
+        let sameBalance = try await endpoint.fetch(credential, transport: transport, now: now + 1260)
+        let changedBalance = try await endpoint.fetch(credential, transport: transport, now: now + 1260)
+        let restoredBalance = try await endpoint.fetch(credential, transport: transport, now: now + 1260)
+        XCTAssertEqual(sameBalance.resetCreditDeadlines, [deadline])
+        XCTAssertNil(changedBalance.resetCreditDeadlines)
+        XCTAssertNil(restoredBalance.resetCreditDeadlines)
+        XCTAssertEqual(transport.requestCount, 7)
+    }
+
     func testCodexCreditCooldownSurvivesBalanceChangesWithoutBlockingUsage() async throws {
         let transport = FakeTransport()
         let clock = ManualClock()
@@ -473,9 +503,10 @@ final class ClaudeKeychainSourceTests: XCTestCase {
         guard case .available(let before) = await source.read(interactive: false) else { return XCTFail("expected a credential") }
         XCTAssertEqual(before.plan, "Max 5x")
 
-        try Data(#"{"oauthAccount":{"organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}"#.utf8).write(to: profile)
+        try Data(#"{"oauthAccount":{"accountUuid":"account","organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}"#.utf8).write(to: profile)
         guard case .available(let after) = await source.read(interactive: false) else { return XCTFail("expected a credential") }
         XCTAssertEqual(after.plan, "Ultra")
+        XCTAssertNil(after.accountIdentity)
         XCTAssertEqual(keychain.passwordReads, 1, "the profile is applied on top of the cached secret")
 
         try Data("{ not json".utf8).write(to: profile)

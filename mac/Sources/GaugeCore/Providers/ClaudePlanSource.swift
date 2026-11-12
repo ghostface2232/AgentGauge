@@ -10,6 +10,7 @@ actor ClaudePlanSource: CredentialSource {
     private let transport: any HTTPTransport
     private let clock: any MonotonicClock
     private var identity: String?
+    private var accountIdentity: String?
     private var plan: String?
     private var nextCheck: TimeInterval = 0
 
@@ -24,6 +25,7 @@ actor ClaudePlanSource: CredentialSource {
         let result = await credentials.read(interactive: interactive)
         if case .missing = result {
             identity = nil
+            accountIdentity = nil
             plan = nil
         }
         guard case .available(var credential) = result, !credential.accessToken.isEmpty else { return result }
@@ -32,12 +34,19 @@ actor ClaudePlanSource: CredentialSource {
         let currentIdentity = UsageIdentity.hash(subject: nil, token: credential.accessToken)
         let now = clock.now()
         if identity != currentIdentity || now >= nextCheck {
-            if identity != currentIdentity { plan = nil }
+            if identity != currentIdentity {
+                accountIdentity = nil
+                plan = nil
+            }
             identity = currentIdentity
             nextCheck = now + Self.retryInterval
             await refreshPlan(credential, identity: currentIdentity)
         }
-        if identity == currentIdentity { credential.plan = plan ?? credential.plan }
+        if identity == currentIdentity {
+            credential.accountIdentity = accountIdentity ?? credential.accountIdentity
+            credential.plan = plan ?? credential.plan
+            credential.verifiedPlan = plan
+        }
         return .available(credential)
     }
 
@@ -53,7 +62,13 @@ actor ClaudePlanSource: CredentialSource {
             }
             return
         }
-        guard let organization = (try? JSONObject.parse(data))?.object("organization") else { return }
+        guard let profile = try? JSONObject.parse(data), let organization = profile.object("organization") else { return }
+        if let accountId = ProviderText.normalize(profile.object("account")?.string("uuid")),
+           let organizationId = ProviderText.normalize(organization.string("uuid")) {
+            let verifiedIdentity = UsageIdentity.hash(subject: "\(accountId)\0\(organizationId)", token: credential.accessToken)
+            if let accountIdentity, accountIdentity != verifiedIdentity { plan = nil }
+            accountIdentity = verifiedIdentity
+        }
         var display = ProviderText.normalize(organization.string("plan_display_name"))
         if display == nil || display == "Max",
            let type = organization.string("organization_type")?.lowercased(), type.hasPrefix("claude_") {

@@ -9,6 +9,12 @@ public sealed record UsageSnapshot
 {
     /// <summary>Storage identity. The default account uses the tool's display name for compatibility.</summary>
     public required string ToolName { get; init; }
+    // A one-way hash of a known account identifier, independent of token rotation and history.
+    internal string? AccountIdentity { get; init; }
+    // HTTP providers report whether the server accepted this read. Null lets other providers
+    // use the capture timestamp to distinguish live data from their own cache.
+    internal bool? IsLive { get; init; }
+    internal bool IsSignedOut { get; init; }
     internal string? HistoryIdentity { get; init; }
     // Only live Copilot reads with a known login can adopt their old token partition.
     internal string? LegacyCopilotTokenIdentity { get; init; }
@@ -20,6 +26,9 @@ public sealed record UsageSnapshot
     /// can be present even when no window data was obtained.
     /// </summary>
     public string? Plan { get; init; }
+
+    /// <summary>The provider attempted to confirm the plan but could not obtain a label.</summary>
+    public bool PlanUnavailable { get; init; }
 
     public string? SourceLabel { get; init; }
 

@@ -19,6 +19,8 @@ enum UsageIdentity {
 public struct ToolCredential: Sendable, Equatable {
     public var accessToken: String
     public var accountID: String?
+    var accountIdentity: String?
+    var verifiedPlan: String?
     var historyIdentity: String?
     public var expiresAt: Date?
     public var plan: String?
@@ -108,19 +110,20 @@ public enum CredentialParsing {
         if let expiresAt, expiresAt <= now { return .invalid(.expired) }
         let accountID = tokens.string("account_id")
         var credential = ToolCredential(accessToken: token, accountID: accountID, expiresAt: expiresAt)
-        if scopeHistory {
-            let authClaim = "https://api.openai.com/auth"
-            let identity = tokens.string("id_token").flatMap(jwtClaims)
-            let access = jwtClaims(token)
-            let identityAuth = identity?.object(authClaim)
-            let accessAuth = access?.object(authClaim)
-            // A workspace ID alone does not distinguish members of that workspace.
-            let user = accessAuth?.string("chatgpt_user_id") ?? identityAuth?.string("chatgpt_user_id")
-                ?? identity?.string("sub") ?? access?.string("sub")
-            let workspace = accountID ?? accessAuth?.string("chatgpt_account_id") ?? identityAuth?.string("chatgpt_account_id")
-            let subject = ProviderText.normalize(user).map { "\($0)\0\(workspace ?? "")" }
-            credential.historyIdentity = UsageIdentity.hash(subject: subject, token: token)
+        let authClaim = "https://api.openai.com/auth"
+        let identity = tokens.string("id_token").flatMap(jwtClaims)
+        let access = jwtClaims(token)
+        let identityAuth = identity?.object(authClaim)
+        let accessAuth = access?.object(authClaim)
+        // A workspace ID alone does not distinguish members of that workspace.
+        let user = accessAuth?.string("chatgpt_user_id") ?? identityAuth?.string("chatgpt_user_id")
+            ?? identity?.string("sub") ?? access?.string("sub")
+        let workspace = accountID ?? accessAuth?.string("chatgpt_account_id") ?? identityAuth?.string("chatgpt_account_id")
+        let subject = ProviderText.normalize(user).map { "\($0)\0\(workspace ?? "")" }
+        if let subject, !subject.hasSuffix("\0") {
+            credential.accountIdentity = UsageIdentity.hash(subject: subject, token: token)
         }
+        if scopeHistory { credential.historyIdentity = UsageIdentity.hash(subject: subject, token: token) }
         return .available(credential)
     }
 
@@ -160,7 +163,9 @@ public enum CredentialParsing {
         }
         let expiresAt = claims.int64("exp").map { Date(timeIntervalSince1970: TimeInterval($0)) }
         if let expiresAt, expiresAt <= now { return .invalid(.expired) }
-        return .available(ToolCredential(accessToken: token, accountID: userID, expiresAt: expiresAt))
+        var credential = ToolCredential(accessToken: token, accountID: userID, expiresAt: expiresAt)
+        credential.accountIdentity = UsageIdentity.hash(subject: userID, token: token)
+        return .available(credential)
     }
 
     /// The plan from the profile Claude Code caches in `~/.claude.json` (`oauthAccount`).

@@ -7,6 +7,39 @@ namespace Gauge.Tests;
 public sealed class RefreshIndicatorTests
 {
     [Fact]
+    public void SignedOutAndLegacyEmptySnapshotsDoNotAdvanceTheUsageTimestamp()
+    {
+        var vm = new UsageViewModel();
+        var now = DateTimeOffset.UtcNow;
+        var previous = now.AddHours(-1);
+        var usage = new CachedUsage
+        {
+            ToolName = "Codex", LastUpdatedAt = previous, LastRefreshFailed = true,
+            Snapshot = new UsageSnapshot
+            {
+                ToolName = "Codex", CapturedAt = previous,
+                Windows = [new UsageWindow { Type = UsageWindowType.FiveHour, UsedRatio = 0.2, Label = "5h" }],
+            },
+        };
+        var signedOut = new CachedUsage
+        {
+            ToolName = "Claude", LastUpdatedAt = now,
+            Snapshot = new UsageSnapshot { ToolName = "Claude", CapturedAt = now, Windows = [], IsSignedOut = true },
+        };
+        var legacy = new CachedUsage
+        {
+            ToolName = "GitHub Copilot", LastUpdatedAt = now, IsRehydrated = true,
+            Snapshot = new UsageSnapshot { ToolName = "GitHub Copilot", CapturedAt = now, Windows = [] },
+        };
+
+        vm.Apply(new UsageState { Tools = [usage, signedOut, legacy] });
+        Assert.Equal(previous, vm.LastUpdatedAt);
+
+        vm.Apply(new UsageState { Tools = [signedOut, legacy] });
+        Assert.Null(vm.LastUpdatedAt);
+    }
+
+    [Fact]
     public void HungRefreshExpiresWithoutLosingTimestampOrRestartingOnCache()
     {
         var time = new Clock();

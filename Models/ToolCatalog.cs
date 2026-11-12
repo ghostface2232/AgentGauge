@@ -24,6 +24,8 @@ public sealed record ToolDescriptor
 {
     /// <summary>Public Statuspage-compatible service health URL; null means no polling.</summary>
     public Uri? StatusPageUrl { get; init; }
+    /// <summary>Name of the organization or service covered by the public status page.</summary>
+    public string? StatusProviderName { get; init; }
     public required ToolKind Kind { get; init; }
 
     /// <summary>Card label, e.g. "Claude Code", "Codex".</summary>
@@ -70,6 +72,7 @@ public static class ToolCatalog
         Kind = ToolKind.ClaudeCode,
         DisplayName = "Claude",
         StatusPageUrl = new("https://status.anthropic.com/"),
+        StatusProviderName = "Claude",
         LoginCommand = "claude",
         LoginArguments = "/login",
     };
@@ -79,6 +82,7 @@ public static class ToolCatalog
         Kind = ToolKind.Codex,
         DisplayName = "Codex",
         StatusPageUrl = new("https://status.openai.com/"),
+        StatusProviderName = "OpenAI",
         LoginCommand = "codex",
         LoginArguments = "login",
     };
@@ -100,6 +104,7 @@ public static class ToolCatalog
         Kind = ToolKind.GitHubCopilot,
         DisplayName = "GitHub Copilot",
         StatusPageUrl = new("https://www.githubstatus.com/"),
+        StatusProviderName = "GitHub",
         // Sign-in is delegated to the GitHub CLI's device-flow login. Gauge then reads the
         // OAuth token gh stores (or a github-copilot apps.json file) — it never logs in itself.
         LoginCommand = "gh",

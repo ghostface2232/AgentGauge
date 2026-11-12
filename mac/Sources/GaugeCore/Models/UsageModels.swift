@@ -191,6 +191,11 @@ public struct ResetCreditDeadline: Codable, Sendable, Hashable {
             .reduce(0) { min($0 + ($1.count ?? 0), Int(Int32.max)) }
     }
 
+    /// An expiry crossed since the last account balance was observed.
+    public static func isBalanceUnconfirmed(balance: Int?, deadlines: [Self]?, capturedAt: Date, now: Date) -> Bool {
+        (balance ?? 0) > 0 && deadlines?.contains(where: { $0.expiresAt > capturedAt && $0.expiresAt <= now }) == true
+    }
+
     public static func upcoming(_ deadlines: [Self]?, now: Date) -> Self? {
         deadlines?.filter { $0.expiresAt > now && $0.expiresAt.timeIntervalSince(now) <= warningLeadTime }
             .min { $0.expiresAt < $1.expiresAt }
@@ -204,6 +209,7 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     /// Nil for the default login and for caches written before accounts were supported.
     public var profileID: UUID?
     public var accountKey: UsageAccountKey { UsageAccountKey(tool: tool, profileID: profileID) }
+    var accountIdentity: String?
     /// Opaque partition for trends and alert baselines when a profile changes login.
     public internal(set) var historyIdentity: String?
     // Live-only migration hint. A rehydrated snapshot cannot claim a history partition.
@@ -211,6 +217,8 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     var historyKey: String { accountKey.historyKey(historyIdentity) }
     /// Plan label (e.g. "Max 5x", "Plus"); can be present without any window data.
     public var plan: String?
+    /// True when the provider attempted to confirm the plan but could not obtain a label.
+    public internal(set) var planUnavailable: Bool?
     public internal(set) var sourceLabel: String?
     public var windows: [UsageWindow]
     /// Manual rate-limit resets the account holds (Codex). Nil means the tool exposes no
@@ -222,7 +230,7 @@ public struct UsageSnapshot: Codable, Sendable, Hashable {
     public var capturedAt: Date
 
     private enum CodingKeys: String, CodingKey {
-        case tool, profileID, historyIdentity, plan, sourceLabel, windows, resetCredits, resetCreditDeadlines, aiCreditsUsed, capturedAt
+        case tool, profileID, accountIdentity, historyIdentity, plan, planUnavailable, sourceLabel, windows, resetCredits, resetCreditDeadlines, aiCreditsUsed, capturedAt
     }
 
     public init(tool: ToolKind, plan: String?, windows: [UsageWindow], resetCredits: Int? = nil,

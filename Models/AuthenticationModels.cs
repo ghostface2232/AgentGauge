@@ -43,6 +43,8 @@ public sealed record ToolCredential
     public required CredentialSource Source { get; init; }
     public required string AccessToken { get; init; }
     public string? AccountId { get; init; }
+    internal string? AccountIdentity { get; init; }
+    internal string? VerifiedPlan { get; init; }
     internal string? HistoryIdentity { get; init; }
     public string? Plan { get; init; }
     public DateTimeOffset? ExpiresAt { get; init; }

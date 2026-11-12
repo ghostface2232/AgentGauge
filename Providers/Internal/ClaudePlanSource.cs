@@ -15,6 +15,7 @@ internal sealed class ClaudePlanSource(
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private string? _identity;
+    private string? _accountIdentity;
     private string? _plan;
     private long _checkedAt;
     private TimeSpan _interval;
@@ -28,6 +29,7 @@ internal sealed class ClaudePlanSource(
         if (result.Status == CredentialReadStatus.Missing)
         {
             _identity = null;
+            _accountIdentity = null;
             _plan = null;
         }
         if (tool != ToolKind.ClaudeCode || result.Status != CredentialReadStatus.Available
@@ -40,14 +42,27 @@ internal sealed class ClaudePlanSource(
         var identity = UsageIdentity.Hash(null, credential.AccessToken);
         if (_identity != identity || _time.GetElapsedTime(_checkedAt) >= _interval)
         {
-            if (_identity != identity) _plan = null;
+            if (_identity != identity)
+            {
+                _accountIdentity = null;
+                _plan = null;
+            }
             _identity = identity;
             _checkedAt = _time.GetTimestamp();
             _interval = RetryInterval;
             await RefreshPlanAsync(credential, cancellationToken);
         }
 
-        return _plan is { } plan ? result with { Credential = credential with { Plan = plan } } : result;
+        if (_plan is null && _accountIdentity is null) return result;
+        return result with
+        {
+            Credential = credential with
+            {
+                AccountIdentity = _accountIdentity ?? credential.AccountIdentity,
+                Plan = _plan ?? credential.Plan,
+                VerifiedPlan = _plan,
+            },
+        };
     }
 
     private async Task RefreshPlanAsync(ToolCredential credential, CancellationToken cancellationToken)
@@ -69,6 +84,13 @@ internal sealed class ClaudePlanSource(
             await using var stream = await response.Content.ReadAsStreamAsync(deadline.Token);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: deadline.Token);
             if (document.RootElement.GetObjectOrNull("organization") is not { } organization) return;
+            if (document.RootElement.GetObjectOrNull("account")?.GetStringOrNull("uuid") is { Length: > 0 } accountId
+                && organization.GetStringOrNull("uuid") is { Length: > 0 } organizationId)
+            {
+                var accountIdentity = UsageIdentity.Hash($"{accountId}\0{organizationId}", credential.AccessToken);
+                if (_accountIdentity is not null && _accountIdentity != accountIdentity) _plan = null;
+                _accountIdentity = accountIdentity;
+            }
 
             var plan = ProviderText.Normalize(organization.GetStringOrNull("plan_display_name"));
             if (plan is null or "Max"

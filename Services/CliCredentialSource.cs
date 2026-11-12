@@ -86,6 +86,9 @@ public sealed class CliCredentialSource : ICredentialSource
                 AccessToken = token,
                 ExpiresAt = expiresAt,
                 Plan = plan ?? MapClaudePlan(oauth.GetStringOrNull("subscriptionType"), oauth.GetStringOrNull("rateLimitTier")),
+                // Account changes require both the user and organization. Older profiles can
+                // have only the user, which is still enough for their existing history key.
+                AccountIdentity = subject is not null && !subject.EndsWith('\0') ? UsageIdentity.Hash(subject, token) : null,
                 HistoryIdentity = _scopeHistory ? UsageIdentity.Hash(subject, token) : null,
             });
         });
@@ -156,6 +159,7 @@ public sealed class CliCredentialSource : ICredentialSource
             }
 
             var accountId = tokens.GetStringOrNull("account_id");
+            var subject = CodexSubject(tokens, token, accountId);
             return Available(ToolKind.Codex, new ToolCredential
             {
                 Tool = ToolKind.Codex,
@@ -163,7 +167,8 @@ public sealed class CliCredentialSource : ICredentialSource
                 Source = Source,
                 AccessToken = token,
                 AccountId = accountId,
-                HistoryIdentity = _scopeHistory ? UsageIdentity.Hash(CodexSubject(tokens, token, accountId), token) : null,
+                AccountIdentity = subject is not null && !subject.EndsWith('\0') ? UsageIdentity.Hash(subject, token) : null,
+                HistoryIdentity = _scopeHistory ? UsageIdentity.Hash(subject, token) : null,
                 ExpiresAt = expiresAt,
             });
         });

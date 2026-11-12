@@ -207,11 +207,12 @@ public sealed class CredentialSourceTests : IDisposable
         Write(".claude/.credentials.json",
             """{"claudeAiOauth":{"accessToken":"t","subscriptionType":"max","rateLimitTier":"default_claude_max_5x"}}""");
         Write(".claude.json",
-            """{"oauthAccount":{"organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}""");
+            """{"oauthAccount":{"accountUuid":"account","organizationType":"claude_max","organizationRateLimitTier":"default_claude_max_20x"}}""");
 
         var result = await Source().ReadAsync(ToolKind.ClaudeCode);
 
         Assert.Equal("Ultra", result.Credential?.Plan);
+        Assert.Null(result.Credential?.AccountIdentity);
     }
 
     [Fact]

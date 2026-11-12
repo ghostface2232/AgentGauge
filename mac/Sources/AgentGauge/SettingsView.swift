@@ -598,6 +598,9 @@ private struct AccountRow: View {
             return L10n.get("Auth_Antigravity")
         case .signedIn:
             if let plan = state.snapshot?.plan { return L10n.format("Auth_SignedInWithPlan", plan) }
+            if state.snapshot?.planUnavailable == true {
+                return L10n.format("Auth_SignedInWithPlan", L10n.get("Plan_Unconfirmed"))
+            }
             return L10n.get("Auth_SignedIn")
         case .signedOut where tool == .antigravity: return L10n.get("Auth_Antigravity")
         case .signedOut: return AuthText.missing(tool)

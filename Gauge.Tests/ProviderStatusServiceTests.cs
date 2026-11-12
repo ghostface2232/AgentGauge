@@ -98,11 +98,49 @@ public sealed class ProviderStatusServiceTests
         var card = Assert.Single(vm.Cards);
         Assert.True(card.HasServiceStatus);
         Assert.True(card.HasRefreshIssue);
-        Assert.Contains("Codex", vm.TrayStatusSummary);
+        Assert.Contains("OpenAI", vm.TrayStatusSummary);
+        Assert.DoesNotContain("Codex", vm.TrayStatusSummary);
         vm.ApplyServiceStatuses([status with { Level = ProviderStatusLevel.Operational }]);
         Assert.False(card.HasServiceStatus);
         Assert.True(card.HasRefreshIssue);
         Assert.Empty(vm.TrayStatusSummary);
+    }
+
+    [Fact]
+    public void ShowsPublicIncidentAfterFirstUsageReadFails()
+    {
+        var vm = new UsageViewModel();
+        vm.Apply(new UsageState
+        {
+            Tools = [new CachedUsage { ToolName = "Codex", LastRefreshFailed = true }],
+        });
+        Assert.True(vm.IsEmpty);
+
+        var incident = new ProviderStatus(ToolKind.Codex, ProviderStatusLevel.Major, "Incident", DateTimeOffset.UtcNow);
+        vm.ApplyServiceStatuses([incident]);
+
+        Assert.False(vm.IsEmpty);
+        var card = Assert.Single(vm.Cards);
+        Assert.Equal("Codex", card.ToolName);
+        Assert.True(card.HasServiceStatus);
+        Assert.True(card.HasRefreshIssue);
+        Assert.Null(vm.LastUpdatedAt);
+
+        vm.ApplyServiceStatuses([incident with { Level = ProviderStatusLevel.Operational }]);
+        Assert.True(vm.IsEmpty);
+        Assert.Empty(vm.Cards);
+    }
+
+    [Fact]
+    public void UnconfirmedTooltipIdentifiesThePreviousStatusAsLastKnown()
+    {
+        var stale = new ProviderStatus(ToolKind.Codex, ProviderStatusLevel.Operational,
+            "All Systems Operational", DateTimeOffset.UtcNow, LastCheckFailed: true);
+
+        var detail = ProviderStatusText.Description(stale);
+
+        Assert.StartsWith(ProviderStatusText.Label(stale), detail);
+        Assert.Contains(stale.Summary, detail);
     }
 
     private static string Payload(string indicator) => JsonSerializer.Serialize(new

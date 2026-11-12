@@ -17,4 +17,9 @@ public sealed record ResetCreditDeadline(DateTimeOffset ExpiresAt, string? Scope
             ? Math.Max(known, 0)
             : (int)Math.Min(deadlines?.Where(d => d.ExpiresAt > now && d.Count is > 0).Sum(d => (long)d.Count!.Value) ?? 0,
                 int.MaxValue);
+
+    /// <summary>An expiry crossed since the last account balance was observed.</summary>
+    public static bool IsBalanceUnconfirmed(
+        int? balance, IReadOnlyList<ResetCreditDeadline>? deadlines, DateTimeOffset capturedAt, DateTimeOffset now)
+        => balance is > 0 && deadlines?.Any(deadline => deadline.ExpiresAt > capturedAt && deadline.ExpiresAt <= now) == true;
 }

@@ -395,6 +395,11 @@ struct ToolCard: View {
         ResetCreditDeadline.availableCount(balance: state.snapshot?.resetCredits,
                                            deadlines: state.snapshot?.resetCreditDeadlines, now: model.now)
     }
+    private var resetBalanceUnconfirmed: Bool {
+        guard let snapshot = state.snapshot else { return false }
+        return ResetCreditDeadline.isBalanceUnconfirmed(balance: snapshot.resetCredits, deadlines: snapshot.resetCreditDeadlines,
+                                                       capturedAt: snapshot.capturedAt, now: model.now)
+    }
     private var creditWarning: ResetCreditDeadline? {
         ResetCreditDeadline.upcoming(state.snapshot?.resetCreditDeadlines, now: model.now)
     }
@@ -422,6 +427,9 @@ struct ToolCard: View {
 
     /// Per-scope breakdown for the chip's tooltip ("Fable · 1 available resets").
     private var resetBalanceDetail: String {
+        if resetBalanceUnconfirmed {
+            return L10n.format("Usage_ResetBalanceLastKnown", heldResets.formatted(.number.locale(L10n.locale)))
+        }
         let deadlines = state.snapshot?.resetCreditDeadlines?.filter {
             $0.expiresAt > model.now && ($0.count ?? 0) > 0
         } ?? []
@@ -458,7 +466,8 @@ struct ToolCard: View {
             Text(verbatim: state.tool.displayName)
                 .font(.headline)
                 .layoutPriority(1)
-            if let plan = state.snapshot?.plan {
+            if let plan = state.snapshot?.plan
+                ?? (state.snapshot?.planUnavailable == true ? L10n.get("Plan_Unconfirmed") : nil) {
                 Text(verbatim: plan)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -503,7 +512,8 @@ struct ToolCard: View {
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
             } else if heldResets > 0 {
                 HeaderChip(systemImage: "arrow.counterclockwise",
-                           label: L10n.format("ResetCredits", heldResets.formatted(.number.locale(L10n.locale))),
+                           label: L10n.format(resetBalanceUnconfirmed ? "Usage_ResetBalanceLastKnown" : "ResetCredits",
+                                              heldResets.formatted(.number.locale(L10n.locale))),
                            detail: resetBalanceDetail,
                            tint: .accentColor, showsLabel: chipLabels)
                     .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }

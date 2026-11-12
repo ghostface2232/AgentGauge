@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Services;
 
@@ -90,8 +91,11 @@ public sealed class SettingsViewModel
         }
     }
 
-    private string? PlanFor(string toolName) =>
-        _lastUsage.Tools.FirstOrDefault(t => t.ToolName == toolName)?.Snapshot?.Plan;
+    private string? PlanFor(string toolName)
+    {
+        var snapshot = _lastUsage.Tools.FirstOrDefault(t => t.ToolName == toolName)?.Snapshot;
+        return snapshot?.Plan ?? (snapshot?.PlanUnavailable == true ? Loc.Get("Plan_Unconfirmed") : null);
+    }
 
     private void RemoveTool(ToolKind kind) => _registry.Remove(kind);
 

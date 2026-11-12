@@ -97,8 +97,8 @@ final class AppModel {
     }
     var isRefreshing: Bool { states.contains(where: \.isRefreshing) }
 
-    /// The newest capture across shown tools, for the footer's "Updated HH:mm".
-    var lastUpdated: Date? { states.compactMap { $0.snapshot?.capturedAt }.max() }
+    /// The newest capture across shown, signed-in tools, for the footer's "Updated HH:mm".
+    var lastUpdated: Date? { states.filter { $0.auth != .signedOut }.compactMap { $0.snapshot?.capturedAt }.max() }
 
     /// The card refresh indicator stops after this long even if a read is still out, so a
     /// hung provider never spins forever; the last-updated time still tells the truth.

@@ -107,6 +107,7 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
         {
             ToolName = ToolName,
             Plan = reading.Plan,
+            PlanUnavailable = reading.PlanUnavailable,
             Windows = windows,
             CapturedAt = DateTimeOffset.Now,
         };
@@ -115,6 +116,8 @@ public sealed class AntigravityProvider : IUsageProvider, IDisposable
     private UsageSnapshot EmptySnapshot() => new()
     {
         ToolName = ToolName,
+        IsSignedOut = true,
+        IsLive = false,
         Plan = null,
         Windows = Array.Empty<UsageWindow>(),
         CapturedAt = DateTimeOffset.Now,

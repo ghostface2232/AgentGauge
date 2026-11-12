@@ -26,9 +26,9 @@ public enum RefreshReason
 /// - A one-minute scheduler tick refreshes only providers whose own cadence is due:
 ///   Codex every 3 minutes, Claude every 5, Antigravity every 10, and Copilot
 ///   every 15. Due providers still run in parallel and remain failure-isolated.
-/// - Opening the popover or resuming the system skips the data source within 10s of
-///   any refresh. The refresh button has its own 10s debounce and waits for an
-///   active cycle so a background fetch cannot swallow an explicit request.
+/// - Opening the popover or resuming the system waits for an active cycle and skips
+///   only providers that finished a read within 10s of the request or while it waited.
+///   The refresh button has its own 10s debounce and also waits for an active cycle.
 /// - Beyond that debounce, opening the popover also respects a per-provider cost floor
 ///   (<see cref="ForcedIntervalFor"/>), which exists for providers whose read is
 ///   expensive in a way a 10-second gap does not cover. Explicit user actions (the
@@ -66,8 +66,8 @@ public sealed class UsageCoordinator : IDisposable
     private readonly List<string> _toolOrder = new();
     // Monotonic timestamps, so the intervals below survive a wall-clock change.
     private readonly Dictionary<string, long> _lastProviderAttemptTimestamps = new();
+    private readonly Dictionary<string, long> _lastProviderFinishTimestamps = new();
 
-    private long _lastRefreshStartedTimestamp = NeverRefreshed;
     private long _lastManualRefreshStartedTimestamp = NeverRefreshed;
     private int _manualRefreshPending;
     private Task? _loopTask;
@@ -154,7 +154,7 @@ public sealed class UsageCoordinator : IDisposable
             {
                 ToolName = snapshot.ToolName,
                 Snapshot = snapshot,
-                LastUpdatedAt = snapshot.CapturedAt,
+                LastUpdatedAt = snapshot.IsSignedOut ? null : snapshot.CapturedAt,
                 LastRefreshFailed = false,
                 IsRehydrated = true,
             };
@@ -280,29 +280,26 @@ public sealed class UsageCoordinator : IDisposable
         bool waitForExisting,
         string? accountKey)
     {
-        // Explicit requests wait their turn. Background requests can use the
-        // current state while a refresh is in progress.
+        var forcedRefresh = reason is RefreshReason.PopoverOpened or RefreshReason.SystemResumed;
+        var requestedTimestamp = _time.GetTimestamp();
+        // A scheduled tick can be dropped. An open or resume still owes a read to
+        // providers the active cycle might not have fetched, so show cache and wait.
         var entered = waitForExisting
             ? await WaitForGateAsync(cancellationToken)
             : await _refreshGate.WaitAsync(0, cancellationToken);
         if (!entered)
         {
             EmitState();
-            return;
+            if (!forcedRefresh) return;
+            await _refreshGate.WaitAsync(cancellationToken);
         }
 
         List<string>? fetchingTools = null;
         try
         {
             var attemptTimestamp = _time.GetTimestamp();
-            var lastStarted = reason switch
-            {
-                RefreshReason.Manual => _lastManualRefreshStartedTimestamp,
-                RefreshReason.PopoverOpened or RefreshReason.SystemResumed => _lastRefreshStartedTimestamp,
-                _ => NeverRefreshed,
-            };
-            if (lastStarted != NeverRefreshed
-                && _time.GetElapsedTime(lastStarted, attemptTimestamp) < ForcedRefreshDebounce)
+            if (reason == RefreshReason.Manual && _lastManualRefreshStartedTimestamp != NeverRefreshed
+                && _time.GetElapsedTime(_lastManualRefreshStartedTimestamp, attemptTimestamp) < ForcedRefreshDebounce)
             {
                 EmitState();
                 return;
@@ -313,7 +310,10 @@ public sealed class UsageCoordinator : IDisposable
                 enabledProviders = enabledProviders.Where(provider => provider.ToolName == accountKey).ToList();
             var registeredAtStart = _usageService.GetRegisteredToolNames();
             foreach (var key in _lastProviderAttemptTimestamps.Keys.Where(key => !registeredAtStart.Contains(key)).ToList())
+            {
                 _lastProviderAttemptTimestamps.Remove(key);
+                _lastProviderFinishTimestamps.Remove(key);
+            }
             var adaptive = reason == RefreshReason.Periodic ? GetAdaptiveDecision(attemptTimestamp) : default;
             var providersToRefresh = reason switch
             {
@@ -322,7 +322,11 @@ public sealed class UsageCoordinator : IDisposable
                         adaptive.IntervalFor(PeriodicIntervalFor(provider.Tool))))
                     .ToList(),
                 RefreshReason.PopoverOpened => enabledProviders
-                    .Where(provider => IsDue(provider.ToolName, attemptTimestamp, ForcedIntervalFor(provider.Tool)))
+                    .Where(provider => IsForcedRefreshDue(provider.ToolName, requestedTimestamp)
+                        && IsDue(provider.ToolName, attemptTimestamp, ForcedIntervalFor(provider.Tool)))
+                    .ToList(),
+                RefreshReason.SystemResumed => enabledProviders
+                    .Where(provider => IsForcedRefreshDue(provider.ToolName, requestedTimestamp))
                     .ToList(),
                 _ => enabledProviders,
             };
@@ -353,7 +357,6 @@ public sealed class UsageCoordinator : IDisposable
                 return;
             }
 
-            _lastRefreshStartedTimestamp = attemptTimestamp;
             if (reason == RefreshReason.Manual)
             {
                 _lastManualRefreshStartedTimestamp = attemptTimestamp;
@@ -377,15 +380,11 @@ public sealed class UsageCoordinator : IDisposable
                 providersToRefresh, cancellationToken, InteractionFor(reason));
             var enabledToolNames = _usageService.GetRegisteredToolNames();
             var results = attempted.Where(result => enabledToolNames.Contains(result.ToolName)).ToList();
-            var purgedTools = MergeIntoCache(results, enabledToolNames);
+            var cacheChanged = MergeIntoCache(results, enabledToolNames);
             ReportAuthenticationOutcomes(results, priorCaptured);
             RecordHistory(results, priorCaptured);
             EmitState();
-            // Persist when at least one tool refreshed successfully, so an all-failed cycle
-            // never overwrites the on-disk last-known value. Also persist when a tool was
-            // purged (disabled/removed), even with no success, so the removed tool doesn't
-            // linger in the cache file and reappear on next launch via rehydration.
-            if (purgedTools || results.Any(r => r.Succeeded))
+            if (cacheChanged)
             {
                 PersistSuccessfulSnapshots();
             }
@@ -396,6 +395,9 @@ public sealed class UsageCoordinator : IDisposable
             // an indicator that only cleared on success could stick forever.
             if (fetchingTools is not null)
             {
+                var finished = _time.GetTimestamp();
+                foreach (var tool in fetchingTools)
+                    _lastProviderFinishTimestamps[tool] = finished;
                 RaiseToolListEvent(RefreshCompleted, fetchingTools);
             }
             _refreshGate.Release();
@@ -412,6 +414,10 @@ public sealed class UsageCoordinator : IDisposable
         => interval <= TimeSpan.Zero
             || !_lastProviderAttemptTimestamps.TryGetValue(key, out var previous)
             || _time.GetElapsedTime(previous, nowTimestamp) >= interval;
+
+    private bool IsForcedRefreshDue(string key, long requestedTimestamp)
+        => !_lastProviderFinishTimestamps.TryGetValue(key, out var finished)
+            || _time.GetElapsedTime(finished, requestedTimestamp) >= ForcedRefreshDebounce;
 
     private AdaptiveRefreshDecision GetAdaptiveDecision(long nowTimestamp)
     {
@@ -486,31 +492,26 @@ public sealed class UsageCoordinator : IDisposable
     }
 
     /// <summary>
-    /// True only when a result represents a fresh server-accepted fetch — a snapshot with
-    /// real windows whose <see cref="UsageSnapshot.CapturedAt"/> advanced past the previously
-    /// cached one. This deliberately excludes outcomes that are "successes" but do NOT prove
-    /// the server accepted the token: an empty snapshot returned when there is no credential,
-    /// and a provider re-serving its last good snapshot during a cooldown/429/network error
-    /// (those reuse the prior <c>CapturedAt</c>). Without this gate, logging out or a network
-    /// blip after a 401 would wrongly clear the rejection and flip the card back to signed-in.
+    /// HTTP providers distinguish accepted reads from cache serves and signed-out results.
+    /// For other providers, a newer usage reading is evidence of a live fetch.
     /// </summary>
     private static bool IsLiveServerSuccess(
         ProviderSnapshotResult result, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
     {
-        if (!result.Succeeded || result.Snapshot is not { HasUsage: true } snapshot)
+        if (!result.Succeeded || result.Snapshot is not { } snapshot)
         {
             return false;
         }
-        return !priorCaptured.TryGetValue(result.ToolName, out var prior)
-            || prior is null
-            || snapshot.CapturedAt > prior.Value;
+        if (snapshot.IsLive is { } isLive) return isLive;
+        return snapshot.HasUsage && IsNewCapture(snapshot, priorCaptured);
     }
 
+    private static bool IsNewCapture(UsageSnapshot snapshot, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
+        => !priorCaptured.TryGetValue(snapshot.ToolName, out var prior) || prior is null || snapshot.CapturedAt > prior.Value;
+
     /// <summary>
-    /// Appends genuinely live readings to the history store. The same live-fetch gate as
-    /// authentication recovery applies: a provider re-serving its cached snapshot during a
-    /// cooldown/429 reuses the prior <c>CapturedAt</c> and must not produce history rows,
-    /// or trend math would see a flat line of duplicates.
+    /// History needs new usage readings. An accepted request may prove authentication even
+    /// when its payload has no usage windows to record.
     /// </summary>
     private void RecordHistory(
         IReadOnlyList<ProviderSnapshotResult> results, IReadOnlyDictionary<string, DateTimeOffset?> priorCaptured)
@@ -521,9 +522,10 @@ public sealed class UsageCoordinator : IDisposable
         }
         foreach (var result in results)
         {
-            if (IsLiveServerSuccess(result, priorCaptured))
+            if (result.Succeeded && result.Snapshot is { HasUsage: true, IsLive: not false } snapshot
+                && IsNewCapture(snapshot, priorCaptured))
             {
-                _history.Record(result.Snapshot!);
+                _history.Record(snapshot);
             }
         }
     }
@@ -563,7 +565,7 @@ public sealed class UsageCoordinator : IDisposable
         else handler(this, toolNames);
     }
 
-    /// <summary>Merges a refresh cycle's results into the cache; returns true if any stale tool was purged.</summary>
+    /// <summary>Merges the results and reports whether the persisted snapshots changed.</summary>
     private bool MergeIntoCache(
         IReadOnlyList<ProviderSnapshotResult> results,
         IReadOnlySet<string> enabledToolNames)
@@ -574,6 +576,7 @@ public sealed class UsageCoordinator : IDisposable
             // this result batch does not mean removal. The registry-backed enabled set is
             // the authority for purging cards.
             var staleKeys = _cache.Keys.Where(name => !enabledToolNames.Contains(name)).ToList();
+            var cacheChanged = staleKeys.Count > 0;
             _toolOrder.RemoveAll(name => !enabledToolNames.Contains(name));
             foreach (var stale in staleKeys)
             {
@@ -593,27 +596,39 @@ public sealed class UsageCoordinator : IDisposable
                     _cache.TryAdd(result.ToolName, new CachedUsage { ToolName = result.ToolName });
                     continue;
                 }
-                _cache[result.ToolName] = result.Succeeded
-                    ? new CachedUsage
-                    {
-                        ToolName = result.ToolName,
-                        Snapshot = result.Snapshot,
-                        LastUpdatedAt = result.Snapshot!.CapturedAt,
-                        LastRefreshFailed = false,
-                    }
-                    : new CachedUsage
-                    {
-                        // Keep the last successful value; mark the attempt as failed.
-                        ToolName = result.ToolName,
-                        Snapshot = previous?.Snapshot,
-                        LastUpdatedAt = previous?.LastUpdatedAt,
-                        LastRefreshFailed = true,
-                        IsRehydrated = previous?.IsRehydrated ?? false,
-                    };
+                var retained = result.Succeeded ? result.Snapshot : RetainSnapshot(result, previous?.Snapshot);
+                cacheChanged |= result.Succeeded || !Equals(retained, previous?.Snapshot);
+                _cache[result.ToolName] = new CachedUsage
+                {
+                    ToolName = result.ToolName,
+                    Snapshot = retained,
+                    LastUpdatedAt = retained is { IsSignedOut: false } ? retained.CapturedAt : null,
+                    LastRefreshFailed = !result.Succeeded,
+                    IsRehydrated = !result.Succeeded && retained is not null && previous?.IsRehydrated == true
+                        && retained.CapturedAt == previous.Snapshot?.CapturedAt,
+                };
             }
 
-            return staleKeys.Count > 0;
+            return cacheChanged;
         }
+    }
+
+    private UsageSnapshot? RetainSnapshot(ProviderSnapshotResult result, UsageSnapshot? previous)
+    {
+        var metadata = result.Metadata;
+        if (metadata?.AccountIdentity is { } current && previous?.AccountIdentity is { } prior && current != prior)
+            previous = null;
+
+        if (metadata?.VerifiedPlan is not { } plan) return previous;
+        if (previous is null || previous.IsSignedOut)
+        {
+            return new UsageSnapshot
+            {
+                ToolName = result.ToolName, Windows = [], Plan = plan,
+                AccountIdentity = metadata.AccountIdentity, CapturedAt = _time.GetUtcNow(), IsLive = false,
+            };
+        }
+        return previous with { Plan = plan };
     }
 
     public void ReemitState() => EmitState();
