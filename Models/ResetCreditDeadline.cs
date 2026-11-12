@@ -7,4 +7,14 @@ public sealed record ResetCreditDeadline(DateTimeOffset ExpiresAt, string? Scope
     public static ResetCreditDeadline? Upcoming(IReadOnlyList<ResetCreditDeadline>? deadlines, DateTimeOffset now)
         => deadlines?.Where(deadline => deadline.ExpiresAt > now && deadline.ExpiresAt - now <= WarningLeadTime)
             .MinBy(deadline => deadline.ExpiresAt);
+
+    /// <summary>
+    /// Held reset count. Codex reports an account-level balance; Claude has none at snapshot
+    /// level, so its still-valid grants' counts stand in for it.
+    /// </summary>
+    public static int AvailableCount(int? balance, IReadOnlyList<ResetCreditDeadline>? deadlines, DateTimeOffset now)
+        => balance is { } known
+            ? Math.Max(known, 0)
+            : (int)Math.Min(deadlines?.Where(d => d.ExpiresAt > now && d.Count is > 0).Sum(d => (long)d.Count!.Value) ?? 0,
+                int.MaxValue);
 }

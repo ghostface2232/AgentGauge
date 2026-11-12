@@ -30,6 +30,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
         Plan = string.Empty;
         ResetCreditRemaining = string.Empty;
         ResetCreditsDescription = string.Empty;
+        ResetBalanceText = string.Empty;
+        ResetBalanceDescription = string.Empty;
         Update(cached);
     }
 
@@ -153,7 +155,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
     public partial bool HasPlan { get; set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasResetCreditWarning), nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
+    [NotifyPropertyChangedFor(nameof(HasResetCreditWarning), nameof(ShowResetBalanceChip), nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
     public partial string ResetCreditRemaining { get; set; }
 
     [ObservableProperty]
@@ -161,7 +163,20 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
     public bool HasResetCreditWarning => ResetCreditRemaining.Length > 0;
 
-    public bool ShowHeaderChipLabels => !(HasApiCost && HasServiceStatus && HasResetCreditWarning);
+    /// <summary>Held reset count chip ("초기화권 2개"), shown whether or not one is about to expire.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasResetBalance), nameof(ShowResetBalanceChip), nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
+    public partial string ResetBalanceText { get; set; }
+
+    [ObservableProperty]
+    public partial string ResetBalanceDescription { get; set; }
+
+    public bool HasResetBalance => ResetBalanceText.Length > 0;
+
+    // One chip: the blue balance, which the expiry warning replaces in place once it applies.
+    public bool ShowResetBalanceChip => HasResetBalance && !HasResetCreditWarning;
+
+    public bool ShowHeaderChipLabels => !(HasApiCost && HasServiceStatus && (HasResetCreditWarning || HasResetBalance));
 
     public string WarningResetCreditsText => ShowHeaderChipLabels
         ? Loc.Format("ResetCredit_Label", ResetCreditRemaining) : ResetCreditRemaining;
@@ -279,7 +294,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
         var now = DateTimeOffset.UtcNow;
         var deadline = ResetCreditDeadline.Upcoming(cached.Snapshot?.ResetCreditDeadlines, now);
-        var supplemental = cached.Snapshot?.ResetCreditDeadlines?
+        var held = ResetCreditDeadline.AvailableCount(cached.Snapshot?.ResetCredits, cached.Snapshot?.ResetCreditDeadlines, now);
+        var breakdown = cached.Snapshot?.ResetCreditDeadlines?
             .Where(d => d.ExpiresAt > now && d.Count is > 0)
             .GroupBy(d => d.Scope)
             .Select(group =>
@@ -287,13 +303,19 @@ public sealed partial class ToolCardViewModel : ObservableObject
                 var label = Loc.Format("Usage_ResetBalance", group.Sum(d => (long)d.Count!.Value));
                 return group.Key is { } scope ? $"{scope} · {label}" : label;
             }).ToList() ?? [];
+        var balanceDescription = breakdown.Count > 0 ? string.Join("\n", breakdown) : Loc.Format("Usage_ResetBalance", held);
+        ResetBalanceText = held > 0 ? Loc.Format("ResetCredits", held) : string.Empty;
+        ResetBalanceDescription = held > 0 ? balanceDescription : string.Empty;
+
+        var supplemental = new List<string>();
         if (cached.Snapshot?.SourceLabel is { } source)
             supplemental.Add(Loc.Format("Usage_Source", source));
         if (cached.Snapshot?.AiCreditsUsed is { } credits)
             supplemental.Add(Loc.Format("Usage_AiCreditsUsed", credits));
         SupplementalUsage = string.Join("\n", supplemental);
         ResetCreditRemaining = deadline is null ? string.Empty : ResetCreditText.Remaining(deadline, now);
-        ResetCreditsDescription = deadline is null ? string.Empty : ResetCreditText.Description(deadline);
+        ResetCreditsDescription = deadline is null ? string.Empty
+            : $"{ResetCreditText.Description(deadline)}\n{balanceDescription}";
 
         var windows = OrderForDisplay(cached.Snapshot?.Windows ?? Array.Empty<UsageWindow>());
         HasUsageWindows = windows.Count > 0;
@@ -301,7 +323,7 @@ public sealed partial class ToolCardViewModel : ObservableObject
 
         if (windows.Count == 0)
         {
-            HasAnyData = HasSupplementalUsage;
+            HasAnyData = HasSupplementalUsage || HasResetBalance;
             StatusText = HasAnyData ? "" : Loc.Get("NoData");
             Windows.Clear();
             GaugeGroups.Clear();

@@ -136,6 +136,7 @@ internal static class Strings
         ["NoData"]            = ["데이터 없음",         "No data",           "データなし"],
         // Manual rate-limit resets the account holds. The chip is terse; the tooltip and
         // automation peer spell it out.
+        ["ResetCredits"] = ["초기화권 {0}개", "{0} resets", "リセット {0}回"],
         ["ResetCredit_Label"] = ["{0} 남은 초기화권", "Reset expires in {0}", "リセット期限まで{0}"],
         ["ResetCredit_TwoDays"] = ["2일", "2 days", "2日"],
         ["ResetCredit_Hours"] = ["{0}시간", "{0}h", "{0}時間"],

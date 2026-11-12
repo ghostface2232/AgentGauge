@@ -445,7 +445,7 @@
                                                         <FontIcon
                                                             VerticalAlignment="Center"
                                                             FontSize="10"
-                                                            Glyph="&#xE917;"
+                                                            Glyph="&#xE72C;"
                                                             Foreground="{ThemeResource StatusChipTextBrush}" />
                                                         <TextBlock
                                                             VerticalAlignment="Center"
@@ -453,6 +453,30 @@
                                                             Text="{Binding WarningResetCreditsText}"
                                                             Foreground="{ThemeResource StatusChipTextBrush}"
                                                             Style="{StaticResource CaptionTextBlockStyle}" />
+                                                    </ctrl:TextLeafPanel>
+                                                </ctrl:SquircleBorder>
+                                                <ctrl:SquircleBorder
+                                                    VerticalAlignment="Center"
+                                                    Radius="8"
+                                                    Smoothing="0.75"
+                                                    Padding="8,4,9,5"
+                                                    Fill="{ThemeResource ResetChipFillBrush}"
+                                                    ToolTipService.ToolTip="{Binding ResetBalanceDescription}"
+                                                    Visibility="{Binding ShowResetBalanceChip, Converter={StaticResource BoolToVis}}">
+                                                    <ctrl:TextLeafPanel Spacing="4" MinHeight="16"
+                                                        AutomationProperties.Name="{Binding ResetBalanceDescription}">
+                                                        <FontIcon
+                                                            VerticalAlignment="Center"
+                                                            FontSize="10"
+                                                            Glyph="&#xE72C;"
+                                                            Foreground="{ThemeResource ResetChipTextBrush}" />
+                                                        <TextBlock
+                                                            VerticalAlignment="Center"
+                                                            FontSize="11"
+                                                            Text="{Binding ResetBalanceText}"
+                                                            Foreground="{ThemeResource ResetChipTextBrush}"
+                                                            Style="{StaticResource CaptionTextBlockStyle}"
+                                                            Visibility="{Binding ShowHeaderChipLabels, Converter={StaticResource BoolToVis}}" />
                                                     </ctrl:TextLeafPanel>
                                                 </ctrl:SquircleBorder>
                                             </StackPanel>

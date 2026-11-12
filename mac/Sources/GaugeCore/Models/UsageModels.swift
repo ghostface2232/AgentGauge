@@ -183,6 +183,14 @@ public struct ResetCreditDeadline: Codable, Sendable, Hashable {
 
     public static let warningLeadTime: TimeInterval = 2 * 86_400
 
+    /// Held reset count. Codex reports an account-level balance; Claude has none at snapshot
+    /// level, so its still-valid grants' counts stand in for it.
+    public static func availableCount(balance: Int?, deadlines: [Self]?, now: Date) -> Int {
+        if let balance { return max(balance, 0) }
+        return (deadlines ?? []).filter { $0.expiresAt > now && ($0.count ?? 0) > 0 }
+            .reduce(0) { min($0 + ($1.count ?? 0), Int(Int32.max)) }
+    }
+
     public static func upcoming(_ deadlines: [Self]?, now: Date) -> Self? {
         deadlines?.filter { $0.expiresAt > now && $0.expiresAt.timeIntervalSince(now) <= warningLeadTime }
             .min { $0.expiresAt < $1.expiresAt }

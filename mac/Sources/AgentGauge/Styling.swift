@@ -8,6 +8,7 @@ import SwiftUI
 /// Older systems fall back to the standard borderless/bordered controls.
 enum Metrics {
     static let panelWidth: CGFloat = 340
+    static let headerChipHeight: CGFloat = 20
     /// The fixed radius before macOS 26; from 26 the minimum of the concentric card shape.
     static let cardCornerRadius: CGFloat = {
         if #available(macOS 26.0, *) { return 14 }
