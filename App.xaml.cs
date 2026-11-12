@@ -2,6 +2,7 @@ using System.Net.Http;
 using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers;
+using Gauge.Providers.Internal;
 using Gauge.Services;
 using Gauge.Services.ApiCost;
 using Gauge.ViewModels;
@@ -162,7 +163,7 @@ public partial class App : Application
         var usageService = new UsageService(
             new IUsageProvider[]
             {
-                new ClaudeProvider(_httpClient, credentials, claudeTokenRefresher),
+                new ClaudeProvider(_httpClient, new ClaudePlanSource(credentials, _httpClient), claudeTokenRefresher),
                 new CodexProvider(_httpClient, credentials, codexTokenRefresher, appServerLocator: locator),
                 _antigravityProvider,
                 new GitHubCopilotProvider(_httpClient, credentials),

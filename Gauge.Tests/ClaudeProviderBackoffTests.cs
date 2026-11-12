@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Gauge.Models;
 using Gauge.Providers;
+using Gauge.Providers.Internal;
 using Gauge.Services;
 
 namespace Gauge.Tests;
@@ -14,6 +15,32 @@ namespace Gauge.Tests;
 public sealed class ClaudeProviderBackoffTests
 {
     private static readonly DateTimeOffset Start = new(2026, 8, 3, 9, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task RefreshesTheServerPlanDailyEvenWhenUsageIsThrottled()
+    {
+        var time = new MutableTime(Start);
+        var handler = new SequenceHandler(
+            ("""{"organization":{"plan_display_name":"Pro"}}""", HttpStatusCode.OK),
+            Ok(),
+            ("""{"organization":{"plan_display_name":"Ultra"}}""", HttpStatusCode.OK),
+            TooMany());
+        using var http = new HttpClient(handler);
+        var provider = new ClaudeProvider(http, new ClaudePlanSource(Available(), http, time), time: time);
+
+        var first = await provider.GetSnapshotAsync(default);
+        Assert.Equal("Pro", first.Plan);
+        time.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal("Pro", (await provider.GetSnapshotAsync(default)).Plan);
+        Assert.Equal(2, handler.Calls);
+
+        time.Now = Start.AddDays(1);
+        var updated = await provider.GetSnapshotAsync(default);
+        Assert.Equal("Ultra", updated.Plan);
+        Assert.Equal(first.CapturedAt, updated.CapturedAt);
+        Assert.Same(first.Windows, updated.Windows);
+        Assert.Equal(4, handler.Calls);
+    }
 
     [Fact]
     public async Task ServesCacheWithinFiveMinutesThenRefetches()

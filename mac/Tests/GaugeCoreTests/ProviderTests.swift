@@ -67,6 +67,34 @@ final class FakeRefresher: DelegatedRefreshing, @unchecked Sendable {
 private let claudeBody = #"{"five_hour":{"utilization":40,"resets_at":"2026-10-19T05:00:00Z"}}"#
 
 final class HTTPUsageProviderTests: XCTestCase {
+    func testClaudeRefreshesTheServerPlanDailyEvenWhenUsageIsThrottled() async throws {
+        let transport = FakeTransport()
+        let clock = ManualClock()
+        let credentials = ClaudePlanSource(
+            FakeCredentials(.available(ToolCredential(accessToken: "token", plan: "Max 5x"))),
+            transport: transport, clock: clock)
+        let provider = HTTPUsageProvider(tool: .claude, credentials: credentials, endpoint: ClaudeEndpoint(),
+                                         policy: .claude, transport: transport, clock: clock)
+        transport.enqueue(.status(200, #"{"organization":{"plan_display_name":"Pro"}}"#))
+        transport.enqueue(.status(200, claudeBody))
+        let first = try await provider.fetch(.background)
+        XCTAssertEqual(first.snapshot.plan, "Pro")
+
+        clock.advance(60)
+        let cached = try await provider.fetch(.background)
+        XCTAssertEqual(cached.snapshot.plan, "Pro")
+        XCTAssertEqual(transport.requestCount, 2)
+
+        clock.advance(24 * 60 * 60 - 60)
+        transport.enqueue(.status(200, #"{"organization":{"plan_display_name":"Ultra"}}"#))
+        transport.enqueue(.status(429, "{}"))
+        let updated = try await provider.fetch(.background)
+        XCTAssertEqual(updated.snapshot.plan, "Ultra")
+        XCTAssertEqual(updated.snapshot.capturedAt, first.snapshot.capturedAt)
+        XCTAssertFalse(updated.isLive)
+        XCTAssertEqual(transport.requestCount, 4)
+    }
+
     func testCodexCreditCooldownSurvivesBalanceChangesWithoutBlockingUsage() async throws {
         let transport = FakeTransport()
         let clock = ManualClock()

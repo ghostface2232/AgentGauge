@@ -26,8 +26,7 @@ namespace Gauge.Providers;
 /// keeps its last good value instead of flipping to "no data". It also sends the
 /// Claude CLI identity required to read the optional reset-grant fields.
 ///
-/// The plan label (Max 5x/20x, Pro, …) comes from the credentials file, so it is
-/// reported even before the first successful usage call.
+/// The plan label comes from the account profile, with the CLI's local metadata as a fallback.
 ///
 /// EXPIRED TOKEN: the CLI's access token lives only a few hours, so after an overnight
 /// boot it is expired before Claude Code is ever launched. When an <see cref="IDelegatedTokenRefresher"/>
@@ -43,7 +42,7 @@ public sealed class ClaudeProvider : UsageProviderBase
     private const string OAuthBetaHeader = "oauth-2025-04-20";
 
     // The endpoint buckets the claude-code product agent more leniently than others.
-    private const string UserAgent = "claude-cli/2.1.321 (external, cli)";
+    internal const string UserAgent = "claude-cli/2.1.321 (external, cli)";
 
     private static readonly UsageFetchPolicy Policy = new()
     {
@@ -143,17 +142,17 @@ public sealed class ClaudeProvider : UsageProviderBase
 
     private async Task<HttpResponseMessage> ReadUsageAsync(ToolCredential credential, CancellationToken cancellationToken)
     {
-        using var enriched = UsageRequest(UsageUrl + ResetGrantQuery, UserAgent, credential);
+        using var enriched = CreateOAuthRequest(UsageUrl + ResetGrantQuery, UserAgent, credential);
         var response = await _http.SendAsync(enriched, HttpCompletionOption.ResponseContentRead, cancellationToken);
         if (response.StatusCode != HttpStatusCode.BadRequest) return response;
 
         // Keep ordinary usage available if an older backend rejects the optional query.
         response.Dispose();
-        using var plain = UsageRequest(UsageUrl, "claude-code/2.1.179", credential);
+        using var plain = CreateOAuthRequest(UsageUrl, "claude-code/2.1.179", credential);
         return await _http.SendAsync(plain, HttpCompletionOption.ResponseContentRead, cancellationToken);
     }
 
-    private static HttpRequestMessage UsageRequest(string url, string userAgent, ToolCredential credential)
+    internal static HttpRequestMessage CreateOAuthRequest(string url, string userAgent, ToolCredential credential)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {credential.AccessToken}");

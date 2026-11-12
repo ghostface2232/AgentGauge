@@ -1,6 +1,7 @@
 using Gauge.Localization;
 using Gauge.Models;
 using Gauge.Providers;
+using Gauge.Providers.Internal;
 
 namespace Gauge.Services;
 
@@ -52,7 +53,7 @@ internal sealed record AccountConnection(IAuthenticationProvider Authentication,
             isClaude ? "mcp list" : $"{fileCredentials} doctor",
             TimeSpan.FromSeconds(isClaude ? 15 : 30), locator, runner);
         IUsageProvider usage = isClaude
-            ? new ClaudeProvider(httpClient, credentials, refresher)
+            ? new ClaudeProvider(httpClient, new ClaudePlanSource(credentials, httpClient), refresher)
             : new CodexProvider(httpClient, credentials, refresher);
         return new(auth, new AccountUsageProvider(account, usage, auth));
     }

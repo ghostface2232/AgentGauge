@@ -45,12 +45,17 @@ public struct ClaudeEndpoint: UsageEndpoint {
 
     public init() {}
 
-    public func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date) async throws -> UsagePayload {
-        var request = URLRequest(url: Self.url)
+    static func oauthRequest(url: URL, credential: ToolCredential) -> URLRequest {
+        var request = URLRequest(url: url)
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
+    public func fetch(_ credential: ToolCredential, transport: any HTTPTransport, now: Date) async throws -> UsagePayload {
+        var request = Self.oauthRequest(url: Self.url, credential: credential)
         var (data, response) = try await transport.send(request)
         if response.statusCode == 400 {
             // An older backend may reject the optional query. Keep ordinary usage available.
@@ -385,7 +390,7 @@ public enum ProviderFactory {
         [
             HTTPUsageProvider(
                 tool: .claude,
-                credentials: ClaudeCredentialSource(),
+                credentials: ClaudePlanSource(ClaudeCredentialSource(), transport: transport),
                 endpoint: ClaudeEndpoint(),
                 policy: .claude,
                 transport: transport,
@@ -436,7 +441,7 @@ public enum ProviderFactory {
         guard let profile = AccountCLIProfile(account: account) else { return nil }
         let isClaude = account.tool == .claude
         let credentials: any CredentialSource = isClaude
-            ? ClaudeCredentialSource(scopedConfigDirectory: profile.directory)
+            ? ClaudePlanSource(ClaudeCredentialSource(scopedConfigDirectory: profile.directory), transport: transport)
             : CodexCredentialSource(environment: profile.variables, scopeHistory: true)
         let endpoint: any UsageEndpoint = isClaude ? ClaudeEndpoint() : CodexEndpoint()
         return AccountUsageProvider(account: account, provider: HTTPUsageProvider(
