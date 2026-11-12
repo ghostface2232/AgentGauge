@@ -377,7 +377,9 @@ public sealed class UsageCoordinator : IDisposable
                 priorCaptured = _cache.ToDictionary(kv => kv.Key, kv => kv.Value.Snapshot?.CapturedAt);
             }
             var attempted = await _usageService.GetSnapshotsAsync(
-                providersToRefresh, cancellationToken, InteractionFor(reason));
+                providersToRefresh, cancellationToken, InteractionFor(reason), _time);
+            foreach (var result in attempted)
+                _lastProviderFinishTimestamps[result.ToolName] = result.CompletedTimestamp;
             var enabledToolNames = _usageService.GetRegisteredToolNames();
             var results = attempted.Where(result => enabledToolNames.Contains(result.ToolName)).ToList();
             var cacheChanged = MergeIntoCache(results, enabledToolNames);
@@ -395,9 +397,6 @@ public sealed class UsageCoordinator : IDisposable
             // an indicator that only cleared on success could stick forever.
             if (fetchingTools is not null)
             {
-                var finished = _time.GetTimestamp();
-                foreach (var tool in fetchingTools)
-                    _lastProviderFinishTimestamps[tool] = finished;
                 RaiseToolListEvent(RefreshCompleted, fetchingTools);
             }
             _refreshGate.Release();

@@ -20,6 +20,7 @@ public sealed record ProviderSnapshotResult
 
     internal bool Skipped { get; init; }
     internal UsageReadMetadata? Metadata { get; init; }
+    internal long CompletedTimestamp { get; init; }
 
     public bool Succeeded => Error is null && Snapshot is not null;
 }
@@ -93,13 +94,23 @@ public sealed class UsageService
     /// The interaction tells throttled providers whether a rate-limit cooldown may hold
     /// this fetch back (background) or must be bypassed (user-initiated).
     /// </summary>
-    public async Task<IReadOnlyList<ProviderSnapshotResult>> GetSnapshotsAsync(
+    public Task<IReadOnlyList<ProviderSnapshotResult>> GetSnapshotsAsync(
         IEnumerable<IUsageProvider> providers,
         CancellationToken cancellationToken,
         FetchInteraction interaction = FetchInteraction.Background)
+        => GetSnapshotsAsync(providers, cancellationToken, interaction, TimeProvider.System);
+
+    internal async Task<IReadOnlyList<ProviderSnapshotResult>> GetSnapshotsAsync(
+        IEnumerable<IUsageProvider> providers, CancellationToken cancellationToken,
+        FetchInteraction interaction, TimeProvider time)
     {
-        var tasks = providers.Select(provider => GetIsolatedAsync(provider, interaction, cancellationToken));
-        return await Task.WhenAll(tasks);
+        return await Task.WhenAll(providers.Select(ReadAndStampAsync));
+
+        async Task<ProviderSnapshotResult> ReadAndStampAsync(IUsageProvider provider)
+        {
+            var result = await GetIsolatedAsync(provider, interaction, cancellationToken);
+            return result with { CompletedTimestamp = time.GetTimestamp() };
+        }
     }
 
     private async Task<ProviderSnapshotResult> GetIsolatedAsync(
