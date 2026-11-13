@@ -101,23 +101,25 @@ public sealed class PopoverXamlContractTests
         Assert.Equal(2, Regex.Matches(xaml, "Visibility=\"\\{Binding HasEta,").Count);
     }
 
+    // Caption lines pair a leading caption with a short trailing one (pace or counts). The
+    // leading one takes the remaining width and trims, so a long localized caption can never
+    // push the row past the card's edge.
     [Fact]
-    public void BarCaptionsStackAndWrapWithinTheCard()
+    public void BarCaptionLinesTrimTheLeadingCaptionWithinTheCard()
     {
         var document = XDocument.Load(Path.Combine(RepoRoot(), "Views", "PopoverWindow.xaml"));
         var xaml = document.Root!.Name.Namespace;
-        var captionBindings = new[] { "CaptionText", "CountsText", "PaceText", "EtaText" };
 
-        var captions = document.Descendants(xaml + "StackPanel").Single(panel =>
-            panel.Elements(xaml + "TextBlock").Any(text =>
-                (string?)text.Attribute("Text") == "{Binding CountsText}"));
-
-        Assert.NotEqual("Horizontal", (string?)captions.Attribute("Orientation"));
-        foreach (var binding in captionBindings)
+        foreach (var binding in new[] { "CaptionText", "EtaText" })
         {
-            var text = captions.Elements(xaml + "TextBlock").Single(element =>
+            var text = document.Descendants(xaml + "TextBlock").First(element =>
                 (string?)element.Attribute("Text") == $"{{Binding {binding}}}");
-            Assert.Equal("Wrap", (string?)text.Attribute("TextWrapping"));
+            var line = text.Parent!;
+            Assert.Equal("Grid", line.Name.LocalName);
+            Assert.Null(text.Attribute("Grid.Column"));
+            Assert.Equal("*", (string?)line.Descendants(xaml + "ColumnDefinition").First().Attribute("Width"));
+            Assert.Equal("1", (string?)text.Attribute("MaxLines"));
+            Assert.Equal("CharacterEllipsis", (string?)text.Attribute("TextTrimming"));
         }
     }
 

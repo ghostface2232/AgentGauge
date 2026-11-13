@@ -127,11 +127,19 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     /// APIs expose percent only, and the row must never fabricate a denominator.
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasCounts))]
+    [NotifyPropertyChangedFor(nameof(HasCounts), nameof(ShowCountsInline), nameof(ShowCountsBelow), nameof(HasSecondCaptionRow))]
     [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string CountsText { get; set; }
 
     public bool HasCounts => !string.IsNullOrEmpty(CountsText);
+
+    // The counts share the reset caption's line when there is no pace to show and move to the
+    // ETA line otherwise, so a quota with counts never adds a near-empty line.
+    public bool ShowCountsInline => HasCounts && !HasPace;
+
+    public bool ShowCountsBelow => HasCounts && HasPace;
+
+    public bool HasSecondCaptionRow => HasEta || ShowCountsBelow;
 
     /// <summary>
     /// Projected exhaustion caption from the measured recent burn rate (e.g. "2시간 후 소진
@@ -139,14 +147,14 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
     /// no trustworthy basis or exhaustion lands after the reset.
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasEta))]
+    [NotifyPropertyChangedFor(nameof(HasEta), nameof(HasSecondCaptionRow))]
     [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string EtaText { get; set; }
 
     public bool HasEta => !string.IsNullOrEmpty(EtaText);
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasPace))]
+    [NotifyPropertyChangedFor(nameof(HasPace), nameof(ShowCountsInline), nameof(ShowCountsBelow), nameof(HasSecondCaptionRow))]
     [NotifyPropertyChangedFor(nameof(AccessibilityName))]
     public partial string PaceText { get; set; }
 

@@ -516,72 +516,82 @@
                                                             Text="{Binding GroupHeader}"
                                                             Style="{StaticResource BodyStrongTextBlockStyle}"
                                                             Visibility="{Binding HasGroupHeader, Converter={StaticResource BoolToVis}}" />
-                                                        <Grid ColumnSpacing="10">
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="Auto" />
-                                                                <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="Auto" />
-                                                                <ColumnDefinition Width="Auto" />
-                                                            </Grid.ColumnDefinitions>
-                                                            <TextBlock AutomationProperties.Name="{Binding AccessibilityName}"
-                                                                Grid.Column="0"
-                                                                MinWidth="44"
-                                                                VerticalAlignment="Center"
-                                                                Opacity="0.8"
-                                                                Text="{Binding Label}"
-                                                                Style="{StaticResource CaptionTextBlockStyle}" />
-                                                            <ctrl:UsageBar Grid.Column="1" Height="20" UseSystemFocusVisuals="True"
-                                                                VerticalAlignment="Center"
+                                                        <!-- Same layout as the Mac row: label, sparkline and percent on one
+                                                             line, the bar across the full width, then the reset caption with
+                                                             the pace (or counts) on its trailing edge, and an optional line for
+                                                             the ETA and any counts the pace displaced. -->
+                                                        <StackPanel Spacing="4">
+                                                            <Grid ColumnSpacing="8">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock AutomationProperties.Name="{Binding AccessibilityName}"
+                                                                    Grid.Column="0"
+                                                                    VerticalAlignment="Center"
+                                                                    FontSize="13"
+                                                                    Text="{Binding Label}"
+                                                                    TextTrimming="CharacterEllipsis"
+                                                                    Style="{StaticResource CaptionTextBlockStyle}" />
+                                                                <ctrl:UsageSparkline Grid.Column="1" Width="64" Height="16"
+                                                                    VerticalAlignment="Center" Points="{Binding Burndown}"
+                                                                    Visibility="{Binding IsSparklineVisible, Converter={StaticResource BoolToVis}}" />
+                                                                <!-- Always show the number, not color alone (accessibility). -->
+                                                                <TextBlock AutomationProperties.AccessibilityView="Raw"
+                                                                    Grid.Column="2"
+                                                                    MinWidth="36"
+                                                                    TextAlignment="Right"
+                                                                    VerticalAlignment="Center"
+                                                                    Text="{Binding PercentText}"
+                                                                    Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                                            </Grid>
+                                                            <ctrl:UsageBar Height="14" UseSystemFocusVisuals="True"
                                                                 Background="{ThemeResource ControlFillColorTransparentBrush}"
                                                                 Value="{Binding Percent}" Basis="{Binding DisplayBasis}"
                                                                 Fill="{Binding Level, Converter={StaticResource LevelToBrush}}"
                                                                 Track="{ThemeResource ControlAltFillColorTertiaryBrush}"
                                                                 Segments="{Binding VisibleDailySegments}" />
-                                                            <ctrl:UsageSparkline Grid.Column="2" Width="64" Height="16"
-                                                                VerticalAlignment="Center" Points="{Binding Burndown}"
-                                                                Visibility="{Binding IsSparklineVisible, Converter={StaticResource BoolToVis}}" />
-                                                            <!-- Always show the number, not color alone (accessibility). -->
-                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
-                                                                Grid.Column="3"
-                                                                MinWidth="40"
-                                                                TextAlignment="Right"
-                                                                VerticalAlignment="Center"
-                                                                Text="{Binding PercentText}"
-                                                                Style="{StaticResource BodyStrongTextBlockStyle}" />
-                                                        </Grid>
-                                                        <StackPanel
-                                                            Margin="54,0,0,0"
-                                                            Spacing="2">
-                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
-                                                                Opacity="0.7"
-                                                                Text="{Binding CaptionText}" MaxLines="1" TextTrimming="CharacterEllipsis"
-                                                                ToolTipService.ToolTip="{Binding CaptionText}"
-                                                                TextWrapping="Wrap"
-                                                                Style="{StaticResource CaptionTextBlockStyle}" />
-                                                            <!-- Absolute counts (e.g. "128 / 300") when the
-                                                                 provider reports them; bar mode only. -->
-                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
-                                                                Opacity="0.55"
-                                                                Text="{Binding CountsText}"
-                                                                TextWrapping="Wrap"
-                                                                Style="{StaticResource CaptionTextBlockStyle}"
-                                                                Visibility="{Binding HasCounts, Converter={StaticResource BoolToVis}}" />
-                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
-                                                                Opacity="0.7"
-                                                                Text="{Binding PaceText}"
-                                                                ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Pace}"
-                                                                TextWrapping="Wrap"
-                                                                Style="{StaticResource CaptionTextBlockStyle}"
-                                                                Visibility="{Binding HasPace, Converter={StaticResource BoolToVis}}" />
-                                                            <!-- Measured burn-rate projection ("2시간 후
-                                                                 소진 예상"); informational, so it keeps
-                                                                 the dimmed caption styling. -->
-                                                            <TextBlock AutomationProperties.AccessibilityView="Raw"
-                                                                Opacity="0.7"
-                                                                Text="{Binding EtaText}"
-                                                                TextWrapping="Wrap"
-                                                                Style="{StaticResource CaptionTextBlockStyle}"
-                                                                Visibility="{Binding HasEta, Converter={StaticResource BoolToVis}}" />
+                                                            <Grid ColumnSpacing="8" Opacity="0.7">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock AutomationProperties.AccessibilityView="Raw"
+                                                                    Text="{Binding CaptionText}" MaxLines="1" TextTrimming="CharacterEllipsis"
+                                                                    ToolTipService.ToolTip="{Binding CaptionText}"
+                                                                    Style="{StaticResource CaptionTextBlockStyle}" />
+                                                                <TextBlock AutomationProperties.AccessibilityView="Raw"
+                                                                    Grid.Column="1"
+                                                                    Text="{Binding PaceText}"
+                                                                    ToolTipService.ToolTip="{loc:Localize Key=Tooltip_Pace}"
+                                                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                                                    Visibility="{Binding HasPace, Converter={StaticResource BoolToVis}}" />
+                                                                <!-- Absolute counts (e.g. "128 / 300") when the provider
+                                                                     reports them; bar mode only. -->
+                                                                <TextBlock AutomationProperties.AccessibilityView="Raw"
+                                                                    Grid.Column="1"
+                                                                    Text="{Binding CountsText}"
+                                                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                                                    Visibility="{Binding ShowCountsInline, Converter={StaticResource BoolToVis}}" />
+                                                            </Grid>
+                                                            <Grid ColumnSpacing="8" Opacity="0.7"
+                                                                Visibility="{Binding HasSecondCaptionRow, Converter={StaticResource BoolToVis}}">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <!-- Measured burn-rate projection ("2시간 후 소진 예상"). -->
+                                                                <TextBlock AutomationProperties.AccessibilityView="Raw"
+                                                                    Text="{Binding EtaText}" MaxLines="1" TextTrimming="CharacterEllipsis"
+                                                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                                                    Visibility="{Binding HasEta, Converter={StaticResource BoolToVis}}" />
+                                                                <TextBlock AutomationProperties.AccessibilityView="Raw"
+                                                                    Grid.Column="1"
+                                                                    Text="{Binding CountsText}"
+                                                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                                                    Visibility="{Binding ShowCountsBelow, Converter={StaticResource BoolToVis}}" />
+                                                            </Grid>
                                                         </StackPanel>
                                                     </StackPanel>
                                                 </DataTemplate>
