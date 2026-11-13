@@ -65,6 +65,11 @@ struct PopoverView: View {
             customScrollIndicator
         }
         .frame(width: Metrics.panelWidth, height: totalHeight)
+        // A clicked day keeps its highlight through keyboard focus, and nothing else in the
+        // panel takes focus, so a click anywhere a control does not claim resigns it. Child
+        // taps and buttons win over this one, so selecting a day still works.
+        .contentShape(Rectangle())
+        .onTapGesture { NSApp.keyWindow?.makeFirstResponder(nil) }
         .background(WindowKeyObserver { model.popoverOpened() })
     }
 
