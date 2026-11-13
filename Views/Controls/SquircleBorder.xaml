@@ -11,13 +11,18 @@
 
     <!-- A Border stand-in whose outline is a squircle instead of a circular-corner
          rounded rectangle. The shape is one closed Path rebuilt on size or property
-         change (RebuildShape); Child sits over it in the same cell, inset by Padding. -->
+         change (RebuildShape); Child sits over it in the same cell, inset by Padding.
+         The Path sits in a Canvas so it never takes part in measure: a Path's desired
+         size is its last geometry, so a chip drawn wide would stay wide after its
+         content shrank (a label collapsing), since the shape is only redrawn on resize. -->
     <Grid>
-        <Path x:Name="ShapePath" AutomationProperties.AccessibilityView="Raw"
-              Fill="{x:Bind Fill, Mode=OneWay}"
-              Stroke="{x:Bind Stroke, Mode=OneWay}"
-              StrokeThickness="{x:Bind StrokeThickness, Mode=OneWay}"
-              StrokeLineJoin="Round" />
+        <Canvas AutomationProperties.AccessibilityView="Raw">
+            <Path x:Name="ShapePath" AutomationProperties.AccessibilityView="Raw"
+                  Fill="{x:Bind Fill, Mode=OneWay}"
+                  Stroke="{x:Bind Stroke, Mode=OneWay}"
+                  StrokeThickness="{x:Bind StrokeThickness, Mode=OneWay}"
+                  StrokeLineJoin="Round" />
+        </Canvas>
         <ContentPresenter x:Name="Inner"
                           Content="{x:Bind Child, Mode=OneWay}"
                           Padding="{x:Bind Padding, Mode=OneWay}"
