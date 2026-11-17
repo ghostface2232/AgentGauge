@@ -41,16 +41,21 @@ public sealed partial class UsageViewModel : ObservableObject
     /// the empty state never claims "no tools are signed in".</summary>
     private readonly Func<bool>? _allToolsSignedOut;
 
+    /// <summary>Finds the settings sign-in for a card's tool name or account key.</summary>
+    private readonly Func<string, AuthenticationCardViewModel?>? _signInFor;
+
     public UsageViewModel(
         ToolRegistry? registry = null,
         IUsageHistorySource? history = null,
         Func<bool>? allToolsSignedOut = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        Func<string, AuthenticationCardViewModel?>? signInFor = null)
     {
         _time = time ?? TimeProvider.System;
         _registry = registry;
         _history = history;
         _allToolsSignedOut = allToolsSignedOut;
+        _signInFor = signInFor;
         // A reorder elsewhere (the settings screen) re-sorts the cards in place — no re-fetch.
         if (_registry is not null)
         {
@@ -435,6 +440,7 @@ public sealed partial class UsageViewModel : ObservableObject
         {
             if (!tools.Any(t => t.ToolName == Cards[i].ToolName))
             {
+                Cards[i].SignIn = null;
                 Cards.RemoveAt(i);
             }
         }
@@ -452,12 +458,16 @@ public sealed partial class UsageViewModel : ObservableObject
                     ShowDailyUsage = ShowDailyUsage,
                 };
                 card.ApplyApiCost(_apiCosts.GetValueOrDefault(card.ToolName));
+                existing = card;
                 Cards.Add(card);
             }
             else
             {
                 existing.Update(tool);
             }
+            // Looked up on every pass: settings rebuilds its sign-in when an account is
+            // re-registered, and a held reference would keep reporting the old one.
+            existing.SignIn = _signInFor?.Invoke(tool.ToolName);
         }
 
         // Reorder cards in place to match the incoming (registry-ordered) sequence, so a

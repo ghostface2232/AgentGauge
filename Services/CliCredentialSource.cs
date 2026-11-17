@@ -63,8 +63,13 @@ public sealed class CliCredentialSource : ICredentialSource
         var profilePath = Path.Combine(hasConfig ? config! : profile, ".claude.json");
         return ReadJsonAsync(ToolKind.ClaudeCode, path, cancellationToken, root =>
         {
-            if (root.GetObjectOrNull("claudeAiOauth") is not { } oauth
-                || oauth.GetStringOrNull("accessToken") is not { Length: > 0 } token)
+            // Signing out removes only this object: the file stays behind holding other
+            // logins such as `mcpOAuth`, so its absence means signed out, not a broken file.
+            if (root.GetObjectOrNull("claudeAiOauth") is not { } oauth)
+            {
+                return Missing(ToolKind.ClaudeCode);
+            }
+            if (oauth.GetStringOrNull("accessToken") is not { Length: > 0 } token)
             {
                 return Invalid(ToolKind.ClaudeCode, Loc.Get("Cred_ClaudeNoToken"));
             }
@@ -141,8 +146,12 @@ public sealed class CliCredentialSource : ICredentialSource
         var path = Path.Combine(home, "auth.json");
         return ReadJsonAsync(ToolKind.Codex, path, cancellationToken, root =>
         {
-            if (root.GetObjectOrNull("tokens") is not { } tokens
-                || tokens.GetStringOrNull("access_token") is not { Length: > 0 } token)
+            // No ChatGPT login in the file (signed out, or an API-key-only setup).
+            if (root.GetObjectOrNull("tokens") is not { } tokens)
+            {
+                return Missing(ToolKind.Codex);
+            }
+            if (tokens.GetStringOrNull("access_token") is not { Length: > 0 } token)
             {
                 return Invalid(ToolKind.Codex, Loc.Get("Cred_CodexNoToken"));
             }
@@ -239,6 +248,11 @@ public sealed class CliCredentialSource : ICredentialSource
     {
         Tool = tool, Status = CredentialReadStatus.Available, Credential = credential,
         Message = Loc.Get("Cred_CliInUse"),
+    };
+
+    private static CredentialReadResult Missing(ToolKind tool) => new()
+    {
+        Tool = tool, Status = CredentialReadStatus.Missing, Message = Loc.Get("Cred_Missing"),
     };
 
     private static CredentialReadResult Invalid(ToolKind tool, string message) => new()

@@ -88,6 +88,12 @@ public sealed class SettingsViewModel
         foreach (var card in Authentication)
         {
             card.ApplyPlan(PlanFor(card.Key));
+            // The card re-reads its login only at launch and when settings opens, so a sign-out
+            // seen by the usage read would otherwise leave the usage card without its sign-in.
+            if (card.IsSignedIn && state.Tools.FirstOrDefault(t => t.ToolName == card.Key)?.Snapshot is { IsSignedOut: true })
+            {
+                _ = card.RefreshAsync();
+            }
         }
     }
 

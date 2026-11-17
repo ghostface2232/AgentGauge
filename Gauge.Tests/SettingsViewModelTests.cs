@@ -49,6 +49,53 @@ public sealed class SettingsViewModelTests
         Assert.Equal(status == AuthenticationStatus.LoginRunning, card.IsLoginRunning);
     }
 
+    [Theory]
+    [InlineData(AuthenticationStatus.Missing, true, "로그인")]
+    [InlineData(AuthenticationStatus.Invalid, true, "로그인")]
+    [InlineData(AuthenticationStatus.LoginRunning, true, "로그인 중…")]
+    [InlineData(AuthenticationStatus.Available, false, "로그인")]
+    public void SignedOutUsageCardOffersTheSettingsSignIn(AuthenticationStatus status, bool offered, string button)
+    {
+        var signIn = new AuthenticationCardViewModel(new FakeAuthenticationProvider(State(status, "")));
+        var card = new ToolCardViewModel(new CachedUsage { ToolName = "Codex" }) { SignIn = signIn };
+
+        Assert.Equal(offered, card.ShowsSignIn);
+        Assert.Equal(!offered, card.ShowsStatusText);
+        Assert.Equal(button, signIn.SignInButtonText);
+    }
+
+    [Fact]
+    public void SignedOutUsageReadRefreshesTheSignedInCardOnce()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "GaugeTests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var provider = new FakeAuthenticationProvider(State(AuthenticationStatus.Available, ""));
+            var settings = new SettingsViewModel(new ToolRegistry(new ToolRegistryStore(() => dir)),
+                new Dictionary<ToolKind, IAuthenticationProvider> { [ToolKind.Codex] = provider },
+                new UpdateService(), new GlobalSettingsViewModel(NotificationPreferences.Default, false, UsageViewMode.Bar));
+            var card = Assert.Single(settings.Authentication);
+            Assert.False(card.NeedsSignIn);
+            provider.Next = State(AuthenticationStatus.Missing, "사용량을 확인");
+            var refreshesBefore = provider.Refreshes;
+            var signedOut = new UsageState
+            {
+                Tools = [new CachedUsage
+                {
+                    ToolName = "Codex",
+                    Snapshot = new UsageSnapshot { ToolName = "Codex", CapturedAt = DateTimeOffset.Now, Windows = [], IsSignedOut = true },
+                }],
+            };
+
+            settings.ApplyUsage(signedOut);
+            settings.ApplyUsage(signedOut);
+
+            Assert.True(card.NeedsSignIn);
+            Assert.Equal(refreshesBefore + 1, provider.Refreshes);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
     [Fact]
     public void ShownToggleMirrorsHiddenFlagAndDrivesTheStateChip()
     {
@@ -122,9 +169,17 @@ public sealed class SettingsViewModelTests
     {
         public ToolKind Tool => ToolKind.Codex;
         public AuthenticationState State { get; private set; } = state;
+        public int Refreshes { get; private set; }
+        /// <summary>What the next refresh reads, standing in for a credential that changed.</summary>
+        public AuthenticationState? Next { get; set; }
         public bool IsLoginRunning => State.IsLoginRunning;
         public event EventHandler<AuthenticationState>? StateChanged { add { } remove { } }
-        public Task<AuthenticationState> RefreshStateAsync(CancellationToken cancellationToken = default) => Task.FromResult(State);
+        public Task<AuthenticationState> RefreshStateAsync(CancellationToken cancellationToken = default)
+        {
+            Refreshes++;
+            State = Next ?? State;
+            return Task.FromResult(State);
+        }
         public Task<AuthenticationState> LoginAsync(CancellationToken cancellationToken = default) => Task.FromResult(State);
         public void ReportInvalidCredentials() { }
         public void ReportCredentialsAccepted() { }

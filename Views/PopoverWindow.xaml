@@ -702,7 +702,16 @@
                                             Text="{Binding StatusText}"
                                             Opacity="0.6"
                                             Style="{StaticResource CaptionTextBlockStyle}"
-                                            Visibility="{Binding HasAnyData, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
+                                            Visibility="{Binding ShowsStatusText, Converter={StaticResource BoolToVis}}" />
+                                        <!-- Signed out: offer the settings card's sign-in here. -->
+                                        <StackPanel Spacing="10"
+                                                    Visibility="{Binding ShowsSignIn, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock Text="{Binding SignIn.StatusText}" TextWrapping="Wrap"
+                                                       Opacity="0.6"
+                                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                                            <Button Content="{Binding SignIn.SignInButtonText}"
+                                                    Command="{Binding SignIn.LoginCommand}" />
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
