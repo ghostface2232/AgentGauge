@@ -101,6 +101,8 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     /// </summary>
     public bool NeedsSignIn => SupportsCliLogin && _status != AuthenticationStatus.Available;
 
+    public bool IsSignedIn => _isSignedIn;
+
     public event EventHandler? AuthenticationSucceeded;
 
     [ObservableProperty] public partial string StatusText { get; set; } = "";
