@@ -76,8 +76,10 @@ public enum CredentialParsing {
     /// `{ "claudeAiOauth": { "accessToken", "expiresAt" (ms), "subscriptionType", "rateLimitTier" } }`.
     public static func claude(from data: Data, now: Date) -> CredentialRead {
         guard let root = try? JSONObject.parse(data) else { return .invalid(.unreadable) }
-        guard let oauth = root.object("claudeAiOauth"),
-              let token = oauth.string("accessToken"), !token.isEmpty else { return .invalid(.noToken) }
+        // Signing out removes only this object: the document (the keychain item, or the file)
+        // stays behind holding other logins such as `mcpOAuth`, so its absence means signed out.
+        guard let oauth = root.object("claudeAiOauth") else { return .missing }
+        guard let token = oauth.string("accessToken"), !token.isEmpty else { return .invalid(.noToken) }
         let expiresAt = oauth.int64("expiresAt").map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
         if let expiresAt, expiresAt <= now {
             return .invalid(isClaudeRefreshable(oauth) ? .expired : .expiredUnrefreshable)
@@ -104,8 +106,9 @@ public enum CredentialParsing {
     /// expiry field, so expiry comes from the access token's own JWT `exp` claim.
     public static func codex(from data: Data, now: Date, scopeHistory: Bool = false) -> CredentialRead {
         guard let root = try? JSONObject.parse(data) else { return .invalid(.unreadable) }
-        guard let tokens = root.object("tokens"),
-              let token = tokens.string("access_token"), !token.isEmpty else { return .invalid(.noToken) }
+        // No ChatGPT login in the file (signed out, or an API-key-only setup).
+        guard let tokens = root.object("tokens") else { return .missing }
+        guard let token = tokens.string("access_token"), !token.isEmpty else { return .invalid(.noToken) }
         let expiresAt = jwtExpiry(token)
         if let expiresAt, expiresAt <= now { return .invalid(.expired) }
         let accountID = tokens.string("account_id")

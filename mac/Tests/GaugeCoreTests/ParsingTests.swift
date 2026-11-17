@@ -227,7 +227,15 @@ final class CredentialParsingTests: XCTestCase {
         let expired = #"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"r","expiresAt":1000,"scopes":["user:profile","user:inference"]}}"#
         XCTAssertEqual(CredentialParsing.claude(from: Data(expired.utf8), now: now), .invalid(.expired))
         XCTAssertEqual(CredentialParsing.claude(from: Data("{".utf8), now: now), .invalid(.unreadable))
-        XCTAssertEqual(CredentialParsing.claude(from: Data("{}".utf8), now: now), .invalid(.noToken))
+        XCTAssertEqual(CredentialParsing.claude(from: Data(#"{"claudeAiOauth":{"accessToken":""}}"#.utf8), now: now), .invalid(.noToken))
+    }
+
+    func testSignedOutDocumentsReadAsMissing() {
+        // `claude /logout` drops `claudeAiOauth` but keeps the item for MCP logins.
+        let claude = #"{"mcpOAuth":{"server":{"accessToken":""}}}"#
+        XCTAssertEqual(CredentialParsing.claude(from: Data(claude.utf8), now: now), .missing)
+        XCTAssertEqual(CredentialParsing.claude(from: Data("{}".utf8), now: now), .missing)
+        XCTAssertEqual(CredentialParsing.codex(from: Data(#"{"auth_mode":"apikey","tokens":null}"#.utf8), now: now), .missing)
     }
 
     func testClaudeExpiredRefreshabilityMirrorsTheCLI() {

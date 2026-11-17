@@ -175,6 +175,17 @@ public sealed class CredentialSourceTests : IDisposable
 
     [Theory]
     [InlineData("{}")]
+    // `claude /logout` drops `claudeAiOauth` but keeps the file for MCP logins.
+    [InlineData("""{"mcpOAuth":{"server":{"accessToken":""}}}""")]
+    [InlineData("""{"claudeAiOauth":null}""")]
+    public async Task SignedOutClaudeDocumentIsMissing(string json)
+    {
+        Write(".claude/.credentials.json", json);
+        var result = await Source().ReadAsync(ToolKind.ClaudeCode);
+        Assert.Equal(CredentialReadStatus.Missing, result.Status);
+    }
+
+    [Theory]
     [InlineData("""{"claudeAiOauth":{}}""")]
     [InlineData("""{"claudeAiOauth":{"accessToken":""}}""")]
     public async Task ClaudeWithoutTokenIsInvalid(string json)
@@ -225,6 +236,14 @@ public sealed class CredentialSourceTests : IDisposable
         var result = await Source().ReadAsync(ToolKind.ClaudeCode);
 
         Assert.Equal("Max 5x", result.Credential?.Plan);
+    }
+
+    [Fact]
+    public async Task CodexWithoutChatGptLoginIsMissing()
+    {
+        Write(".codex/auth.json", """{"auth_mode":"apikey","tokens":null}""");
+        var result = await Source().ReadAsync(ToolKind.Codex);
+        Assert.Equal(CredentialReadStatus.Missing, result.Status);
     }
 
     [Fact]
