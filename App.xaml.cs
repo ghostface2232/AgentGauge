@@ -258,7 +258,8 @@ public partial class App : Application
         _historyStore = new UsageHistoryStore();
         var historyStore = _historyStore;
         _ = Task.Run(historyStore.Warm);
-        _viewModel =new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut);
+        _viewModel = new UsageViewModel(_toolRegistry, _historyStore, AllEnabledToolsSignedOut,
+            signInFor: key => _settingsViewModel?.Authentication.FirstOrDefault(card => card.Key == key));
         _viewModel.SetViewMode(_viewMode);
         _viewModel.SetDisplayBasis(_displayBasis);
         _viewModel.SetStatusTarget(_statusTarget);

@@ -17,6 +17,7 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     // separately. Both are retained so an update to either recomposes the line in place.
     private string _baseStatus = "";
     private bool _isSignedIn;
+    private AuthenticationStatus _status;
     private string? _plan;
 
     public AuthenticationCardViewModel(IAuthenticationProvider provider, ToolAccount? account = null)
@@ -94,11 +95,20 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     public bool SupportsCliLogin => _descriptor.LoginKind == LoginKind.CliCommand
         && (IsDefaultAccount || (Tool != ToolKind.GitHubCopilot && !_isSignedIn));
 
+    /// <summary>
+    /// True while this account has no usable login that a CLI sign-in would fix, so the usage
+    /// card can offer the same sign-in in place of its "no data" text.
+    /// </summary>
+    public bool NeedsSignIn => SupportsCliLogin && _status != AuthenticationStatus.Available;
+
     public event EventHandler? AuthenticationSucceeded;
 
     [ObservableProperty] public partial string StatusText { get; set; } = "";
     [ObservableProperty] public partial string LoginButtonText { get; set; } = Loc.Get("Login");
     [ObservableProperty] public partial bool IsLoginRunning { get; set; }
+
+    /// <summary>The usage card's wording: it only ever signs in, never "switch account".</summary>
+    [ObservableProperty] public partial string SignInButtonText { get; set; } = Loc.Get("Login");
 
     private async Task LoginAsync()
     {
@@ -126,6 +136,7 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
     private void Apply(AuthenticationState state)
     {
         _baseStatus = state.Message;
+        _status = state.Status;
         _isSignedIn = state.Status == AuthenticationStatus.Available;
         IsLoginRunning = state.IsLoginRunning;
         LoginButtonText = state.Status switch
@@ -134,8 +145,10 @@ public sealed partial class AuthenticationCardViewModel : ObservableObject
             AuthenticationStatus.Available or AuthenticationStatus.Invalid when IsDefaultAccount => Loc.Get("Login_Switch"),
             _ => Loc.Get("Login"),
         };
+        SignInButtonText = Loc.Get(state.IsLoginRunning ? "Login_Running" : "Login");
         UpdateStatusText();
         OnPropertyChanged(nameof(SupportsCliLogin));
+        OnPropertyChanged(nameof(NeedsSignIn));
         LoginCommand.NotifyCanExecuteChanged();
         RemoveCommand.NotifyCanExecuteChanged();
     }

@@ -250,7 +250,34 @@ public sealed partial class ToolCardViewModel : ObservableObject
     }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsSignIn), nameof(ShowsStatusText))]
     public partial bool HasAnyData { get; set; }
+
+    /// <summary>
+    /// The settings screen's sign-in for this card's account, so a signed-out card offers the
+    /// same login (and shares its running state) instead of a dead "no data" line.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsSignIn), nameof(ShowsStatusText))]
+    public partial AuthenticationCardViewModel? SignIn { get; set; }
+
+    public bool ShowsSignIn => !HasAnyData && SignIn?.NeedsSignIn == true;
+    public bool ShowsStatusText => !HasAnyData && !ShowsSignIn;
+
+    partial void OnSignInChanged(AuthenticationCardViewModel? oldValue, AuthenticationCardViewModel? newValue)
+    {
+        if (oldValue is not null) oldValue.PropertyChanged -= OnSignInPropertyChanged;
+        if (newValue is not null) newValue.PropertyChanged += OnSignInPropertyChanged;
+    }
+
+    private void OnSignInPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(AuthenticationCardViewModel.NeedsSignIn))
+        {
+            OnPropertyChanged(nameof(ShowsSignIn));
+            OnPropertyChanged(nameof(ShowsStatusText));
+        }
+    }
 
     [ObservableProperty]
     public partial bool HasUsageWindows { get; set; }

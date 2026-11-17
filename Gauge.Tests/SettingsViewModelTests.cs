@@ -49,6 +49,21 @@ public sealed class SettingsViewModelTests
         Assert.Equal(status == AuthenticationStatus.LoginRunning, card.IsLoginRunning);
     }
 
+    [Theory]
+    [InlineData(AuthenticationStatus.Missing, true, "로그인")]
+    [InlineData(AuthenticationStatus.Invalid, true, "로그인")]
+    [InlineData(AuthenticationStatus.LoginRunning, true, "로그인 중…")]
+    [InlineData(AuthenticationStatus.Available, false, "로그인")]
+    public void SignedOutUsageCardOffersTheSettingsSignIn(AuthenticationStatus status, bool offered, string button)
+    {
+        var signIn = new AuthenticationCardViewModel(new FakeAuthenticationProvider(State(status, "")));
+        var card = new ToolCardViewModel(new CachedUsage { ToolName = "Codex" }) { SignIn = signIn };
+
+        Assert.Equal(offered, card.ShowsSignIn);
+        Assert.Equal(!offered, card.ShowsStatusText);
+        Assert.Equal(button, signIn.SignInButtonText);
+    }
+
     [Fact]
     public void ShownToggleMirrorsHiddenFlagAndDrivesTheStateChip()
     {
