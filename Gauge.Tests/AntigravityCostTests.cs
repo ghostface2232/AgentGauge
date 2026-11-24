@@ -48,6 +48,14 @@ public sealed class AntigravityCostTests : IDisposable
     }
 
     [Fact]
+    public void DropsTheReasoningEffortSuffixFromTheModelName()
+    {
+        CreateConversation(Call(0, "claude-opus-5-5-medium", 100, 0, 10, StepSeconds));
+        var record = Assert.Single(AntigravityConversationReader.Read(Database, -1, DateTimeOffset.UnixEpoch)!.Value.Records);
+        Assert.Equal("claude-opus-5-5", record.Model);
+    }
+
+    [Fact]
     public void AnUnreadableBlobIsSkippedNotCounted()
     {
         CreateConversation(new CallRow(0, [0xff, 0xff, 0xff], null));

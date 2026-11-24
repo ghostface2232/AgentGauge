@@ -6,10 +6,13 @@ import SQLite3
 /// row holding an undocumented protobuf, so the field numbers below were inferred from live
 /// data and may change with an app update; a row that does not decode is skipped, never
 /// guessed. Observed per call (field 1 of the blob, sub-message 4): field 2 = uncached prompt
-/// tokens, field 5 = prompt tokens served from cache (it equals the previous call's prompt
-/// total), field 3 = output tokens including thinking (field 9 + field 10). Only
+/// tokens, field 5 = prompt tokens served from cache (it tracks the previous call's prompt
+/// total, though parallel calls blur that), field 3 = output tokens including thinking (field 9 + field 10). Only
 /// `gen_metadata` and step timestamps are read, never conversation content.
 enum AntigravityConversationReader {
+    // Claude models routed through Antigravity carry a reasoning-effort suffix
+    // ("claude-opus-5-5-medium") that is not part of the API model name.
+    private static let effortSuffixes = ["-minimal", "-low", "-medium", "-high", "-xhigh", "-max"]
     private static let usageMessage = 4, modelField = 19, attributes = 20
     private static let uncachedPrompt = 2, output = 3, cachedPrompt = 5
 
@@ -83,7 +86,7 @@ enum AntigravityConversationReader {
             default: break
             }
         }
-        return Call(model: model,
+        return Call(model: effortSuffixes.first(where: model.hasSuffix).map { String(model.dropLast($0.count)) } ?? model,
                     tokens: TokenTotals(input: prompt, cacheRead: usage.varint(cachedPrompt) ?? 0, cacheWrite: 0, cacheWrite1h: 0, output: out),
                     requestId: requestId, lastStep: lastStep)
     }
@@ -101,9 +104,16 @@ enum AntigravityConversationReader {
     }
 
     // Read-only so the IDE's own writes are never contended; the WAL is honoured.
+    // Even a read-only open of a WAL database creates its -shm and -wal files when none exist,
+    // which would leave files behind in Antigravity's data folder. With no -wal the IDE is not
+    // running and the main file is complete, so it is opened immutable; while the IDE runs
+    // the WAL is honoured.
     private static func open(_ path: String) -> OpaquePointer? {
         var database: OpaquePointer?
-        guard sqlite3_open_v2(path, &database, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK, let database else {
+        let immutable = !FileManager.default.fileExists(atPath: path + "-wal")
+        let target = immutable ? URL(filePath: path).absoluteString + "?immutable=1" : path
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | (immutable ? SQLITE_OPEN_URI : 0)
+        guard sqlite3_open_v2(target, &database, flags, nil) == SQLITE_OK, let database else {
             sqlite3_close_v2(database)
             return nil
         }

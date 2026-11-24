@@ -103,6 +103,21 @@ final class AntigravityCostTests: XCTestCase {
         XCTAssertEqual(AntigravityConversationReader.identity(path: dbPath), "cascade-1")
     }
 
+    func testReadingALeftOverWalDatabaseCreatesNoFilesAndDropsEffortSuffix() throws {
+        append([(0, genMetadata(model: "claude-opus-5-5-medium", uncached: 100, cached: nil, output: 10, request: "t1-0", step: 0), 1_795_000_000)])
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(dbPath, &database, SQLITE_OPEN_READWRITE, nil), SQLITE_OK)
+        exec(database, "PRAGMA journal_mode=WAL;")
+        sqlite3_close_v2(database)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dbPath + "-wal"))
+
+        let result = try XCTUnwrap(AntigravityConversationReader.read(path: dbPath, afterIdx: -1, fallback: Date(timeIntervalSince1970: 0)))
+        XCTAssertEqual(result.records.first?.model, "claude-opus-5-5")
+        // The IDE is not running (no -wal), so reading must not leave -wal/-shm behind.
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dbPath + "-wal"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dbPath + "-shm"))
+    }
+
     func testPricesCachedPromptAtTheCacheRate() throws {
         append([(0, genMetadata(model: "gemini-3.8-flash-n", uncached: 1_000_000, cached: 1_000_000, output: 1_000_000, request: "t1-0", step: 0), 1_795_000_000)])
         let estimate = try XCTUnwrap(scanner().scan(tools: [.antigravity]).estimates[.antigravity])

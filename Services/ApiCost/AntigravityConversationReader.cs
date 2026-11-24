@@ -10,12 +10,17 @@ namespace Gauge.Services.ApiCost;
 /// <c>gen_metadata</c> row holding an undocumented protobuf, so the field numbers below were
 /// inferred from live data and may change with an app update; a row that does not decode is
 /// skipped, never guessed. Observed per call (field 1 of the blob, sub-message 4): field 2 =
-/// uncached prompt tokens, field 5 = prompt tokens served from cache (it equals the previous
-/// call's prompt total), field 3 = output tokens including thinking (field 9 + field 10).
+/// uncached prompt tokens, field 5 = prompt tokens served from cache (it tracks the previous
+/// call's prompt total, though parallel calls blur that), field 3 = output tokens including thinking (field 9 + field 10).
 /// Only <c>gen_metadata</c> and step timestamps are read, never conversation content.
 /// </summary>
 public static class AntigravityConversationReader
 {
+    // Claude models routed through Antigravity carry a reasoning-effort suffix
+    // ("claude-opus-5-5-medium") that is not part of the API model name.
+    private static readonly System.Text.RegularExpressions.Regex EffortSuffix =
+        new(@"-(minimal|low|medium|high|xhigh|max)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private const int UsageMessage = 4, ModelField = 19, Attributes = 20;
     private const int UncachedPrompt = 2, Output = 3, CachedPrompt = 5;
 
@@ -76,7 +81,8 @@ public static class AntigravityConversationReader
     {
         var top = Proto.Parse(blob);
         if (top.Message(1) is not { } meta || meta.Message(UsageMessage) is not { } usage) return null;
-        if (meta.String(ModelField) is not { Length: > 0 } model) return null;
+        if (meta.String(ModelField) is not { Length: > 0 } logged) return null;
+        var model = EffortSuffix.Replace(logged, "");
         var prompt = usage.Varint(UncachedPrompt);
         var cached = usage.Varint(CachedPrompt) ?? 0;
         var output = usage.Varint(Output);
@@ -107,12 +113,16 @@ public static class AntigravityConversationReader
             ? DateTimeOffset.FromUnixTimeSeconds(seconds) : null;
     }
 
-    // Read-only so the IDE's own writes are never contended; the WAL is honoured.
+    // Read-only so the IDE's own writes are never contended. Even a read-only open of a WAL
+    // database creates its -shm and -wal files when none exist, which would leave files
+    // behind in Antigravity's data folder. With no -wal the IDE is not running and the main
+    // file is complete, so it is opened immutable; while the IDE runs the WAL is honoured.
     private static SqliteConnection Open(string path)
     {
+        var source = File.Exists(path + "-wal") ? path : new Uri(path).AbsoluteUri + "?immutable=1";
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = path,
+            DataSource = source,
             Mode = SqliteOpenMode.ReadOnly,
             Pooling = false,
         }.ToString());
