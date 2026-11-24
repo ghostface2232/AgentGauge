@@ -6,7 +6,7 @@ import Foundation
 /// estimate anyway, and a stale row is visibly stale (the model shows as unpriced) rather
 /// than silently wrong. Reference: the providers' own pricing pages
 /// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing),
-/// checked 2026-10-19. Kept identical to the Windows table (Services/ApiCost/ApiCostPricing.cs).
+/// checked 2026-11-24. Kept identical to the Windows table (Services/ApiCost/ApiCostPricing.cs).
 public enum ApiCostPricing {
     /// One price tier. `cacheWrite` nil means the provider bills a cache write at the plain
     /// input rate (OpenAI).
@@ -41,9 +41,10 @@ public enum ApiCostPricing {
     }
 
     private static let table: [String: Rates] = [
-        // Anthropic. Fable 5.2/5.1, Mythos 5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual
+        // Anthropic. Fable 5.2/5.1, Mythos 5.2/5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual
         // 0.1x of input (0.025x and 0.05x); writes keep the standard 1.25x.
         "claude-fable-5-2": rates("8", "0.2", "10", "40"),
+        "claude-mythos-5-2": rates("8", "0.2", "10", "40"),
         "claude-fable-5-1": rates("10", "0.25", "12.5", "50"),
         "claude-mythos-5-1": rates("10", "0.25", "12.5", "50"),
         "claude-fable-5": rates("10", "1", "12.5", "50"),
@@ -69,7 +70,13 @@ public enum ApiCostPricing {
         "claude-haiku-4-5": rates("1", "0.1", "1.25", "5"),
         "claude-3-5-haiku": rates("0.8", "0.08", "1", "4"),
         // OpenAI (Codex): the 272K prompt tier doubles the rate. "codex-auto-review" is not
-        // here: see `excluded`. gpt-6.1-sol keeps gpt-6-sol's rates but reads cache at 0.05x.
+        // here: see `excluded`. The 6.2 and terra rows list no cache-write price; they follow the
+        // other GPT-6 rows (1.25x input).
+        "gpt-6.2-astra": rates("8", "0.4", "10", "40", longAbove: 272_000, tier("16", "0.8", "20", "60")),
+        "gpt-6.2-sol": rates("2", "0.1", "2.5", "10", longAbove: 272_000, tier("4", "0.2", "5", "15")),
+        "gpt-6.1-terra": rates("1", "0.05", "1.25", "5", longAbove: 272_000, tier("2", "0.1", "2.5", "7.5")),
+        "gpt-6-cyber": rates("20", "2", "25", "100", longAbove: 272_000, tier("40", "4", "50", "150")),
+        // gpt-6.1-sol keeps gpt-6-sol's rates but reads cache at 0.05x.
         "gpt-6.1-sol": rates("2", "0.1", "2.5", "10", longAbove: 272_000, tier("4", "0.2", "5", "15")),
         "gpt-6-astra": rates("10", "1", "12.5", "50", longAbove: 272_000, tier("20", "2", "25", "75")),
         "gpt-6-sol": rates("2", "0.2", "2.5", "10", longAbove: 272_000, tier("4", "0.4", "5", "15")),
@@ -82,6 +89,7 @@ public enum ApiCostPricing {
         "gpt-5.5": rates("5", "0.5", nil, "30", longAbove: 272_000, tier("10", "1", nil, "45")),
         "gpt-5.5-pro": rates("30", "30", nil, "180", longAbove: 272_000, tier("60", "60", nil, "270")),
         "gpt-5.5-cyber": rates("12.5", "1.25", nil, "75"),
+        "gpt-5.5-cyber-preview": rates("12.5", "1.25", nil, "75"),
         "gpt-5.4": rates("2.5", "0.25", nil, "15", longAbove: 272_000, tier("5", "0.5", nil, "22.5")),
         "gpt-5.4-pro": rates("30", "30", nil, "180", longAbove: 272_000, tier("60", "60", nil, "270")),
         "gpt-5.4-mini": rates("0.75", "0.075", nil, "4.5"),
