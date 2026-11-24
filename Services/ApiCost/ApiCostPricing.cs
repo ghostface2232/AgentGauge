@@ -10,7 +10,7 @@ namespace Gauge.Services.ApiCost;
 /// estimate anyway, and a stale row is visibly stale (the model shows as unpriced) rather
 /// than silently wrong. Reference: the providers' own pricing pages
 /// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing),
-/// checked 2026-10-19.
+/// checked 2026-11-24.
 /// </summary>
 public static class ApiCostPricing
 {
@@ -28,9 +28,10 @@ public static class ApiCostPricing
     private static readonly Dictionary<string, Rates> Table = new(StringComparer.OrdinalIgnoreCase)
     {
         // ── Anthropic ─────────────────────────────────────────────────────
-        // Fable 5.2/5.1, Mythos 5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual 0.1x of
+        // Fable 5.2/5.1, Mythos 5.2/5.1, Opus 5.5 and Sonnet 5.5 read cache below the usual 0.1x of
         // input (0.025x and 0.05x); writes keep the standard 1.25x.
         ["claude-fable-5-2"] = new(8, 0.2m, 10, 40),
+        ["claude-mythos-5-2"] = new(8, 0.2m, 10, 40),
         ["claude-fable-5-1"] = new(10, 0.25m, 12.5m, 50),
         ["claude-mythos-5-1"] = new(10, 0.25m, 12.5m, 50),
         ["claude-fable-5"] = new(10, 1, 12.5m, 50),
@@ -57,6 +58,11 @@ public static class ApiCostPricing
         ["claude-3-5-haiku"] = new(0.8m, 0.08m, 1, 4),
         // ── OpenAI (Codex) — the 272K prompt tier doubles the rate ───────
         // "codex-auto-review" is not here: see Excluded.
+        // The 6.2 and terra rows list no cache-write price; they follow the other GPT-6 rows (1.25x input).
+        ["gpt-6.2-astra"] = new(8, 0.4m, 10, 40, 272_000, new(16, 0.8m, 20, 60)),
+        ["gpt-6.2-sol"] = new(2, 0.1m, 2.5m, 10, 272_000, new(4, 0.2m, 5, 15)),
+        ["gpt-6.1-terra"] = new(1, 0.05m, 1.25m, 5, 272_000, new(2, 0.1m, 2.5m, 7.5m)),
+        ["gpt-6-cyber"] = new(20, 2, 25, 100, 272_000, new(40, 4, 50, 150)),
         // gpt-6.1-sol keeps gpt-6-sol's rates but reads cache at 0.05x input.
         ["gpt-6.1-sol"] = new(2, 0.1m, 2.5m, 10, 272_000, new(4, 0.2m, 5, 15)),
         ["gpt-6-astra"] = new(10, 1, 12.5m, 50, 272_000, new(20, 2, 25, 75)),
@@ -70,6 +76,7 @@ public static class ApiCostPricing
         ["gpt-5.5"] = new(5, 0.5m, null, 30, 272_000, new(10, 1, null, 45)),
         ["gpt-5.5-pro"] = new(30, 30, null, 180, 272_000, new(60, 60, null, 270)),
         ["gpt-5.5-cyber"] = new(12.5m, 1.25m, null, 75),
+        ["gpt-5.5-cyber-preview"] = new(12.5m, 1.25m, null, 75),
         ["gpt-5.4"] = new(2.5m, 0.25m, null, 15, 272_000, new(5, 0.5m, null, 22.5m)),
         ["gpt-5.4-pro"] = new(30, 30, null, 180, 272_000, new(60, 60, null, 270)),
         ["gpt-5.4-mini"] = new(0.75m, 0.075m, null, 4.5m),
