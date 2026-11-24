@@ -5,7 +5,8 @@ import Foundation
 /// small, a network dependency would add a privacy line for a number that is only an
 /// estimate anyway, and a stale row is visibly stale (the model shows as unpriced) rather
 /// than silently wrong. Reference: the providers' own pricing pages
-/// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing),
+/// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing,
+/// aistudio.google.com/docs/pricing),
 /// checked 2026-11-24. Kept identical to the Windows table (Services/ApiCost/ApiCostPricing.cs).
 public enum ApiCostPricing {
     /// One price tier. `cacheWrite` nil means the provider bills a cache write at the plain
@@ -108,6 +109,23 @@ public enum ApiCostPricing {
         "gpt-5-codex": rates("1.25", "0.125", nil, "10"),
         "gpt-5-mini": rates("0.25", "0.025", nil, "2"),
         "gpt-5-nano": rates("0.05", "0.005", nil, "0.4"),
+        // Google (Antigravity): implicit caching has no write fee, so cache writes bill as input.
+        // gemini-4 (argon, carbon) and gemini-3.8/3.6-flash are introductory prices: argon and
+        // carbon double on 2026-12-01 ($4 / $0.20 / $20), the flash models on 2027-01-01
+        // ($1.50 / $0.15 / $7.50). Thinking bills as output. The "-trial" and "-n" names are
+        // what Antigravity logs for argon and 3.8 flash; they are assumed to bill like them.
+        "gemini-4-argon": rates("2", "0.1", nil, "10"),
+        "gemini-4-argon-trial": rates("2", "0.1", nil, "10"),
+        "gemini-4-carbon": rates("2", "0.1", nil, "10"),
+        "gemini-4-neon": rates("3", "0.15", nil, "15"),
+        "gemini-4-hydrogen": rates("1.5", "0.075", nil, "7.5"),
+        "gemini-3.8-flash": rates("0.75", "0.075", nil, "3.75"),
+        "gemini-3.8-flash-n": rates("0.75", "0.075", nil, "3.75"),
+        "gemini-3.6-flash": rates("0.75", "0.075", nil, "3.75"),
+        "gemini-3.5-flash-lite": rates("0.3", "0.03", nil, "2.5"),
+        "gemini-3.1-pro-preview": rates("2", "0.2", nil, "12", longAbove: 200_000, tier("4", "0.4", nil, "18")),
+        "gemini-3.1-flash-lite": rates("0.25", "0.025", nil, "1.5"),
+        "gemini-3-flash-preview": rates("0.5", "0.05", nil, "3"),
     ]
 
     /// Models left out of the estimate altogether — neither priced nor counted as unpriced,

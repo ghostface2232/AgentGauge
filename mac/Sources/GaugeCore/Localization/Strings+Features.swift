@@ -22,9 +22,9 @@ extension Strings {
                                    "Which days a multi-day limit is expected to be spent on, for the pace caption.",
                                    "複数日にわたる上限のペースをどの曜日基準で計算するかを決めます。"],
         "Settings_ApiCost": ["API 환산 비용 표시", "Show API-Equivalent Cost", "API換算コストを表示"],
-        "Settings_ApiCostHelp": ["Claude Code와 Codex의 로컬 세션 로그를 읽어 이번 달 사용량을 공개 API 요금으로 환산합니다. 구독 요금과는 무관한 추정치입니다.",
-                                 "Reads Claude Code and Codex's local session logs to price this month's tokens at public API rates — an estimate unrelated to what your subscription costs.",
-                                 "Claude CodeとCodexのローカルセッションログを読み、今月のトークンを公開API料金で換算します。サブスクリプション料金とは無関係の目安です。"],
+        "Settings_ApiCostHelp": ["Claude Code, Codex, Antigravity의 로컬 세션 기록을 읽어 이번 달 사용량을 공개 API 요금으로 환산합니다. 구독 요금과는 무관한 추정치입니다.",
+                                 "Reads Claude Code, Codex and Antigravity's local session records to price this month's tokens at public API rates — an estimate unrelated to what your subscription costs.",
+                                 "Claude Code、Codex、Antigravityのローカルセッション記録を読み、今月のトークンを公開API料金で換算します。サブスクリプション料金とは無関係の目安です。"],
 
         // Antigravity has no AgentGauge-readable credential; describe the source instead.
         "Auth_Antigravity": ["Antigravity 앱에서 사용량을 읽어옵니다.", "Reads usage from the Antigravity app.",

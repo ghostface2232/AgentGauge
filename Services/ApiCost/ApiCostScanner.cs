@@ -17,7 +17,7 @@ namespace Gauge.Services.ApiCost;
 /// </summary>
 public sealed class ApiCostScanner
 {
-    public enum LogKind { Claude, Codex }
+    public enum LogKind { Claude, Codex, Antigravity }
 
     /// <summary>Where one tool's logs live. Roots that do not exist are simply empty.</summary>
     public sealed record LogSource(string Tool, LogKind Kind, IReadOnlyList<string> Roots);
@@ -55,7 +55,7 @@ public sealed class ApiCostScanner
     /// <c>CLAUDE_CONFIG_DIR</c>) and Codex's session rollouts (honouring <c>CODEX_HOME</c>),
     /// keyed by the tools' display names so the caller can gate on registration.
     /// </summary>
-    public static IReadOnlyList<LogSource> DefaultSources(string claudeTool, string codexTool)
+    public static IReadOnlyList<LogSource> DefaultSources(string claudeTool, string codexTool, string antigravityTool)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var claudeRoots = new List<string>();
@@ -72,6 +72,14 @@ public sealed class ApiCostScanner
         [
             new LogSource(claudeTool, LogKind.Claude, claudeRoots),
             new LogSource(codexTool, LogKind.Codex, [Path.Combine(codexHome, "sessions"), Path.Combine(codexHome, "archived_sessions")]),
+            // Antigravity keeps one SQLite database per conversation; the IDE and its CLI
+            // each have their own data folder under ~/.gemini.
+            new LogSource(antigravityTool, LogKind.Antigravity,
+            [
+                Path.Combine(home, ".gemini", "antigravity", "conversations"),
+                Path.Combine(home, ".gemini", "antigravity-cli", "conversations"),
+                Path.Combine(home, ".gemini", "antigravity-crew", "conversations"),
+            ]),
         ];
     }
 
@@ -91,7 +99,7 @@ public sealed class ApiCostScanner
         foreach (var source in _sources.Where(s => tools.Contains(s.Tool)))
         {
             var files = source.Roots.Where(Directory.Exists)
-                .SelectMany(root => SafeEnumerate(root))
+                .SelectMany(root => SafeEnumerate(root, source.Kind == LogKind.Antigravity ? "*.db" : "*.jsonl"))
                 .Where(info => info.Length > 0)
                 .OrderByDescending(info => info.LastWriteTimeUtc)
                 .ToList();
@@ -114,6 +122,11 @@ public sealed class ApiCostScanner
                     // metadata the next scan re-reads anyway, so stop and report incomplete.
                     complete = false;
                     break;
+                }
+                if (source.Kind == LogKind.Antigravity)
+                {
+                    ScanConversation(ledger, source, info, oldestDay);
+                    continue;
                 }
                 AdoptIfMoved(ledger, info, vanished, oldestDay);
                 var (read, finished) = ScanFile(ledger, source, info, oldestDay, budget, started, cancellationToken);
@@ -314,6 +327,44 @@ public sealed class ApiCostScanner
         return (read, !outOfBudget);
     }
 
+    // One Antigravity conversation database. The IDE appends to the write-ahead log and
+    // only checkpoints into the main file occasionally, so change detection looks at both.
+    // ParsedBytes holds the next call index to read and Fingerprint the conversation's own id
+    // (a database header changes on every write, so a byte hash cannot serve as identity).
+    // Reads are a few KB per call, so they do not draw on the byte budget.
+    private void ScanConversation(ApiCostLedger ledger, LogSource source, FileInfo info, string oldestDay)
+    {
+        var path = info.FullName;
+        var wal = new FileInfo(path + "-wal");
+        var length = info.Length + (wal.Exists ? wal.Length : 0);
+        var lastWrite = new DateTimeOffset(wal.Exists && wal.LastWriteTimeUtc > info.LastWriteTimeUtc
+            ? wal.LastWriteTimeUtc : info.LastWriteTimeUtc).ToUnixTimeMilliseconds();
+        ledger.Files.TryGetValue(path, out var state);
+        if (state is not null && state.Length == length && state.LastWriteUtcMs == lastWrite) return;
+        if (state is null && IsBeforeWindow(info, oldestDay)) return;
+
+        // Unreadable now (the IDE holding it): try again next scan, keeping what is counted.
+        if (AntigravityConversationReader.ReadIdentity(path) is not { } identity) return;
+        if (state is not null && state.Fingerprint != identity)
+        {
+            ledger.Forget(path);
+            state = null;
+        }
+        state ??= ledger.Files[path] = new ApiCostLedger.FileState { Tool = source.Tool, Fingerprint = identity };
+
+        if (AntigravityConversationReader.Read(path, state.ParsedBytes - 1, new DateTimeOffset(info.LastWriteTimeUtc)) is not { } result) return;
+        foreach (var record in result.Records)
+        {
+            var day = DayKey(record.Timestamp);
+            if (string.CompareOrdinal(day, oldestDay) < 0) continue;
+            ledger.Add(path, state, record.Key, day, record.Model, record.Tokens,
+                ApiCostPricing.IsLongContext(record.Model, record.Tokens));
+        }
+        state.ParsedBytes = result.LastIdx + 1;
+        state.Length = length;
+        state.LastWriteUtcMs = lastWrite;
+    }
+
     private bool IsBeforeWindow(FileInfo info, string oldestDay)
         => string.CompareOrdinal(DayKey(new DateTimeOffset(info.LastWriteTimeUtc)), oldestDay) < 0;
 
@@ -381,11 +432,11 @@ public sealed class ApiCostScanner
         IgnoreInaccessible = true,
     };
 
-    private static IEnumerable<FileInfo> SafeEnumerate(string root)
+    private static IEnumerable<FileInfo> SafeEnumerate(string root, string pattern)
     {
         try
         {
-            return new DirectoryInfo(root).EnumerateFiles("*.jsonl", LogEnumeration).ToList();
+            return new DirectoryInfo(root).EnumerateFiles(pattern, LogEnumeration).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
