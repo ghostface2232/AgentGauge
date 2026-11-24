@@ -273,7 +273,7 @@ public partial class App : Application
         _apiCostService = new ApiCostService(
             new ApiCostScanner(
                 Path.Combine(AppSettingsFile.DefaultDirectory, "api-cost-ledger.json"),
-                ApiCostScanner.DefaultSources(ToolCatalog.ClaudeCode.DisplayName, ToolCatalog.Codex.DisplayName)),
+                ApiCostScanner.DefaultSources(ToolCatalog.ClaudeCode.DisplayName, ToolCatalog.Codex.DisplayName, ToolCatalog.Antigravity.DisplayName)),
             DispatcherQueue.GetForCurrentThread(),
             () => ToolCatalog.All.Where(d => _toolRegistry.IsActive(d.Kind)).Select(d => d.DisplayName).ToHashSet(StringComparer.Ordinal));
         _apiCostService.Updated += (_, estimates) => _viewModel?.SetApiCosts(estimates);

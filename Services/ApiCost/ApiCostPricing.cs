@@ -9,7 +9,8 @@ namespace Gauge.Services.ApiCost;
 /// small, a network dependency would add a privacy line for a number that is only an
 /// estimate anyway, and a stale row is visibly stale (the model shows as unpriced) rather
 /// than silently wrong. Reference: the providers' own pricing pages
-/// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing),
+/// (platform.claude.com/docs/en/about-claude/pricing, developers.openai.com/api/docs/pricing,
+/// aistudio.google.com/docs/pricing),
 /// checked 2026-11-24.
 /// </summary>
 public static class ApiCostPricing
@@ -95,6 +96,23 @@ public static class ApiCostPricing
         ["gpt-5-codex"] = new(1.25m, 0.125m, null, 10),
         ["gpt-5-mini"] = new(0.25m, 0.025m, null, 2),
         ["gpt-5-nano"] = new(0.05m, 0.005m, null, 0.4m),
+        // ── Google (Antigravity) — implicit caching has no write fee, so cache writes bill as input ──
+        // gemini-4 (argon, carbon) and gemini-3.8/3.6-flash are introductory prices: argon and
+        // carbon double on 2026-12-01 ($4 / $0.20 / $20), the flash models on 2027-01-01
+        // ($1.50 / $0.15 / $7.50). Thinking bills as output. The "-trial" and "-n" names are
+        // what Antigravity logs for argon and 3.8 flash; they are assumed to bill like them.
+        ["gemini-4-argon"] = new(2, 0.1m, null, 10),
+        ["gemini-4-argon-trial"] = new(2, 0.1m, null, 10),
+        ["gemini-4-carbon"] = new(2, 0.1m, null, 10),
+        ["gemini-4-neon"] = new(3, 0.15m, null, 15),
+        ["gemini-4-hydrogen"] = new(1.5m, 0.075m, null, 7.5m),
+        ["gemini-3.8-flash"] = new(0.75m, 0.075m, null, 3.75m),
+        ["gemini-3.8-flash-n"] = new(0.75m, 0.075m, null, 3.75m),
+        ["gemini-3.6-flash"] = new(0.75m, 0.075m, null, 3.75m),
+        ["gemini-3.5-flash-lite"] = new(0.3m, 0.03m, null, 2.5m),
+        ["gemini-3.1-pro-preview"] = new(2, 0.2m, null, 12, 200_000, new(4, 0.4m, null, 18)),
+        ["gemini-3.1-flash-lite"] = new(0.25m, 0.025m, null, 1.5m),
+        ["gemini-3-flash-preview"] = new(0.5m, 0.05m, null, 3),
     };
 
     /// <summary>

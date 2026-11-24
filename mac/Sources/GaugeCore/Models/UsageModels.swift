@@ -75,8 +75,8 @@ public enum ToolKind: String, Codable, CaseIterable, Sendable, Identifiable {
         }
     }
 
-    /// Whether the tool's CLI writes local session logs the API-equivalent cost reads.
-    public var hasLocalCostLogs: Bool { self == .claude || self == .codex }
+    /// Whether the tool writes local session logs or conversation databases the API-equivalent cost reads.
+    public var hasLocalCostLogs: Bool { self == .claude || self == .codex || self == .antigravity }
 }
 
 public enum SignInMethod: Sendable, Hashable {

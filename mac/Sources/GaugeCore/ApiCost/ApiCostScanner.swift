@@ -11,7 +11,7 @@ import Foundation
 ///
 /// Synchronous and blocking by design — `ApiCostService` runs it off the cooperative pool.
 public struct ApiCostScanner: Sendable {
-    public enum LogKind: Sendable { case claude, codex }
+    public enum LogKind: Sendable { case claude, codex, antigravity }
 
     /// Where one tool's logs live. Roots that do not exist are simply empty.
     public struct LogSource: Sendable {
@@ -79,6 +79,12 @@ public struct ApiCostScanner: Sendable {
             LogSource(tool: .claude, kind: .claude, roots: claudeRoots),
             LogSource(tool: .codex, kind: .codex,
                       roots: [codexHome.appending(path: "sessions"), codexHome.appending(path: "archived_sessions")]),
+            // Antigravity keeps one SQLite database per conversation; the IDE and its CLI
+            // each have their own data folder under ~/.gemini.
+            LogSource(tool: .antigravity, kind: .antigravity,
+                      roots: ["antigravity", "antigravity-cli", "antigravity-crew"].map {
+                          home.appending(path: ".gemini/\($0)/conversations")
+                      }),
         ]
     }
 
@@ -94,7 +100,7 @@ public struct ApiCostScanner: Sendable {
         let selected = sources.filter { tools.contains($0.tool) }
 
         sourceLoop: for source in selected {
-            let files = source.roots.flatMap(Self.enumerate).sorted { $0.lastWriteMs > $1.lastWriteMs }
+            let files = source.roots.flatMap { Self.enumerate($0, pathExtension: source.kind == .antigravity ? "db" : "jsonl") }.sorted { $0.lastWriteMs > $1.lastWriteMs }
             let present = Set(files.map(\.path))
             // Ledger entries whose file is gone: candidates for a file that moved (Codex
             // moves a rollout into archived_sessions when a thread is archived, keeping its
@@ -112,6 +118,13 @@ public struct ApiCostScanner: Sendable {
                     // metadata the next scan re-reads anyway, so stop and report incomplete.
                     complete = false
                     break sourceLoop
+                }
+                if source.kind == .antigravity {
+                    if try !scanConversation(ledger, source, file, oldestDay, context.started, isCancelled) {
+                        complete = false
+                        break sourceLoop
+                    }
+                    continue
                 }
                 adoptIfMoved(ledger, file, &vanished, oldestDay)
                 let (read, finished) = try scanFile(ledger, source, file, oldestDay, &context, isCancelled)
@@ -298,6 +311,58 @@ public struct ApiCostScanner: Sendable {
         return (read, !outOfBudget)
     }
 
+    // One Antigravity conversation database. The IDE appends to the write-ahead log and
+    // only checkpoints into the main file occasionally, so change detection looks at both.
+    // parsedBytes holds the next call index to read and fingerprint the conversation's own id
+    // (a database header changes on every write, so a byte hash cannot serve as identity).
+    // Reads are a few KB per call, so they do not draw on the byte budget.
+    // Reads are a few KB per call, so they do not draw on the byte budget; the time limit and
+    // cancellation are checked between batches instead. Returns false when it stopped at the
+    // time limit with calls left, which the next scan resumes from the saved index.
+    private func scanConversation(_ ledger: ApiCostLedger, _ source: LogSource, _ file: LogFile, _ oldestDay: String,
+                                  _ started: TimeInterval, _ isCancelled: () -> Bool) throws -> Bool {
+        let path = file.path
+        let wal = Self.attributes(path + "-wal")
+        let length = file.length + (wal?.length ?? 0)
+        let lastWriteMs = max(file.lastWriteMs, wal?.lastWriteMs ?? 0)
+        var state = ledger.files[path]
+        if let state, state.length == length && state.lastWriteMs == lastWriteMs { return true }
+        if state == nil && isBeforeWindow(file, oldestDay) { return true }
+
+        // Unreadable now (the IDE holding it): try again next scan, keeping what is counted.
+        guard let identity = AntigravityConversationReader.identity(path: path) else { return true }
+        if let known = state, known.fingerprint != identity {
+            ledger.forget(path)
+            state = nil
+        }
+        let entry = state ?? ApiCostLedger.FileState(tool: source.tool.rawValue, fingerprint: identity, fingerprintLength: 0)
+        ledger.files[path] = entry
+        while true {
+            if isCancelled() { throw CancellationError() }
+            guard let result = AntigravityConversationReader.read(
+                path: path, afterIdx: entry.parsedBytes - 1, fallback: Date(timeIntervalSince1970: TimeInterval(file.lastWriteMs) / 1000))
+            else { return true }
+            for record in result.records {
+                let day = dayKey(record.timestamp)
+                if day < oldestDay { continue }
+                ledger.add(path: path, file: entry, key: record.key, day: day, model: record.model, tokens: record.tokens,
+                           longContext: ApiCostPricing.isLongContext(record.model, record.tokens))
+            }
+            entry.parsedBytes = result.lastIdx + 1
+            if !result.hasMore { break }
+            if clock.now() - started > Self.maxDurationPerScan { return false }
+        }
+        entry.length = length
+        entry.lastWriteMs = lastWriteMs
+        return true
+    }
+
+    static func attributes(_ path: String) -> (length: Int64, lastWriteMs: Int64)? {
+        guard let values = try? URL(filePath: path).resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+              let size = values.fileSize, let modified = values.contentModificationDate else { return nil }
+        return (Int64(size), Int64((modified.timeIntervalSince1970 * 1000).rounded(.down)))
+    }
+
     private func isBeforeWindow(_ file: LogFile, _ oldestDay: String) -> Bool {
         dayKey(Date(timeIntervalSince1970: TimeInterval(file.lastWriteMs) / 1000)) < oldestDay
     }
@@ -316,12 +381,12 @@ public struct ApiCostScanner: Sendable {
     // The enumerator's prefetched size and modification date are what the scan uses, so a
     // file deleted afterwards (Claude Code's session cleanup) cannot throw; an unreadable
     // subfolder is skipped (the error handler continues) instead of emptying the whole list.
-    static func enumerate(_ root: URL) -> [LogFile] {
+    static func enumerate(_ root: URL, pathExtension: String = "jsonl") -> [LogFile] {
         let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
         guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
                                                               errorHandler: { _, _ in true }) else { return [] }
         var files: [LogFile] = []
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+        for case let url as URL in enumerator where url.pathExtension == pathExtension {
             guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
                   let size = values.fileSize, size > 0, let modified = values.contentModificationDate else { continue }
             files.append(LogFile(path: url.path(percentEncoded: false), length: Int64(size),

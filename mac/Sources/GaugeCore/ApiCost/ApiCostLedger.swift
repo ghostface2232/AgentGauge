@@ -14,7 +14,7 @@ final class ApiCostLedger: Codable {
     // row is filed in the standard tier, so responses scanned before a model with a tier
     // was priced would stay there. Bump whenever a newly priced model carries a
     // long-context tier; a mismatched ledger is rebuilt from the logs.
-    static let currentVersion = 6
+    static let currentVersion = 7
 
     /// Days kept: the current month, however long, plus the whole previous one.
     static let retentionDays = 62
