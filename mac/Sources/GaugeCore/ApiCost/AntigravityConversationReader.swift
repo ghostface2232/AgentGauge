@@ -30,16 +30,21 @@ enum AntigravityConversationReader {
         return String(cString: text)
     }
 
-    /// Calls with an index above `afterIdx`, oldest first, and the highest index seen. Nil
-    /// when the database could not be read right now (the IDE holding it).
-    static func read(path: String, afterIdx: Int64, fallback: Date) -> (records: [UsageLogRecord], lastIdx: Int64)? {
+    /// Calls decoded per read, so a long conversation is consumed in bounded batches.
+    static let batchSize = 500
+
+    /// Up to `batchSize` calls with an index above `afterIdx`, oldest first, the highest index
+    /// seen, and whether more rows remain. Nil when the database could not be read right now
+    /// (the IDE holding it).
+    static func read(path: String, afterIdx: Int64, fallback: Date) -> (records: [UsageLogRecord], lastIdx: Int64, hasMore: Bool)? {
         guard let database = open(path) else { return nil }
         defer { sqlite3_close_v2(database) }
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, "SELECT idx, data FROM gen_metadata WHERE idx > ?1 ORDER BY idx", -1, &statement, nil) == SQLITE_OK
+        guard sqlite3_prepare_v2(database, "SELECT idx, data FROM gen_metadata WHERE idx > ?1 ORDER BY idx LIMIT ?2", -1, &statement, nil) == SQLITE_OK
         else { return nil }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, afterIdx)
+        sqlite3_bind_int64(statement, 2, Int64(batchSize))
 
         var rows: [(idx: Int64, data: Data)] = []
         while true {
@@ -61,7 +66,7 @@ enum AntigravityConversationReader {
             let at = call.lastStep.flatMap { stepTime(database, $0) } ?? fallback
             records.append(UsageLogRecord(timestamp: at, model: call.model, tokens: call.tokens, key: call.requestId))
         }
-        return (records, last)
+        return (records, last, rows.count == batchSize)
     }
 
     private struct Call {

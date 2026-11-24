@@ -125,7 +125,11 @@ public sealed class ApiCostScanner
                 }
                 if (source.Kind == LogKind.Antigravity)
                 {
-                    ScanConversation(ledger, source, info, oldestDay);
+                    if (!ScanConversation(ledger, source, info, oldestDay, started, cancellationToken))
+                    {
+                        complete = false;
+                        break;
+                    }
                     continue;
                 }
                 AdoptIfMoved(ledger, info, vanished, oldestDay);
@@ -331,8 +335,11 @@ public sealed class ApiCostScanner
     // only checkpoints into the main file occasionally, so change detection looks at both.
     // ParsedBytes holds the next call index to read and Fingerprint the conversation's own id
     // (a database header changes on every write, so a byte hash cannot serve as identity).
-    // Reads are a few KB per call, so they do not draw on the byte budget.
-    private void ScanConversation(ApiCostLedger ledger, LogSource source, FileInfo info, string oldestDay)
+    // Reads are a few KB per call, so they do not draw on the byte budget; the time limit and
+    // cancellation are checked between batches instead. Returns false when it stopped at
+    // the time limit with calls left, which the next scan resumes from the saved index.
+    private bool ScanConversation(ApiCostLedger ledger, LogSource source, FileInfo info, string oldestDay,
+        long started, CancellationToken cancellationToken)
     {
         var path = info.FullName;
         var wal = new FileInfo(path + "-wal");
@@ -340,11 +347,11 @@ public sealed class ApiCostScanner
         var lastWrite = new DateTimeOffset(wal.Exists && wal.LastWriteTimeUtc > info.LastWriteTimeUtc
             ? wal.LastWriteTimeUtc : info.LastWriteTimeUtc).ToUnixTimeMilliseconds();
         ledger.Files.TryGetValue(path, out var state);
-        if (state is not null && state.Length == length && state.LastWriteUtcMs == lastWrite) return;
-        if (state is null && IsBeforeWindow(info, oldestDay)) return;
+        if (state is not null && state.Length == length && state.LastWriteUtcMs == lastWrite) return true;
+        if (state is null && IsBeforeWindow(info, oldestDay)) return true;
 
         // Unreadable now (the IDE holding it): try again next scan, keeping what is counted.
-        if (AntigravityConversationReader.ReadIdentity(path) is not { } identity) return;
+        if (AntigravityConversationReader.ReadIdentity(path) is not { } identity) return true;
         if (state is not null && state.Fingerprint != identity)
         {
             ledger.Forget(path);
@@ -352,17 +359,24 @@ public sealed class ApiCostScanner
         }
         state ??= ledger.Files[path] = new ApiCostLedger.FileState { Tool = source.Tool, Fingerprint = identity };
 
-        if (AntigravityConversationReader.Read(path, state.ParsedBytes - 1, new DateTimeOffset(info.LastWriteTimeUtc)) is not { } result) return;
-        foreach (var record in result.Records)
+        while (true)
         {
-            var day = DayKey(record.Timestamp);
-            if (string.CompareOrdinal(day, oldestDay) < 0) continue;
-            ledger.Add(path, state, record.Key, day, record.Model, record.Tokens,
-                ApiCostPricing.IsLongContext(record.Model, record.Tokens));
+            cancellationToken.ThrowIfCancellationRequested();
+            if (AntigravityConversationReader.Read(path, state.ParsedBytes - 1, new DateTimeOffset(info.LastWriteTimeUtc)) is not { } result) return true;
+            foreach (var record in result.Records)
+            {
+                var day = DayKey(record.Timestamp);
+                if (string.CompareOrdinal(day, oldestDay) < 0) continue;
+                ledger.Add(path, state, record.Key, day, record.Model, record.Tokens,
+                    ApiCostPricing.IsLongContext(record.Model, record.Tokens));
+            }
+            state.ParsedBytes = result.LastIdx + 1;
+            if (!result.HasMore) break;
+            if (_time.GetElapsedTime(started) > MaxDurationPerScan) return false;
         }
-        state.ParsedBytes = result.LastIdx + 1;
         state.Length = length;
         state.LastWriteUtcMs = lastWrite;
+        return true;
     }
 
     private bool IsBeforeWindow(FileInfo info, string oldestDay)

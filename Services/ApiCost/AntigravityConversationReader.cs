@@ -40,11 +40,15 @@ public static class AntigravityConversationReader
         }
     }
 
+    /// <summary>Calls decoded per read, so a long conversation is consumed in bounded batches.</summary>
+    public const int BatchSize = 500;
+
     /// <summary>
-    /// Calls with an index above <paramref name="afterIdx"/>, oldest first, and the highest
-    /// index seen. Null when the database could not be read right now (the IDE holding it).
+    /// Up to <see cref="BatchSize"/> calls with an index above <paramref name="afterIdx"/>,
+    /// oldest first, the highest index seen, and whether more rows remain. Null when the
+    /// database could not be read right now (the IDE holding it).
     /// </summary>
-    public static (List<UsageLogRecord> Records, long LastIdx)? Read(string path, long afterIdx, DateTimeOffset fallback)
+    public static (List<UsageLogRecord> Records, long LastIdx, bool HasMore)? Read(string path, long afterIdx, DateTimeOffset fallback)
     {
         try
         {
@@ -52,8 +56,9 @@ public static class AntigravityConversationReader
             var records = new List<UsageLogRecord>();
             var last = afterIdx;
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT idx, data FROM gen_metadata WHERE idx > $after ORDER BY idx";
+            command.CommandText = "SELECT idx, data FROM gen_metadata WHERE idx > $after ORDER BY idx LIMIT $limit";
             command.Parameters.AddWithValue("$after", afterIdx);
+            command.Parameters.AddWithValue("$limit", BatchSize);
             var rows = new List<(long Idx, byte[] Data)>();
             using (var reader = command.ExecuteReader())
             {
@@ -66,7 +71,7 @@ public static class AntigravityConversationReader
                 var at = call.LastStep is { } step ? StepTime(connection, step) ?? fallback : fallback;
                 records.Add(new UsageLogRecord(at, call.Model, call.Tokens, call.RequestId));
             }
-            return (records, last);
+            return (records, last, rows.Count == BatchSize);
         }
         catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException)
         {

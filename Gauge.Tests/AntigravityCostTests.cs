@@ -19,7 +19,7 @@ public sealed class AntigravityCostTests : IDisposable
     public void ReadsTokensModelAndDayFromEachCall()
     {
         CreateConversation(Call(0, "gemini-4-argon-trial", prompt: 10_690, cached: 0, output: 465, stepSeconds: StepSeconds));
-        var (records, last) = AntigravityConversationReader.Read(Database, -1, DateTimeOffset.UnixEpoch)!.Value;
+        var (records, last, _) = AntigravityConversationReader.Read(Database, -1, DateTimeOffset.UnixEpoch)!.Value;
         var record = Assert.Single(records);
         Assert.Equal(0, last);
         Assert.Equal("gemini-4-argon-trial", record.Model);
