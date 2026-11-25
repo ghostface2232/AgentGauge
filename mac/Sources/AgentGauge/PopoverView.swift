@@ -722,13 +722,16 @@ struct UsageRow: View {
             let day = focusedDay ?? hoveredDay
             let dailyCaption = details.dailySegments.first { $0.id == day }?.description
             let caption = dailyCaption ?? hoverText ?? details.reset
+            let hasCaption = !caption.isEmpty
             let trailing = details.pace ?? details.counts
             let countsBelow = details.pace != nil ? details.counts : nil
-            if !caption.isEmpty || trailing != nil {
+            if hasCaption || trailing != nil {
                 HStack(spacing: 8) {
-                    Text(caption)
-                        .contentTransition(.opacity)
-                        .help(caption)
+                    if hasCaption {
+                        Text(caption)
+                            .contentTransition(.opacity)
+                            .help(caption)
+                    }
                     Spacer(minLength: 8)
                     if let pace = details.pace {
                         Text(pace).help(L10n.get("Pace_Tooltip"))

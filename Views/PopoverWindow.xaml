@@ -559,7 +559,7 @@
                                                                 </Grid.ColumnDefinitions>
                                                                 <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                     Text="{Binding CaptionText}" MaxLines="1" TextTrimming="CharacterEllipsis"
-                                                                    ToolTipService.ToolTip="{Binding CaptionText}"
+                                                                    ToolTipService.ToolTip="{Binding CaptionText, Converter={StaticResource EmptyToNull}}"
                                                                     Style="{StaticResource CaptionTextBlockStyle}" />
                                                                 <TextBlock AutomationProperties.AccessibilityView="Raw"
                                                                     Grid.Column="1"
