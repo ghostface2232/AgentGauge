@@ -1,5 +1,6 @@
 using Gauge.Models;
 using Gauge.ViewModels;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
@@ -16,7 +17,7 @@ public sealed class UsageBar : UserControl
     private const double TrackHeight = 8;
     private const double SegmentGap = 2;
     private readonly Canvas _canvas = new();
-    private readonly ToolTip _tooltip = new();
+    private readonly Brush _hitAreaBrush = new SolidColorBrush(Colors.Transparent);
     private int _selected = -1;
 
     public UsageBar()
@@ -31,7 +32,6 @@ public sealed class UsageBar : UserControl
         LostFocus += (_, _) => SelectSegment(-1);
         Unloaded += (_, _) => SelectSegment(-1);
         DataContextChanged += (_, _) => UpdateDescription();
-        ToolTipService.SetToolTip(this, _tooltip);
     }
 
     public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(
@@ -100,6 +100,7 @@ public sealed class UsageBar : UserControl
                 AddTrack(x + leading, width - leading - trailing, Fill, opacity,
                     new CornerRadius(i == 0 ? 4 : 2, last && unattributedGap < 0.01 ? 4 : 2,
                         last && unattributedGap < 0.01 ? 4 : 2, i == 0 ? 4 : 2));
+                AddSegmentToolTip(x, width, segment.Description);
                 x += width;
             }
             // The provider's total still determines the fill. Only measured dates get hit targets.
@@ -120,6 +121,19 @@ public sealed class UsageBar : UserControl
         Canvas.SetLeft(border, x);
         Canvas.SetTop(border, Math.Max(0, (ActualHeight - TrackHeight) / 2));
         _canvas.Children.Add(border);
+    }
+
+    private void AddSegmentToolTip(double x, double width, string? description)
+    {
+        if (width <= 0 || string.IsNullOrWhiteSpace(description)) return;
+
+        var hitArea = new Border
+        {
+            Width = width, Height = ActualHeight, Background = _hitAreaBrush,
+        };
+        Canvas.SetLeft(hitArea, x);
+        ToolTipService.SetToolTip(hitArea, description);
+        _canvas.Children.Add(hitArea);
     }
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs args)
@@ -162,7 +176,6 @@ public sealed class UsageBar : UserControl
         var segment = Segments is { } segments && _selected >= 0 && _selected < segments.Count ? segments[_selected] : null;
         var description = segment?.Description;
         (DataContext as UsageWindowRowViewModel)?.HoverDailySegment(description);
-        _tooltip.Content = description;
         AutomationProperties.SetName(this, description ?? string.Join(". ",
             Segments?.Select(item => item.Description) ?? []));
     }
