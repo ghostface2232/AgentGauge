@@ -16,11 +16,12 @@ protocol AntigravityReader: Sendable {
 }
 
 /// Reads usage from Antigravity's local language server. There is no public usage endpoint
-/// and no Gauge-readable credential: the data comes from the engine the app runs (attach) or,
-/// with the app closed, from an engine Gauge launches itself (delegate), which authenticates
-/// with the login on disk. Process discovery, the loopback Connect transport, the delegate
-/// engine's lifecycle and parsing all stay behind this provider; callers see only a
-/// normalized `UsageSnapshot`.
+/// and no Gauge-readable credential: the data comes from an engine Gauge launches itself
+/// (delegate), which authenticates with the login on disk. The app's own engine is not read:
+/// from 2.35 the app deliberately keeps its CSRF token out of the process table, so attaching
+/// would mean defeating that protection. The loopback Connect transport, the engine's
+/// lifecycle and parsing all stay behind this provider; callers see only a normalized
+/// `UsageSnapshot`.
 ///
 /// Failure handling follows the coordinator's contract: not installed is a clean empty
 /// snapshot; every other unusable outcome throws so the last good snapshot is preserved.
@@ -41,10 +42,7 @@ public struct AntigravityProvider: UsageProvider {
     init(searchRoots: [URL], cli: (any AntigravityCLIReading)?) {
         let client = AntigravityLoopbackClient()
         let locate: @Sendable () -> AntigravityInstall? = { AntigravityInstall.locate(in: searchRoots) }
-        readers = [
-            AntigravityAttachReader(locate: locate, client: client),
-            AntigravityDelegateReader(locate: locate, client: client),
-        ]
+        readers = [AntigravityDelegateReader(locate: locate, client: client)]
         isInstalled = { locate()?.hasEngine == true }
         now = { Date() }
         self.cli = cli
@@ -144,38 +142,7 @@ private struct AntigravityCLIReader: AntigravityCLIReading {
     }
 }
 
-/// Reads usage from a running Antigravity app by attaching to its language server(s). Several
-/// may run, but they share one account, so each is queried and the richest response — the
-/// one parsing into the most windows — is kept, guarding against one still warming up.
-struct AntigravityAttachReader: AntigravityReader {
-    let locate: @Sendable () -> AntigravityInstall?
-    let client: AntigravityLoopbackClient
-
-    func reading() async throws -> AntigravityReading? {
-        var readings: [AntigravityReading] = []
-        for server in AntigravityProcessDiscovery(install: locate()).discover() where !server.ports.isEmpty {
-            if let reading = try await client.reading(ports: server.ports, csrfToken: server.csrfToken) {
-                readings.append(reading)
-            }
-        }
-        return Self.richest(readings)
-    }
-
-    static func richest(_ readings: [AntigravityReading]) -> AntigravityReading? {
-        var best: AntigravityReading?
-        var bestCount = -1
-        for reading in readings {
-            let count = (try? AntigravityQuotaParser.windows(from: reading.quotaJSON).count) ?? 0
-            if count > bestCount {
-                best = reading
-                bestCount = count
-            }
-        }
-        return best
-    }
-}
-
-/// Reads usage by launching the engine itself (delegate mode) when no app engine answered.
+/// Reads usage by launching the engine itself (delegate mode).
 /// The host is created once so its gate serializes every delegate read of this provider.
 struct AntigravityDelegateReader: AntigravityReader {
     private let locate: @Sendable () -> AntigravityInstall?

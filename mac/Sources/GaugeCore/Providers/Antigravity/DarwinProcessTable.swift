@@ -11,8 +11,8 @@ struct ProcessArguments: Equatable {
     var environment: [String]?
 }
 
-/// Read-only process inspection through libproc and sysctl, so discovery never spawns `ps`
-/// or `lsof` on every refresh. Every call tolerates a process that exits mid-read (or one we
+/// Read-only process inspection through libproc and sysctl, so the delegate engine host never
+/// spawns `ps` or `lsof` on every refresh. Every call tolerates a process that exits mid-read (or one we
 /// may not inspect) by returning nil/empty rather than throwing.
 enum DarwinProcessTable {
     static func allPIDs() -> [pid_t] {

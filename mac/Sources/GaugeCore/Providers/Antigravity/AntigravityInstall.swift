@@ -52,14 +52,6 @@ struct AntigravityInstall: Sendable, Equatable {
         ProviderText.normalize(Self.infoPlist(bundle)?["CFBundleShortVersionString"] as? String)
     }
 
-    /// Whether an executable path lies inside this bundle. Both sides are symlink-resolved and
-    /// compared by path components, so `/Applications/Antigravity.app.bak/…` does not match.
-    func contains(_ executablePath: String) -> Bool {
-        let root = bundle.resolvingSymlinksInPath().standardizedFileURL.pathComponents
-        let path = URL(fileURLWithPath: executablePath).resolvingSymlinksInPath().standardizedFileURL.pathComponents
-        return path.count > root.count && Array(path.prefix(root.count)) == root
-    }
-
     private static func infoPlist(_ bundle: URL) -> [String: Any]? {
         let url = bundle.appending(path: "Contents/Info.plist", directoryHint: .notDirectory)
         guard let data = try? Data(contentsOf: url) else { return nil }

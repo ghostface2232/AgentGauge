@@ -37,7 +37,7 @@ private final class FakeReader: AntigravityReader, @unchecked Sendable {
     }
 }
 
-/// Orchestration for `AntigravityProvider`: attach first then delegate, the not-installed empty
+/// Orchestration for `AntigravityProvider`: the engine read, the not-installed empty
 /// result, and the failures that preserve the coordinator's cache.
 final class AntigravityProviderTests: XCTestCase {
     func testSkippedBackgroundCLIReadKeepsTheLastSuccessfulState() async throws {
@@ -120,8 +120,8 @@ final class AntigravityProviderTests: XCTestCase {
     }
 
     func testNotInstalledReturnsCleanEmptySnapshotWithoutReading() async throws {
-        let attach = FakeReader(AntigravityReading(quotaJSON: fourWindows, plan: "Pro"))
-        let provider = AntigravityProvider(readers: [attach], isInstalled: { false })
+        let engine = FakeReader(AntigravityReading(quotaJSON: fourWindows, plan: "Pro"))
+        let provider = AntigravityProvider(readers: [engine], isInstalled: { false })
 
         let outcome = try await provider.fetch(.background)
 
@@ -130,13 +130,12 @@ final class AntigravityProviderTests: XCTestCase {
         XCTAssertEqual(outcome.snapshot.tool, .antigravity)
         XCTAssertFalse(outcome.signedIn)
         XCTAssertFalse(outcome.isLive)
-        XCTAssertFalse(attach.wasCalled)
+        XCTAssertFalse(engine.wasCalled)
     }
 
-    func testAttachProducesWindowsAndPlanWithoutFallingBackToDelegate() async throws {
-        let attach = FakeReader(AntigravityReading(quotaJSON: fourWindows, plan: "Pro"))
-        let delegate = FakeReader(nil)
-        let provider = AntigravityProvider(readers: [attach, delegate], isInstalled: { true })
+    func testEngineReadProducesWindowsAndPlan() async throws {
+        let engine = FakeReader(AntigravityReading(quotaJSON: fourWindows, plan: "Pro"))
+        let provider = AntigravityProvider(readers: [engine], isInstalled: { true })
 
         let outcome = try await provider.fetch(.background)
 
@@ -144,23 +143,10 @@ final class AntigravityProviderTests: XCTestCase {
         XCTAssertTrue(outcome.isLive)
         XCTAssertEqual(outcome.snapshot.plan, "Pro")
         XCTAssertEqual(outcome.snapshot.windows.map(\.id), ["gemini-weekly", "gemini-5h", "3p-weekly", "3p-5h"])
-        XCTAssertFalse(delegate.wasCalled)
-    }
-
-    func testFallsBackToDelegateWhenAttachFindsNothing() async throws {
-        let attach = FakeReader(nil)
-        let delegate = FakeReader(AntigravityReading(quotaJSON: oneWindow, plan: nil))
-        let provider = AntigravityProvider(readers: [attach, delegate], isInstalled: { true })
-
-        let outcome = try await provider.fetch(.user)
-
-        XCTAssertTrue(attach.wasCalled)
-        XCTAssertTrue(delegate.wasCalled)
-        XCTAssertEqual(outcome.snapshot.windows.map(\.id), ["gemini-5h"])
     }
 
     func testInstalledButNoEngineReachableThrowsToPreserveCache() async {
-        let provider = AntigravityProvider(readers: [FakeReader(nil), FakeReader(nil)], isInstalled: { true })
+        let provider = AntigravityProvider(readers: [FakeReader(nil)], isInstalled: { true })
         do {
             _ = try await provider.fetch(.background)
             XCTFail("expected a failure")
@@ -178,17 +164,6 @@ final class AntigravityProviderTests: XCTestCase {
         } catch {
             XCTAssertTrue(error is AntigravityUnavailableError)
         }
-    }
-
-    func testRichestKeepsTheResponseWithMostWindows() {
-        let richest = AntigravityReading(quotaJSON: fourWindows, plan: "rich")
-        let readings = [
-            AntigravityReading(quotaJSON: oneWindow, plan: nil),
-            richest,
-            AntigravityReading(quotaJSON: Data(#"{ "response": { "groups": [] } }"#.utf8), plan: nil),
-        ]
-        XCTAssertEqual(AntigravityAttachReader.richest(readings), richest)
-        XCTAssertNil(AntigravityAttachReader.richest([]))
     }
 
     func testNotInstalledWhenNoBundleUnderTheSearchRoots() async throws {
