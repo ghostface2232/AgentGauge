@@ -80,35 +80,59 @@ final class AntigravityProcessMatchTests: XCTestCase {
 
     func testAcceptsCurrentAndLegacyServerNamesInsideTheBundle() {
         let withToken = AntigravityCommandLine(["--standalone", "--csrf_token", "abc"])
-        XCTAssertTrue(AntigravityProcessMatch.isCandidate(executablePath: engine, install: install, commandLine: withToken))
+        XCTAssertTrue(AntigravityProcessMatch.isCandidate(executablePath: engine, install: install, commandLine: withToken, environment: nil))
         XCTAssertTrue(AntigravityProcessMatch.isCandidate(
             executablePath: "/Applications/Antigravity.app/Contents/Resources/bin/language_server_macos_arm",
-            install: install, commandLine: withToken))
+            install: install, commandLine: withToken, environment: nil))
     }
 
     func testRejectsServersWithoutTokenOutsideTheBundleOrWithOtherNames() {
         let withToken = AntigravityCommandLine(["--csrf_token", "abc"])
         XCTAssertFalse(AntigravityProcessMatch.isCandidate(executablePath: engine, install: install,
-                                                           commandLine: AntigravityCommandLine(["--standalone"])))
+                                                           commandLine: AntigravityCommandLine(["--standalone"]), environment: nil))
         XCTAssertFalse(AntigravityProcessMatch.isCandidate(executablePath: engine, install: install,
-                                                           commandLine: AntigravityCommandLine(["--csrf_token", " "])))
+                                                           commandLine: AntigravityCommandLine(["--csrf_token", " "]), environment: nil))
         for path in ["/usr/local/bin/language_server", "/Applications/Other.app/Contents/Resources/bin/language_server",
                      "/Applications/Antigravity.app/Contents/MacOS/Antigravity", "/X/notlanguage_server", "", nil] as [String?] {
-            XCTAssertFalse(AntigravityProcessMatch.isCandidate(executablePath: path, install: install, commandLine: withToken),
+            XCTAssertFalse(AntigravityProcessMatch.isCandidate(executablePath: path, install: install, commandLine: withToken, environment: nil),
                            path ?? "nil")
         }
         // Install not located: name + token is enough; a real server is not rejected outright.
         XCTAssertTrue(AntigravityProcessMatch.isCandidate(executablePath: "/anywhere/language_server", install: nil,
-                                                          commandLine: withToken))
+                                                          commandLine: withToken, environment: nil))
     }
 
     func testDiscoveryReadsTheTokenFromArgvAfterTheProgramName() {
         let candidate = AntigravityProcessCandidate(
-            pid: 1, executablePath: engine, arguments: [engine, "--csrf_token", "tok", "--https_server_port", "0"])
+            pid: 1, executablePath: engine, arguments: [engine, "--csrf_token", "tok", "--https_server_port", "0"], environment: nil)
         XCTAssertEqual(AntigravityProcessDiscovery.token(for: candidate, install: install), "tok")
         // argv[0] alone is not a flag/value pair.
-        let bare = AntigravityProcessCandidate(pid: 1, executablePath: engine, arguments: ["--csrf_token"])
+        let bare = AntigravityProcessCandidate(pid: 1, executablePath: engine, arguments: ["--csrf_token"], environment: nil)
         XCTAssertNil(AntigravityProcessDiscovery.token(for: bare, install: install))
+    }
+
+    func testDiscoveryReadsTheTokenFromTheEnvironmentWhenArgvHasNone() {
+        // Antigravity 2.35's argv: no --csrf_token, the token is in the environment.
+        let arguments = [engine, "--standalone", "--https_server_port", "0", "--read_host_bridge_token_from_stdin"]
+        let current = AntigravityProcessCandidate(
+            pid: 1, executablePath: engine, arguments: arguments,
+            environment: ["HOME=/Users/me", "ANTIGRAVITY_SERVER_CSRF_TOKEN=env-tok"])
+        XCTAssertEqual(AntigravityProcessDiscovery.token(for: current, install: install), "env-tok")
+        // The flag still wins when an older build passes both.
+        let both = AntigravityProcessCandidate(
+            pid: 1, executablePath: engine, arguments: arguments + ["--csrf_token", "argv-tok"],
+            environment: ["ANTIGRAVITY_SERVER_CSRF_TOKEN=env-tok"])
+        XCTAssertEqual(AntigravityProcessDiscovery.token(for: both, install: install), "argv-tok")
+        for environment in [nil, [], ["ANTIGRAVITY_SERVER_CSRF_TOKEN= "], ["ANTIGRAVITY_SERVER_CSRF_TOKEN_FILE=x"]] as [[String]?] {
+            let candidate = AntigravityProcessCandidate(pid: 1, executablePath: engine, arguments: arguments,
+                                                        environment: environment)
+            XCTAssertNil(AntigravityProcessDiscovery.token(for: candidate, install: install), "\(environment ?? ["nil"])")
+        }
+        // A token in the environment does not make a process outside the bundle a candidate.
+        let outside = AntigravityProcessCandidate(
+            pid: 1, executablePath: "/usr/local/bin/language_server", arguments: arguments,
+            environment: ["ANTIGRAVITY_SERVER_CSRF_TOKEN=env-tok"])
+        XCTAssertNil(AntigravityProcessDiscovery.token(for: outside, install: install))
     }
 
     func testBuildsLaunchArgumentsMatchingTheAppWithOurTokenAndRandomPort() {

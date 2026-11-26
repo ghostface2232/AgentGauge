@@ -1,8 +1,8 @@
 import Foundation
 
-/// A language server's argv and the named flags read from it. Antigravity's engine carries
-/// what Gauge needs to talk to it — the CSRF token — as a `--flag value` pair (Go's flag
-/// package also accepts `--flag=value`, so both are read).
+/// A language server's argv and the named flags read from it. Builds before 2.35 carry the
+/// CSRF token as a `--flag value` pair (Go's flag package also accepts `--flag=value`, so
+/// both are read).
 ///
 /// The token is a secret: `description` masks it, so the value is available through
 /// `value(of:)` for immediate use but never leaks into a logged command line.
@@ -51,14 +51,25 @@ struct AntigravityCommandLine: CustomStringConvertible, Sendable {
 /// Decides whether a running process is an Antigravity language server worth talking to. The
 /// binary name has varied across builds (`language_server`, `language_server_macos_arm`), so
 /// the name is matched by prefix. Two further checks reject look-alikes: the executable must
-/// sit inside the Antigravity bundle (when it was located), and it must carry a
-/// `--csrf_token` — without one the server answers 401 and is useless anyway.
+/// sit inside the Antigravity bundle (when it was located), and it must carry a CSRF token —
+/// without one the server answers 401 and is useless anyway.
 enum AntigravityProcessMatch {
-    static func isCandidate(executablePath: String?, install: AntigravityInstall?, commandLine: AntigravityCommandLine) -> Bool {
+    /// Antigravity 2.35 stopped passing `--csrf_token` and hands the engine its token in this
+    /// environment variable instead; older builds still use the flag, so both are read.
+    static let csrfTokenEnvironmentKey = "ANTIGRAVITY_SERVER_CSRF_TOKEN"
+
+    static func isCandidate(executablePath: String?, install: AntigravityInstall?,
+                            commandLine: AntigravityCommandLine, environment: [String]?) -> Bool {
         guard let executablePath, !executablePath.isEmpty, isLanguageServerName(executablePath) else { return false }
         // Install not located: fall back to name + token rather than reject a real server.
         if let install, !install.contains(executablePath) { return false }
-        return ProviderText.normalize(commandLine.value(of: "--csrf_token")) != nil
+        return csrfToken(commandLine: commandLine, environment: environment) != nil
+    }
+
+    static func csrfToken(commandLine: AntigravityCommandLine, environment: [String]?) -> String? {
+        if let token = ProviderText.normalize(commandLine.value(of: "--csrf_token")) { return token }
+        let prefix = csrfTokenEnvironmentKey + "="
+        return ProviderText.normalize(environment?.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) })
     }
 
     static func isLanguageServerName(_ executablePath: String) -> Bool {

@@ -21,9 +21,10 @@ import Foundation
 /// - A per-spawn random environment marker is inherited by every descendant; after the group
 ///   is gone, same-user processes started since the spawn that still carry that exact marker
 ///   (a sidecar that left the group with `setsid`) are killed. The marker and start time are
-///   re-read immediately before each signal. This sweep is best-effort: recent macOS
-///   releases (verified on 27) no longer expose another process's environment, so there it
-///   finds nothing and the first two bounds are what hold.
+///   re-read immediately before each signal. This sweep is best-effort: it relies on
+///   KERN_PROCARGS2 returning a same-user process's environment, which macOS 27.2 does (the
+///   attach path reads Antigravity 2.35's token the same way) but which the kernel may omit,
+///   and then the first two bounds are what hold.
 /// Residual risk: a descendant that both leaves the process group and scrubs its environment
 /// cannot be identified, and on a hard kill of AgentGauge a sidecar that ignores its parent's
 /// exit outlives it. The engine started no sidecars during a quota read when verified live.

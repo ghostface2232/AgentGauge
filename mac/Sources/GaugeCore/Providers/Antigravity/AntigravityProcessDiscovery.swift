@@ -16,13 +16,15 @@ struct AntigravityProcessCandidate: Sendable {
     let pid: pid_t
     let executablePath: String
     let arguments: [String]
+    /// Nil when the kernel reported no environment, which is not the same as an empty one.
+    let environment: [String]?
 }
 
 /// Finds the language servers the running Antigravity app started: every same-user process
 /// whose executable name starts with `language_server`, lies inside the Antigravity bundle and
-/// carries a `--csrf_token`. The (privacy-sensitive) argv is read only for processes whose
-/// executable already passed the name check, and the listening ports come from the kernel's
-/// socket table for that PID.
+/// carries a CSRF token (in argv or, from 2.35, its environment). The (privacy-sensitive)
+/// argv and environment are read only for processes whose executable already passed the name
+/// check, and the listening ports come from the kernel's socket table for that PID.
 ///
 /// PIDs are reused, so the process's start time is read before its argv and again after its
 /// ports: a PID that changed hands mid-scan is dropped instead of being sent the token.
@@ -40,7 +42,8 @@ struct AntigravityProcessDiscovery: Sendable {
                   DarwinProcessTable.uid(pid) == ownUID,
                   let started = DarwinProcessTable.startTime(pid),
                   let argv = DarwinProcessTable.arguments(pid) else { continue }
-            let candidate = AntigravityProcessCandidate(pid: pid, executablePath: path, arguments: argv.arguments)
+            let candidate = AntigravityProcessCandidate(
+                pid: pid, executablePath: path, arguments: argv.arguments, environment: argv.environment)
             guard let token = Self.token(for: candidate, install: install) else { continue }
             let ports = DarwinProcessTable.loopbackListeningPorts(pid)
             guard DarwinProcessTable.startTime(pid) == started else { continue }
@@ -54,7 +57,8 @@ struct AntigravityProcessDiscovery: Sendable {
     static func token(for candidate: AntigravityProcessCandidate, install: AntigravityInstall?) -> String? {
         let commandLine = AntigravityCommandLine(Array(candidate.arguments.dropFirst()))
         guard AntigravityProcessMatch.isCandidate(
-            executablePath: candidate.executablePath, install: install, commandLine: commandLine) else { return nil }
-        return ProviderText.normalize(commandLine.value(of: "--csrf_token"))
+            executablePath: candidate.executablePath, install: install,
+            commandLine: commandLine, environment: candidate.environment) else { return nil }
+        return AntigravityProcessMatch.csrfToken(commandLine: commandLine, environment: candidate.environment)
     }
 }
