@@ -176,7 +176,10 @@ public sealed partial class ToolCardViewModel : ObservableObject
     // One chip: the blue balance, which the expiry warning replaces in place once it applies.
     public bool ShowResetBalanceChip => HasResetBalance && !HasResetCreditWarning;
 
-    public bool ShowHeaderChipLabels => !(HasApiCost && HasServiceStatus && (HasResetCreditWarning || HasResetBalance));
+    // The header's left run does not trim, so a labelled reset chip clips what ends it: the
+    // refresh-failed badge, which matters more than the chip's wording.
+    public bool ShowHeaderChipLabels => !((HasResetCreditWarning || HasResetBalance)
+        && (HasServiceStatus || (HasApiCost && ShowsRefreshIssueBadge)));
 
     public string WarningResetCreditsText => ShowHeaderChipLabels
         ? Loc.Format("ResetCredit_Label", ResetCreditRemaining) : ResetCreditRemaining;
@@ -250,7 +253,8 @@ public sealed partial class ToolCardViewModel : ObservableObject
     }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowsSignIn), nameof(ShowsStatusText))]
+    [NotifyPropertyChangedFor(nameof(ShowsSignIn), nameof(ShowsStatusText), nameof(ShowsStaleSignIn))]
+    [NotifyPropertyChangedFor(nameof(ShowsRefreshIssueBadge), nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
     public partial bool HasAnyData { get; set; }
 
     /// <summary>
@@ -258,11 +262,18 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// same login (and shares its running state) instead of a dead "no data" line.
     /// </summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowsSignIn), nameof(ShowsStatusText))]
+    [NotifyPropertyChangedFor(nameof(ShowsSignIn), nameof(ShowsStatusText), nameof(ShowsStaleSignIn))]
+    [NotifyPropertyChangedFor(nameof(ShowsRefreshIssueBadge), nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
     public partial AuthenticationCardViewModel? SignIn { get; set; }
 
     public bool ShowsSignIn => !HasAnyData && SignIn?.NeedsSignIn == true;
     public bool ShowsStatusText => !HasAnyData && !ShowsSignIn;
+
+    /// <summary>
+    /// A rejected login keeps the last good windows on screen (the server said nothing about
+    /// the usage itself), so the card offers the sign-in on a footer line below them instead.
+    /// </summary>
+    public bool ShowsStaleSignIn => HasAnyData && SignIn?.NeedsSignIn == true;
 
     partial void OnSignInChanged(AuthenticationCardViewModel? oldValue, AuthenticationCardViewModel? newValue)
     {
@@ -276,6 +287,10 @@ public sealed partial class ToolCardViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(ShowsSignIn));
             OnPropertyChanged(nameof(ShowsStatusText));
+            OnPropertyChanged(nameof(ShowsStaleSignIn));
+            OnPropertyChanged(nameof(ShowsRefreshIssueBadge));
+            OnPropertyChanged(nameof(ShowHeaderChipLabels));
+            OnPropertyChanged(nameof(WarningResetCreditsText));
         }
     }
 
@@ -294,7 +309,11 @@ public sealed partial class ToolCardViewModel : ObservableObject
     /// cards stay visually unchanged.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsRefreshIssueBadge), nameof(ShowHeaderChipLabels), nameof(WarningResetCreditsText))]
     public partial bool HasRefreshIssue { get; set; }
+
+    /// <summary>The header's "갱신 실패" badge, left out when the sign-in footer already says why.</summary>
+    public bool ShowsRefreshIssueBadge => HasRefreshIssue && !ShowsStaleSignIn;
 
     /// <summary>
     /// True while a refresh attempt covering this tool is in flight (set from the

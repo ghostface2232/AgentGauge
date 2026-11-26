@@ -360,7 +360,7 @@
                                                 Style="{StaticResource CaptionTextBlockStyle}"
                                                 AutomationProperties.Name="{loc:Localize Key=Tooltip_RefreshIssue}"
                                                 ToolTipService.ToolTip="{loc:Localize Key=Tooltip_RefreshIssue}"
-                                                Visibility="{Binding HasRefreshIssue, Converter={StaticResource BoolToVis}}" />
+                                                Visibility="{Binding ShowsRefreshIssueBadge, Converter={StaticResource BoolToVis}}" />
                                             <!-- Small indeterminate ring while a refresh attempt covering
                                                  this tool is in flight. It lives in the header — not beside
                                                  each row's reset caption — because a refresh is per-tool,
@@ -385,9 +385,10 @@
                                             <!-- Header chip row: right-aligned, so with one chip it
                                                  sits on the header's right edge and with both they
                                                  line up side by side from that edge — the status
-                                                 chip first, the reset chip keeping the edge. When the
-                                                 API-cost caption and the status chip are shown too, the
-                                                 expiry chip keeps just the remaining time. The
+                                                 chip first, the reset chip keeping the edge. Beside the
+                                                 status chip, or beside the API-cost caption and the
+                                                 refresh-failed badge, the reset chip drops its label
+                                                 (ShowHeaderChipLabels). The
                                                  status chip is always icon only; its tooltip and
                                                  automation name carry the full text. MinHeight="16" on each chip's inner
                                                  row is the caption's line height, so an icon-only chip
@@ -712,6 +713,25 @@
                                             <Button Content="{Binding SignIn.SignInButtonText}"
                                                     Command="{Binding SignIn.LoginCommand}" />
                                         </StackPanel>
+                                        <!-- Rejected login with last good windows above: a footer
+                                             line saying updates stopped, with the same sign-in. -->
+                                        <Grid Visibility="{Binding ShowsStaleSignIn, Converter={StaticResource BoolToVis}}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                Foreground="{ThemeResource UsageCautionTextBrush}"
+                                                Text="{loc:Localize Key=Status_SignInPaused}"
+                                                Style="{StaticResource CaptionTextBlockStyle}"
+                                                ToolTipService.ToolTip="{Binding SignIn.StatusText}" />
+                                            <Button
+                                                Grid.Column="1"
+                                                Content="{Binding SignIn.SignInButtonText}"
+                                                Command="{Binding SignIn.LoginCommand}"
+                                                AutomationProperties.HelpText="{Binding SignIn.StatusText}" />
+                                        </Grid>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>

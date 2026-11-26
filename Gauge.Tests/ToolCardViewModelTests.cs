@@ -227,32 +227,47 @@ public sealed class ToolCardViewModelTests
     }
 
     [Fact]
-    public void HeaderChipsDropTheirLabelsOnlyWhenTheApiCostAndBothChipsAreShown()
+    public void ResetChipDropsItsLabelBesideAnIncidentChip()
     {
         var card = new ToolCardViewModel(CachedWithDeadline(36));
         var incident = new ProviderStatus(ToolKind.Codex, ProviderStatusLevel.Major, "Incident", DateTimeOffset.UtcNow);
-        var cost = new ApiCostEstimate("Codex", 2026, 10, 12m, new TokenTotals(1, 0, 0, 0, 1), 0, [], DateTimeOffset.UtcNow);
         var changed = new List<string?>();
         card.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
-
-        // Any two of the three still fit.
-        card.ApplyServiceStatus(incident);
         Assert.True(card.ShowHeaderChipLabels);
 
-        card.ApplyApiCost(cost);
+        card.ApplyServiceStatus(incident);
         Assert.False(card.ShowHeaderChipLabels);
         Assert.Equal("2일", card.WarningResetCreditsText);
         Assert.Contains(nameof(ToolCardViewModel.ShowHeaderChipLabels), changed);
 
-        // Losing any one of them brings the labels back.
         card.Update(CachedWithDeadline(null));
         Assert.True(card.ShowHeaderChipLabels);
         card.Update(CachedWithDeadline(36));
         Assert.False(card.ShowHeaderChipLabels);
+        card.ApplyServiceStatus(incident with { Level = ProviderStatusLevel.Operational });
+        Assert.True(card.ShowHeaderChipLabels);
+    }
+
+    [Fact]
+    public void ResetChipDropsItsLabelWhenTheApiCostAndARefreshFailureAreShown()
+    {
+        var card = new ToolCardViewModel(CachedWithDeadline(36));
+        var cost = new ApiCostEstimate("Codex", 2026, 10, 12m, new TokenTotals(1, 0, 0, 0, 1), 0, [], DateTimeOffset.UtcNow);
+        var changed = new List<string?>();
+        card.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        // Either one alone still fits beside the labelled chip.
+        card.ApplyApiCost(cost);
+        Assert.True(card.ShowHeaderChipLabels);
+        card.Update(CachedWithDeadline(36) with { LastRefreshFailed = true });
+        Assert.False(card.ShowHeaderChipLabels);
+        Assert.Equal("2일", card.WarningResetCreditsText);
+        Assert.Contains(nameof(ToolCardViewModel.ShowHeaderChipLabels), changed);
+
         card.ApplyApiCost(null);
         Assert.True(card.ShowHeaderChipLabels);
         card.ApplyApiCost(cost);
-        card.ApplyServiceStatus(incident with { Level = ProviderStatusLevel.Operational });
+        card.Update(CachedWithDeadline(36));
         Assert.True(card.ShowHeaderChipLabels);
     }
 

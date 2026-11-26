@@ -61,7 +61,37 @@ public sealed class SettingsViewModelTests
 
         Assert.Equal(offered, card.ShowsSignIn);
         Assert.Equal(!offered, card.ShowsStatusText);
+        Assert.False(card.ShowsStaleSignIn);
         Assert.Equal(button, signIn.SignInButtonText);
+    }
+
+    [Theory]
+    [InlineData(AuthenticationStatus.Invalid, true)]
+    [InlineData(AuthenticationStatus.LoginRunning, true)]
+    [InlineData(AuthenticationStatus.Available, false)]
+    public void RejectedLoginKeepsTheWindowsAndOffersSignInBelowThem(AuthenticationStatus status, bool offered)
+    {
+        var signIn = new AuthenticationCardViewModel(new FakeAuthenticationProvider(State(status, "")));
+        var cached = new CachedUsage
+        {
+            ToolName = "Codex",
+            Snapshot = new UsageSnapshot
+            {
+                ToolName = "Codex",
+                CapturedAt = DateTimeOffset.UtcNow,
+                Windows = [new UsageWindow { Type = UsageWindowType.Weekly, Label = "Weekly", UsedRatio = 0.3 }],
+            },
+            LastUpdatedAt = DateTimeOffset.UtcNow,
+            LastRefreshFailed = true,
+        };
+        var card = new ToolCardViewModel(cached) { SignIn = signIn };
+
+        Assert.True(card.HasAnyData);
+        Assert.False(card.ShowsSignIn);
+        Assert.Equal(offered, card.ShowsStaleSignIn);
+        // The footer says why updates stopped, so the header badge stays out of the way.
+        Assert.True(card.HasRefreshIssue);
+        Assert.Equal(!offered, card.ShowsRefreshIssueBadge);
     }
 
     [Fact]

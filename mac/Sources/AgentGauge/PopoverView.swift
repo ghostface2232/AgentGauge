@@ -424,6 +424,7 @@ struct ToolCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if showsStaleSignIn { staleSignIn }
         }
         .padding(Metrics.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -460,9 +461,52 @@ struct ToolCard: View {
         return lines.joined(separator: "\n")
     }
 
+    /// A login that a sign-in from this card would fix. A named Copilot account is re-added in
+    /// Settings instead, so its placeholder offers a retry and it gets no footer.
+    private var needsSignIn: Bool {
+        [.signedOut, .rejected, .unreadable].contains(state.auth)
+            && !(state.account != nil && state.tool == .githubCopilot)
+    }
+
+    private var showsPlaceholder: Bool {
+        windows.isEmpty && ((supplementalUsage.isEmpty && heldResets == 0) || state.lastRefreshFailed)
+    }
+
+    /// A rejected login keeps the last good windows on screen, so the sign-in moves to a
+    /// footer line below them instead of the placeholder.
+    private var showsStaleSignIn: Bool { needsSignIn && !showsPlaceholder }
+
+    private var authMessage: String {
+        if model.signingIn.contains(state.id) { return L10n.get("Account_LoginRunning") }
+        if model.failedAccountSignIns.contains(state.id) { return L10n.get("Account_LoginFailed") }
+        switch state.auth {
+        case .signedOut: return AuthText.missing(state.tool)
+        case .rejected: return AuthText.expired(state.tool)
+        default: return AuthText.readFailed(state.tool)
+        }
+    }
+
+    private var staleSignIn: some View {
+        HStack(spacing: 8) {
+            Text(L10n.get("Status_SignInPaused"))
+                .font(.caption)
+                .foregroundStyle(UsageLevel.caution.tint)
+                .lineLimit(1)
+                .help(authMessage)
+            Spacer(minLength: 8)
+            Button(AuthText.signInAction(state.tool), action: onSignIn)
+                .disabled(!model.canSignIn(state.id))
+                .cardActionStyle()
+                .help(authMessage)
+        }
+    }
+
     private var header: some View {
-        // Three or more header annotations no longer fit with their labels, so the chips go icon-only.
-        let chipLabels = !(apiCost != nil && status != nil && heldResets > 0)
+        // The reset chip goes icon-only beside an incident chip, or beside the API cost and the
+        // refresh-failed icon, where its label would push the name and plan out of the row.
+        let showsRefreshIssue = state.lastRefreshFailed && !showsStaleSignIn
+            && (!windows.isEmpty || !supplementalUsage.isEmpty || heldResets > 0)
+        let chipLabels = !(heldResets > 0 && (status != nil || (apiCost != nil && showsRefreshIssue)))
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             ToolLogoView(tool: state.tool)
                 .foregroundStyle(.primary)
@@ -489,7 +533,7 @@ struct ToolCard: View {
             }
             Spacer(minLength: 6)
             // Both can show at once: stale, but a retry is running.
-            if state.lastRefreshFailed && (!windows.isEmpty || !supplementalUsage.isEmpty || heldResets > 0) {
+            if showsRefreshIssue {
                 Image(systemName: "exclamationmark.arrow.circlepath")
                     .font(.caption)
                     .foregroundStyle(.secondary)

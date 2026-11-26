@@ -28,6 +28,7 @@ internal static class Strings
         ["Tooltip_Refresh"]   = ["새로고침",          "Refresh",           "更新"],
         ["Status_RefreshIssue"] = ["갱신 실패",        "Refresh failed",    "更新失敗"],
         ["Tooltip_RefreshIssue"] = ["갱신하지 못해 이전 값을 보여주고 있어요", "Couldn't refresh · showing the last values", "更新できず、前回の値を表示しています"],
+        ["Status_SignInPaused"] = ["갱신 멈춤",        "Updates paused",    "更新停止中"],
         ["Status_Refreshing"]  = ["새로고침 중…",      "Refreshing…",       "更新中…"],
         ["ServiceStatus_Minor"] = ["서비스 장애", "Service degradation", "サービスの一部障害"],
         ["ServiceStatus_Major"] = ["서비스 장애", "Service outage", "サービス障害"],
