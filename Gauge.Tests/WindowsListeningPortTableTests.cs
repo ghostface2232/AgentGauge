@@ -5,7 +5,7 @@ namespace Gauge.Tests;
 /// <summary>
 /// Row decoding for <see cref="WindowsListeningPortTable"/>: only loopback ports owned by the
 /// target PID are returned, and each is converted from network to host byte order. The native
-/// table read itself is exercised in live attach testing, not here.
+/// table read itself is exercised in live delegate testing, not here.
 /// </summary>
 public sealed class WindowsListeningPortTableTests
 {

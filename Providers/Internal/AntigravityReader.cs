@@ -8,9 +8,8 @@ namespace Gauge.Providers.Internal;
 internal sealed record AntigravityReading(string QuotaJson, string? Plan, bool PlanUnavailable = false);
 
 /// <summary>
-/// A way to read usage from an Antigravity engine. There are two: attaching to a running IDE's
-/// language server, and launching the engine ourselves (delegate). The provider tries them in
-/// order and treats a null result as "this source could not reach an engine — try the next".
+/// A way to read usage from an Antigravity engine: the engine Gauge launches itself (delegate)
+/// or the <c>agy</c> CLI. A null result means "this source could not reach an engine".
 /// </summary>
 internal interface IAntigravityReader
 {

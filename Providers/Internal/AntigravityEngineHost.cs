@@ -4,16 +4,17 @@ using Gauge.Services;
 namespace Gauge.Providers.Internal;
 
 /// <summary>
-/// Runs the Antigravity language server itself when the IDE is closed (delegate mode), so usage
-/// can be refreshed without the app open — the engine authenticates with the login already on
-/// disk, exactly like Claude/Codex delegated refresh, and Gauge never touches those credentials.
+/// Runs the Antigravity language server itself (delegate mode), whether or not the IDE is open,
+/// so usage is read without touching the IDE's own engine — the engine authenticates with the
+/// login already on disk, exactly like Claude/Codex delegated refresh, and Gauge never touches
+/// those credentials.
 ///
 /// The engine is launched suspended, placed under a <see cref="JobObject"/>, then resumed, so it
 /// and every sidecar it spawns belong to a job Gauge can tear down completely — nothing Gauge did
 /// not start is ever at risk. Each read spawns a fresh engine, takes one reading, and tears the
-/// whole tree back down: usage only changes while the IDE is in use (which is attach mode, not
-/// this path), so keeping a language server resident between refreshes would be cost for no
-/// benefit. All access is serialized so two refreshes never spawn competing engines.
+/// whole tree back down: reads are minutes apart (a 10-minute cadence and a 2-minute floor on
+/// popover opens), so a language server kept resident between them would hold its memory for
+/// little gain. All access is serialized so two refreshes never spawn competing engines.
 ///
 /// Returns null — never throws — for ordinary conditions: not installed, signed out, or an engine
 /// that failed to become ready. The caller falls back to its last good snapshot.

@@ -6,9 +6,9 @@ using Gauge.Services;
 namespace Gauge.Tests;
 
 /// <summary>
-/// Orchestration for <see cref="AntigravityProvider"/>: attach-first then delegate, the
-/// not-installed empty result, and the failure semantics that preserve the coordinator's cache.
-/// Plan parsing and richest-response selection are covered alongside.
+/// Orchestration for <see cref="AntigravityProvider"/>: the engine read, the not-installed empty
+/// result, and the failure semantics that preserve the coordinator's cache. Plan parsing is
+/// covered alongside.
 /// </summary>
 public sealed class AntigravityProviderTests
 {
@@ -18,7 +18,7 @@ public sealed class AntigravityProviderTests
         var engine = new FakeReader(new AntigravityReading(OneWindow, "Pro"));
         var cli = new FakeReader(new AntigravityReading(OneWindow, null));
         var engineInstalled = true;
-        var provider = new AntigravityProvider([engine], () => engineInstalled, cli);
+        var provider = new AntigravityProvider(engine, () => engineInstalled, cli);
         var engineSnapshot = await provider.GetSnapshotAsync(default);
         engineInstalled = false;
 
@@ -45,7 +45,7 @@ public sealed class AntigravityProviderTests
     {
         var engine = new FakeReader(new AntigravityReading(OneWindow, "Pro"));
         var cli = new FakeReader(new AntigravityReading(OneWindow, null));
-        using var provider = new AntigravityProvider([engine], () => true, cli);
+        using var provider = new AntigravityProvider(engine, () => true, cli);
         var time = new TestTime();
         using var coordinator = new UsageCoordinator(new UsageService([provider]), time: time);
         UsageState? state = null;
@@ -110,52 +110,34 @@ public sealed class AntigravityProviderTests
     [Fact]
     public async Task NotInstalled_ReturnsEmptySnapshotWithoutReading()
     {
-        var attach = new FakeReader(new AntigravityReading(FourWindows, "Pro"));
-        var provider = new AntigravityProvider(new IAntigravityReader[] { attach }, isInstalled: () => false);
+        var engine = new FakeReader(new AntigravityReading(FourWindows, "Pro"));
+        var provider = new AntigravityProvider(engine, isInstalled: () => false);
 
         var snapshot = await provider.GetSnapshotAsync(default);
 
         Assert.Empty(snapshot.Windows);
         Assert.Null(snapshot.Plan);
-        Assert.False(attach.WasCalled); // not installed short-circuits before any read
+        Assert.False(engine.WasCalled); // not installed short-circuits before any read
     }
 
     [Fact]
-    public async Task Attach_ProducesWindowsAndPlan_WithoutFallingBackToDelegate()
+    public async Task EngineReadProducesWindowsAndPlan()
     {
-        var attach = new FakeReader(new AntigravityReading(FourWindows, "Pro"));
-        var delegateReader = new FakeReader(null);
-        var provider = new AntigravityProvider(new IAntigravityReader[] { attach, delegateReader }, () => true);
+        var engine = new FakeReader(new AntigravityReading(FourWindows, "Pro"));
+        var provider = new AntigravityProvider(engine, () => true);
 
         var snapshot = await provider.GetSnapshotAsync(default);
 
-        Assert.Equal(4, snapshot.Windows.Count);
+        Assert.True(engine.WasCalled);
         Assert.Equal("Pro", snapshot.Plan);
         Assert.Equal("Antigravity", snapshot.ToolName);
         Assert.Equal(new[] { "gemini-weekly", "gemini-5h", "3p-weekly", "3p-5h" }, snapshot.Windows.Select(w => w.Id));
-        Assert.False(delegateReader.WasCalled); // attach succeeded, so delegate is never tried
-    }
-
-    [Fact]
-    public async Task FallsBackToDelegateWhenAttachFindsNothing()
-    {
-        var attach = new FakeReader(null);
-        var delegateReader = new FakeReader(new AntigravityReading(OneWindow, null));
-        var provider = new AntigravityProvider(new IAntigravityReader[] { attach, delegateReader }, () => true);
-
-        var snapshot = await provider.GetSnapshotAsync(default);
-
-        Assert.True(attach.WasCalled);
-        Assert.True(delegateReader.WasCalled);
-        var window = Assert.Single(snapshot.Windows);
-        Assert.Equal("gemini-5h", window.Id);
     }
 
     [Fact]
     public async Task InstalledButNoEngineReachable_ThrowsToPreserveCache()
     {
-        var provider = new AntigravityProvider(
-            new IAntigravityReader[] { new FakeReader(null), new FakeReader(null) }, () => true);
+        var provider = new AntigravityProvider(new FakeReader(null), () => true);
 
         await Assert.ThrowsAsync<AntigravityUnavailableException>(() => provider.GetSnapshotAsync(default));
     }
@@ -164,29 +146,9 @@ public sealed class AntigravityProviderTests
     public async Task AvailabilityOnlyResponseWithNoWindows_ThrowsRatherThanClobberCache()
     {
         var reading = new AntigravityReading("""{ "response": { "groups": [] } }""", "Pro");
-        var provider = new AntigravityProvider(new IAntigravityReader[] { new FakeReader(reading) }, () => true);
+        var provider = new AntigravityProvider(new FakeReader(reading), () => true);
 
         await Assert.ThrowsAsync<AntigravityUnavailableException>(() => provider.GetSnapshotAsync(default));
-    }
-
-    [Fact]
-    public void PickRichest_KeepsTheResponseWithMostWindows()
-    {
-        var richest = new AntigravityReading(FourWindows, null);
-        var readings = new[]
-        {
-            new AntigravityReading(OneWindow, null),
-            richest,
-            new AntigravityReading("""{ "response": { "groups": [] } }""", null),
-        };
-
-        Assert.Same(richest, AntigravityAttachReader.PickRichest(readings));
-    }
-
-    [Fact]
-    public void PickRichest_ReturnsNullForNoReadings()
-    {
-        Assert.Null(AntigravityAttachReader.PickRichest(Array.Empty<AntigravityReading>()));
     }
 
     [Theory]

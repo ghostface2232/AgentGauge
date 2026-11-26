@@ -70,9 +70,6 @@
          whose Register() fails under our self-contained deployment (WindowsAppSDK #6071). -->
     <PackageReference Include="CommunityToolkit.WinUI.Notifications" Version="7.1.2" />
     <PackageReference Include="H.NotifyIcon.WinUI" Version="2.4.1" />
-    <!-- WMI (Win32_Process) to read the Antigravity language server's command line for
-         attach-mode discovery: its PID, CSRF token, and randomized port live there. -->
-    <PackageReference Include="System.Management" Version="10.0.9" />
   </ItemGroup>
 
   <!-- Ship the tray icon asset(s) next to the exe so they can be loaded at

@@ -32,7 +32,7 @@ public sealed class UsageServiceDeadlineTests
     [Fact]
     public async Task AProviderBlockingBeforeItsFirstAwaitCanNotHoldUpTheOthers()
     {
-        // WMI and process starts block synchronously, before any await a timeout could attach to.
+        // Process starts block synchronously, before any await a timeout could attach to.
         using var release = new ManualResetEventSlim();
         try
         {

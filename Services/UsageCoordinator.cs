@@ -451,9 +451,8 @@ public sealed class UsageCoordinator : IDisposable
     /// everything whose read is one HTTP GET — those stay current on every open, and Claude
     /// additionally serves its own 5-minute network cache.
     ///
-    /// Antigravity is the exception: with the IDE closed it has no endpoint to call, so a
-    /// read launches a language server, waits for it to answer, and tears the process tree
-    /// down again. Without a floor every tray click spawns one, which the 10-second debounce
+    /// Antigravity is the exception: it has no endpoint to call, so every read launches a
+    /// language server, waits for it to answer, and tears the process tree down again. Without a floor every tray click spawns one, which the 10-second debounce
     /// does not prevent. Ten minutes of drift is the periodic cadence anyway, so a two-minute
     /// floor costs no meaningful freshness; the refresh button bypasses the floor.
     /// </summary>

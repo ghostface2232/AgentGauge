@@ -4,8 +4,8 @@ public enum ToolKind
 {
     ClaudeCode,
     Codex,
-    // Antigravity reads its rich 5h/weekly quota from the IDE's local language server
-    // (attach), or from an engine Gauge launches itself when the IDE is closed (delegate).
+    // Antigravity reads its rich 5h/weekly quota from a local language server Gauge launches
+    // itself (delegate), which authenticates from the IDE's on-disk login.
     Antigravity,
     // GitHub Copilot exposes its monthly quota (chat / completions / premium requests) via
     // GitHub's internal copilot_internal/user endpoint, read with the GitHub OAuth token a

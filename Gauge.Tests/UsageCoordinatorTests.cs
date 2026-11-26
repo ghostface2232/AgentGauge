@@ -475,7 +475,7 @@ public sealed class UsageCoordinatorTests
     [Fact]
     public async Task PopoverOpenSkipsAProviderInsideItsCostFloorButStillShowsItsCard()
     {
-        // Antigravity has no endpoint when the IDE is closed: a read launches a language
+        // Antigravity has no endpoint: every read launches a language
         // server and tears it down again, so every tray click used to spawn one. The floor
         // outlives the 10s debounce, so re-opening the popover a minute later still skips it.
         var time = new MutableTime();

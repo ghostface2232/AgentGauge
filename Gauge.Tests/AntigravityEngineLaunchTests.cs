@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Gauge.Providers.Internal;
 
 namespace Gauge.Tests;
@@ -49,7 +50,7 @@ public sealed class AntigravityEngineLaunchTests
         var args = AntigravityEngineLaunch.BuildArguments("11111111-2222-3333-4444-555555555555", "2.1.4");
 
         var commandLine = WindowsCommandLine.Join(exe, args);
-        var parsed = new AntigravityCommandLine(commandLine).Arguments;
+        var parsed = SplitLikeTheOs(commandLine);
 
         // argv[0] is the (space-containing, so quoted) exe path; the rest are the args verbatim.
         Assert.Equal(exe, parsed[0]);
@@ -61,4 +62,27 @@ public sealed class AntigravityEngineLaunchTests
         var index = args.ToList().IndexOf(flag);
         return index >= 0 && index < args.Count - 1 ? args[index + 1] : null;
     }
+
+    // CommandLineToArgvW is how the launched engine itself splits the line, so it is the oracle.
+    private static string[] SplitLikeTheOs(string commandLine)
+    {
+        var argv = CommandLineToArgvW(commandLine, out var count);
+        Assert.NotEqual(IntPtr.Zero, argv);
+        try
+        {
+            return Enumerable.Range(0, count)
+                .Select(i => Marshal.PtrToStringUni(Marshal.ReadIntPtr(argv, i * IntPtr.Size)) ?? string.Empty)
+                .ToArray();
+        }
+        finally
+        {
+            LocalFree(argv);
+        }
+    }
+
+    [DllImport("shell32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr CommandLineToArgvW(string lpCmdLine, out int pNumArgs);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr hMem);
 }

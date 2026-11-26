@@ -2,7 +2,7 @@ namespace Gauge.Providers.Internal;
 
 /// <summary>
 /// Builds the command-line arguments Gauge uses to launch the Antigravity language server in
-/// delegate mode (IDE closed). These mirror exactly what the IDE passes when it spawns the same
+/// delegate mode. These mirror exactly what the IDE passes when it spawns the same
 /// engine — including <c>--app_data_dir antigravity</c>, which is how the engine finds the
 /// on-disk login and authenticates itself — with two deliberate substitutions: Gauge supplies
 /// its own CSRF token (so it need not read one back from the process) and forces

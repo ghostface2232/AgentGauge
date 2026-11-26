@@ -7,7 +7,8 @@ namespace Gauge.Providers.Internal;
 /// quoting rules that <c>CommandLineToArgvW</c> reverses, for passing to <c>CreateProcessW</c>.
 /// Doing this ourselves (rather than via <c>Process.ArgumentList</c>) is required because
 /// delegate-mode launch goes through CREATE_SUSPENDED, which the managed Process API does not
-/// expose. <see cref="AntigravityCommandLine"/> is the exact inverse, so the two round-trip.
+/// expose. The engine splits the line back with <c>CommandLineToArgvW</c>, so the two must
+/// round-trip.
 /// </summary>
 internal static class WindowsCommandLine
 {
