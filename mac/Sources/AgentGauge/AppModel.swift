@@ -398,7 +398,8 @@ final class AppModel {
 
     /// Everything a row shows beside its bar, derived from the window and its recorded history.
     func details(for state: ToolState, window: UsageWindow) -> RowDetails {
-        var details = RowDetails(reset: ResetTimeFormatter.row(window.resetTime, now: now))
+        var details = RowDetails(reset: window.isNotStarted
+            ? L10n.get("Reset_NotStarted") : ResetTimeFormatter.row(window.resetTime, now: now))
         // Until the background warm-up finishes, reading would wait on its lock on the main
         // thread; the rows simply show no trend for that moment instead.
         _ = historyRevision

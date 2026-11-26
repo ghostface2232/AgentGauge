@@ -52,6 +52,21 @@ public sealed class UsagePaceClassifierTests
     }
 
     [Fact]
+    public void NotStartedCycleIsSilentNotUnavailable()
+    {
+        // Antigravity's untouched buckets: remainingFraction 1 and no resetTime.
+        var row = new UsageWindowRowViewModel(Window(0, .25) with { ResetTime = null });
+        Assert.Empty(row.PaceText);
+        Assert.False(row.HasPace);
+        Assert.Equal("사용하면 시작", row.ResetText);
+
+        // Any use without a reset is still missing data, not a cycle yet to begin.
+        row.Update(Window(.1, .25) with { ResetTime = null });
+        Assert.Equal("–", row.PaceText);
+        Assert.Empty(row.ResetText);
+    }
+
+    [Fact]
     public void AnotherWindowCannotSupplyMissingPaceData()
     {
         var card = new ToolCardViewModel(new CachedUsage

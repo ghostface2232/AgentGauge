@@ -63,6 +63,13 @@ public sealed record UsageWindow
     public DateTimeOffset? ResetTime { get; init; }
 
     /// <summary>
+    /// A rolling window whose cycle has not begun: nothing used and no reset reported. Claude's
+    /// idle 5-hour window and Antigravity's untouched buckets both arrive this way, because the
+    /// cycle (and so its reset time) starts on first use — it is not missing data.
+    /// </summary>
+    public bool IsNotStarted => ResetTime is null && UsedRatio <= 0;
+
+    /// <summary>
     /// Provider-reported duration of this limit window, when known. Keeping the duration
     /// alongside the reset time lets the UI compare utilization with elapsed time and lets
     /// providers classify windows by their actual contract instead of positional names such

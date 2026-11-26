@@ -167,6 +167,10 @@ public struct UsageWindow: Codable, Sendable, Hashable, Identifiable {
     public var id: String { providerID ?? type.rawValue }
     public var key: String { id }
     public var label: String { WindowLabels.label(for: self) }
+    /// A rolling window whose cycle has not begun: nothing used and no reset reported. Claude's
+    /// idle 5-hour window and Antigravity's untouched buckets arrive this way, because the cycle
+    /// (and so its reset time) starts on first use — it is not missing data.
+    public var isNotStarted: Bool { resetTime == nil && usedRatio <= 0 }
 }
 
 /// Expiry of an available manual reset, separate from any scheduled usage rollover.

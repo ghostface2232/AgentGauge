@@ -308,7 +308,7 @@ public sealed partial class UsageWindowRowViewModel : ObservableObject
         _usedRatio = window.UsedRatio;
         ApplyPercent();
         Level = UsageLevelClassifier.Classify(window.UsedRatio);
-        ResetText = ResetTimeFormatter.ForRow(window.ResetTime);
+        ResetText = window.IsNotStarted ? Loc.Get("Reset_NotStarted") : ResetTimeFormatter.ForRow(window.ResetTime);
         // Loc.Culture (not the ambient culture) for deterministic digit grouping.
         CountsText = window is { UsedTokens: { } used, LimitTokens: { } limit }
             ? string.Format(Loc.Culture, "{0:N0} / {1:N0}", used, limit)

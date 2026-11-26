@@ -164,6 +164,7 @@ internal static class Strings
         ["Reset_Done"]        = ["초기화됨",          "Reset",             "リセット済み"],
         ["Reset_Soon"]        = ["곧 초기화",         "Resetting soon",    "まもなくリセット"],
         ["Reset_Unknown"]     = ["초기화 시각을 확인할 수 없습니다", "Reset time unavailable", "リセット時刻を確認できません"],
+        ["Reset_NotStarted"]  = ["사용하면 시작",       "Starts on first use", "使用すると開始"],
         ["Reset_InDays"]      = ["{0}일 후 초기화 ({1})", "Resets in {0} days ({1})", "{0}日後（{1}）にリセット"], // {0}=n {1}=date
         ["Reset_InDay"]       = ["{0}일 후 초기화 ({1})", "Resets in {0} day ({1})",  "{0}日後（{1}）にリセット"], // singular (English)
         ["Reset_InHoursMinutes"] = ["{0}시간 {1}분 후 초기화", "Resets in {0}h {1}m", "{0}時間{1}分後にリセット"],

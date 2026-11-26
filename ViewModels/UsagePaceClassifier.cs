@@ -33,6 +33,9 @@ public static class UsagePaceClassifier
         WeeklyPaceModel model = WeeklyPaceModel.Uniform, UsageWeekdayProfile? profile = null,
         TimeZoneInfo? zone = null)
     {
+        // A cycle that has not started has no pace to compare, which is not the same as
+        // unknown data, so it stays silent instead of showing the unavailable dash.
+        if (window.IsNotStarted) return string.Empty;
         if (window.Duration is not { } duration || duration <= TimeSpan.Zero
             || window.ResetTime is not { } reset || !double.IsFinite(window.UsedRatio))
             return UnavailableText;

@@ -88,6 +88,29 @@ public sealed class AntigravityQuotaParserTests
     }
 
     [Fact]
+    public void KeepsUntouchedBucketsWithoutResetTimeAsNotStarted()
+    {
+        // Captured 2026-11 (IDE 2.35): a bucket's rolling cycle now starts on first use, so an
+        // unused one reports remainingFraction 1 and no resetTime. The family is on the plan
+        // (its models list the Pro tier), so the rows stay and read as not started.
+        const string json = """
+        {"response":{"groups":[
+          {"displayName":"Claude and GPT models","buckets":[
+            {"bucketId":"3p-weekly","displayName":"Weekly Limit Remaining","window":"weekly","remainingFraction":1},
+            {"bucketId":"3p-5h","displayName":"Five Hour Limit Remaining","window":"5h","remainingFraction":1}]}]}}
+        """;
+
+        var windows = AntigravityQuotaParser.Parse(json);
+
+        Assert.Equal(new[] { "3p-weekly", "3p-5h" }, windows.Select(w => w.Id));
+        Assert.All(windows, w =>
+        {
+            Assert.Null(w.ResetTime);
+            Assert.True(w.IsNotStarted);
+        });
+    }
+
+    [Fact]
     public void ToleratesSummaryAliasAndRootLevelGroups()
     {
         const string aliased = """{ "summary": { "groups": [ { "buckets": [ { "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.5 } ] } ] } }""";
